@@ -1,0 +1,11 @@
+# You will need to add something like this to your .emacs
+# replace PATH with the path to this directory
+
+(custom-set-variables
+ '(column-number-mode t)
+ '(coq-default-undo-limit 500)
+ '(coq-prog-args (quote ("-emacs-U" 
+      "-R" "PATH/src" "CoqC"
+      "-R" "PATH/ext-lib/theories" "ExtLib"
+      )))
+ '(coq-prog-name "coqtop.opt"))
