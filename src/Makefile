@@ -1,4 +1,4 @@
-MODULES    := 
+MODULES    := Lambda Cps
 TESTS      := 
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)

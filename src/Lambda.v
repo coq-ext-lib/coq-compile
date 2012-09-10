@@ -1,28 +1,14 @@
 Require Import String.
 Require Import List.
+Require Import ExtLib.Monad.Monad.
+Require Import ExtLib.Monad.OptionMonad ExtLib.Monad.StateMonad ExtLib.Monad.ContMonad.
+Require Import ExtLib.Data.Strings.
+Require Import ExtLib.Decidables.Decidable.
 
-Class Monad(M:Type->Type) : Type := { 
-  Return : forall {A:Type}, A -> M A ; 
-  Bind : forall {A B:Type}, M A -> (A -> M B) -> M B
-}.
-Notation "'ret' x" := (Return x) (at level 75) : monad_scope.
-Notation "x <- c1 ; c2" := (Bind c1 (fun x => c2))
-  (right associativity, at level 84, c1 at next level) : monad_scope.
-Notation "[ x , y ] <- c1 ; c2" := 
-  (Bind c1 (fun v => match v with | (x,y) => c2 end)) 
-  (right associativity, at level 84) : monad_scope.
+Set Implicit Arguments.
+Set Strict Implicit.
 
-Instance OptionMonad : Monad option := {
-  Return := fun A (x:A) => Some x ; 
-  Bind := fun {A B:Type} (c:option A) (f:A -> option B) => 
-            match c with | None => None | Some x => f x end
-}.
-Definition ST (state:Type) (A:Type) := state -> state * A.
-Instance StateMonad(state:Type) : Monad (ST state) := {
-  Return := fun {A} (x:A) (s:state) => (s,x) ; 
-  Bind := fun {A B} (c:ST state A) (f:A -> ST state B) (s:state) => 
-            match c s with | (s',x) => f x s' end
-}.
+Definition ST := state.
 
 Module Lambda.
   (** data constructors, such as "true", "false", "nil", "::", "0", "S", etc. *)
@@ -34,7 +20,7 @@ Module Lambda.
   (** environments -- naively as an association list *)
   Definition env_t A := list (var * A).
 
-  Local Open Scope monad_scope.
+  Import MonadNotation.
 
   Fixpoint lookup {A} (env: env_t A) (x:var) : option A := 
     match env with 
@@ -112,34 +98,36 @@ Module Lambda.
           | Var_e x => lookup env x
           | Lam_e x e => ret (Closure_v env x e)
           | App_e e1 e2 => 
-            v1 <- eval_n n env e1 ;
-            v2 <- eval_n n env e2 ;
+            v1 <- eval_n n env e1 ; 
+            v2 <- eval_n n env e2 ; 
             match v1 with 
               | Closure_v env x e => eval_n n ((x,v2)::env) e
               | Fix_v env fs f => 
-                let env' :=            
+                let env' :=
                   List.map 
-                  (fun (p:var * (var * exp)) => let (f,_) := p in (f,Fix_v env fs f)) fs in
-                  match lookup fs f with 
-                    | None => None
-                    | Some (x,e) => eval_n n ((x,v2)::env' ++ env) e
-                  end
-              | _ => None
-            end
+                  (fun (p:var * (var * exp)) => 
+                    let (f,_) := p in (f,Fix_v env fs f)) fs
+                in
+                match lookup fs f return option value with 
+                  | None => zero
+                  | Some (x,e) => eval_n n ((x,v2)::env' ++ env) e
+                end
+              | _ => zero
+            end   
           | Con_e c es => 
             (fix map_eval_n (xs:list exp) (k:list value -> option value) : option value := 
               match xs with 
                 | nil => k nil
                 | e::es => v <- eval_n n env e ; map_eval_n es (fun vs => k (v::vs))
               end) 
-            es (fun vs => ret (Con_v c vs))
-          | Let_e x e1 e2 => 
+            es (fun vs => ret (Con_v c vs)) 
+          | Let_e x e1 e2 =>
             v1 <- eval_n n env e1 ; eval_n n ((x,v1)::env) e2
           | Letrec_e fs e => 
             let env' :=
               List.map 
               (fun (p:var * (var * exp)) => let (f,_) := p in (f,Fix_v env fs f)) fs in
-              eval_n n (env' ++ env) e
+              eval_n n (env' ++ env) e 
           | Match_e e arms => 
             v <- eval_n n env e ; 
             match v with 
@@ -154,7 +142,7 @@ Module Lambda.
                       else find_arm arms
                   end) arms
               | _ => None
-            end
+            end 
         end
     end.
 
@@ -184,11 +172,16 @@ Module Lambda.
     Defined.
     End Program_Scope.
 
-    Definition fresh (x:string) : ST nat string := 
-      fun n => (n+1, x ++ (nat2string n)).
+    Import MonadNotation.
+
+    Definition fresh (x:string) : state nat string := 
+      n <- get ;
+      _ <- put (S n) ; 
+      ret (x ++ nat2string n).
 
     Definition Exp := ST nat exp.
-    Definition gen (E : Exp) : exp := snd (E 0).
+    Definition gen (E : Exp) : exp := 
+      fst (runState E 0).
     Definition FN (f : Exp -> Exp) : Exp := 
       x <- fresh "x" ; e <- f (ret (Var_e x)) ; ret (Lam_e x e).
     Notation "\ x => e" := (FN (fun x => e)) (at level 80) : syntax_scope.
@@ -256,115 +249,3 @@ Module Lambda.
    End SYNTAX.
 End Lambda.
 
-Module CPS.
-  Definition var := Lambda.var.
-  Definition constructor := Lambda.constructor.
-  Definition pattern := Lambda.pattern.
-  Definition env_t := Lambda.env_t.
-
-  Inductive op : Type := 
-  | Var_o : var -> op
-  | Con_o : constructor -> op.
-
-  Inductive exp : Type := 
-  | App_e : op -> list op -> exp
-  | Let_e : var -> constructor -> list op -> exp -> exp
-  | Match_e : op -> list (pattern * exp) -> exp
-  | Letrec_e : env_t (list var * exp) -> exp -> exp.
-
-  Local Open Scope monad_scope.
-  Definition K (Ans A:Type) := (A -> ST nat Ans) -> ST nat Ans.
-  Instance ContMonad(Ans:Type) : Monad (K Ans) := {
-    Return := fun {A} (x:A) (k:A -> ST nat Ans) => k x ; 
-    Bind := fun {A B} (c:K Ans A) (f: A -> K Ans B) (k : B -> ST nat Ans) => 
-               c (fun v => f v k)
-  }.
-
-  Local Open Scope string_scope.
-  Definition freshTemp {Ans} (x:string) : K Ans var := 
-    fun k n => k ("$" ++ x ++ (Lambda.nat2string n)) (1+n).
-  
-  Definition plug (f : exp -> exp) (x : op) : K exp op := 
-    fun k n => let (n',e) := k x n in (n', f e).
-  Notation "f [[ x ]]" := (plug f x) 
-    (at level 84).
-
-  Definition LetLam_e (f:var) (xs: list var) (e:exp) (e':exp) := 
-    Letrec_e ((f,(xs,e))::nil) e'.
-
-  Definition match_eta (x:var) (e:exp) := 
-    match e with 
-      | App_e op1 ((Var_o y)::nil) => 
-        if string_dec y x then Some op1 else None
-      | _ => None
-    end.
-
-  Definition App_k (v1 v2:op) : K exp op := 
-    a <- freshTemp "a" ; 
-    f <- freshTemp "f" ; 
-    fun k n => 
-      let (n', e) := k (Var_o a) n in
-        match match_eta a e with
-          | None => (n', LetLam_e f (a::nil) e (App_e v1 (v2::(Var_o f)::nil)))
-          | Some op => (n', App_e v1 (v2::op::nil))
-        end.
-
-  Definition run (e:K exp op) : K exp (var*exp) := 
-    c <- freshTemp "c" ; 
-    fun k n => 
-      let (n', e') := e (fun v n => (n, App_e (Var_o c) (v::nil))) n in 
-        k (c,e') n'.
-
-  Fixpoint cps (e:Lambda.exp) : K exp op := 
-    match e with 
-      | Lambda.Var_e x => ret (Var_o x)
-      | Lambda.Con_e c nil => ret (Con_o c)
-      | Lambda.Con_e c es => 
-        ops <- (fix cps_list (es:list Lambda.exp) (ops:list op) : K exp (list op) := 
-                match es with 
-                  | nil => ret (List.rev ops)
-                  | e::es' => op <- cps e ; cps_list es' (op::ops)
-                end) es nil ; 
-        x <- freshTemp "x" ; 
-        Let_e x c ops [[ Var_o x ]]
-      | Lambda.Let_e x e1 e2 => 
-        v1 <- cps e1 ;
-        (fun k n => 
-          let (n', e2') := cps e2 k n in
-            (n', Match_e v1 ((Lambda.Var_p x, e2')::nil)))
-      | Lambda.App_e e1 e2 => 
-        v1 <- cps e1 ; v2 <- cps e2 ; App_k v1 v2
-      | Lambda.Lam_e x e => 
-        f <- freshTemp "f" ; 
-        [c,e'] <- run (cps e) ; 
-        LetLam_e f (x::c::nil) e' [[ Var_o f ]] 
-      | Lambda.Letrec_e fs e => 
-        fs' <- (fix cps_fns (fs:env_t (var*Lambda.exp)) (cpsfs:env_t (list var * exp)) : K exp (env_t (list var * exp)) := 
-                match fs with 
-                  | nil => ret (List.rev cpsfs)
-                  | (f,(x,e))::fs' => 
-                    [c,e'] <- run (cps e) ; cps_fns fs' ((f,(x::c::nil, e'))::cpsfs)
-                end) fs nil ; 
-        v <- cps e ; 
-        Letrec_e fs' [[ v ]]  
-      | Lambda.Match_e e arms =>  
-        v <- cps e ; 
-        c <- freshTemp "c" ; 
-        x <- freshTemp "x" ; 
-        (fun k n => 
-          let (n, cont) := k (Var_o x) n in 
-            (fix cps_arms (arms:list (pattern * Lambda.exp)) (cpsarms:list (pattern * exp)) : nat -> (nat * exp) := 
-                  match arms with 
-                    | nil => 
-                      fun n => 
-                        (n, LetLam_e c (x::nil) cont (Match_e v (List.rev cpsarms)))
-                    | (p,e)::arms' => 
-                      fun n => 
-                        let (n', e') := cps e (fun v n => (n, App_e (Var_o c) (v::nil))) n in 
-                          cps_arms arms' ((p,e')::cpsarms) n'
-                  end) arms nil n)
-    end.
-
-    Definition CPS (e:Lambda.exp) : exp := 
-      snd (cps e (fun v n => (n, App_e (Var_o "halt") (v::nil))) 0).
-End CPS.      
