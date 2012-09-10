@@ -9,7 +9,7 @@ clean:
 	$(MAKE) -C src clean
 
 dist:
-	hg archive -t tgz $(PROJECT_NAME).tgz
+	git archive HEAD -o $(PROJECT_NAME).tgz
 
 coq-ext-lib:
 	./setup.sh
