@@ -6,6 +6,6 @@
  '(coq-default-undo-limit 500)
  '(coq-prog-args (quote ("-emacs-U" 
       "-R" "PATH/src" "CoqC"
-      "-R" "PATH/ext-lib/theories" "ExtLib"
+      "-R" "PATH/coq-ext-lib/theories" "ExtLib"
       )))
  '(coq-prog-name "coqtop.opt"))
