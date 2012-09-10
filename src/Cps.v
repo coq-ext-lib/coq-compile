@@ -34,15 +34,15 @@ Module CPS.
     n <- lift (Lambda.fresh x) ;
     ret ("$" ++ n).
 
-  (** compose [f] before returning **)
+  (** apply [f] before returning the result of [k] **)
   Definition plug (f : exp -> exp) (x : op) : K exp op :=
-    mapContT (fun c => x <- c ; ret (f x)) (ret x).
+    mapContT (liftM f) (ret x).
   (* fun k n => let (n',e) := k x n in (n', f e). *)
 
   Notation "f [[ x ]]" := (plug f x) 
     (at level 84).
 
-  Definition LetLam_e (f:var) (xs: list var) (e:exp) (e':exp) := 
+  Definition LetLam_e (f:var) (xs: list var) (e:exp) (e':exp) : exp := 
     Letrec_e ((f,(xs,e))::nil) e'.
 
   Definition match_eta (x:var) (e:exp) := 
@@ -62,17 +62,11 @@ Module CPS.
             | Some op => App_e v1 (v2::op::nil)
           end) (ret (Var_o a)).
 
+  Check @callCC.
 
-  (** TODO: I'm pretty sure that this is wrong **)
-  Definition run (e:K exp op) : K exp (var*exp) :=
-    c <- freshTemp "c" ; 
-    lift (x <- runContT e (fun v => ret (App_e (Var_o c) (v::nil))) ;
-          ret (c, x)).
-(*
-    fun k n =>
-      let (n', e') := e (fun v n => (n, App_e (Var_o c) (v::nil))) n in 
-        k (c,e') n'.
-*)
+  (** TODO: run to an exp, the [e] making it call the continuation [c] when done **)
+  Definition run (e:K exp op) (c : var) : K exp exp :=
+    lift (runContT e (fun v => ret (App_e (Var_o c) (v::nil)))).
 
   Fixpoint cps (e:Lambda.exp) : K exp op.
   refine (
@@ -101,16 +95,16 @@ Module CPS.
         v1 <- cps e1 ; v2 <- cps e2 ; App_k v1 v2
       | Lambda.Lam_e x e => 
         f <- freshTemp "f" ; 
-        c_e' <- run (cps e) ; 
-        let (c,e') := c_e' in
-        LetLam_e f (x::c::nil) e' [[ Var_o f ]] 
+        c <- freshTemp "c" ;
+        e' <- run (cps e) c ;
+        (LetLam_e f (x::c::nil) e' [[ Var_o f ]])
       | Lambda.Letrec_e fs e => 
         fs' <- (fix cps_fns (fs:env_t (var*Lambda.exp)) (cpsfs:env_t (list var * exp)) : K exp (env_t (list var * exp)) := 
                 match fs with 
                   | nil => ret (List.rev cpsfs)
                   | (f,(x,e))::fs' => 
-                    c_e' <- run (cps e) ;
-                    let (c,e') := c_e' in
+                    c <- freshTemp "c" ;
+                    e' <- run (cps e) c ;
                     cps_fns fs' ((f,(x::c::nil, e'))::cpsfs)
                 end) fs nil ; 
         v <- cps e ; 
