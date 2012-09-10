@@ -26,6 +26,8 @@ Module CPS.
 
   Definition K (Ans : Type) := contT Ans (state nat).
 
+  Hint Transparent K : typeclass_instances.
+
   Local Open Scope string_scope.
   Import MonadNotation.
 
@@ -62,14 +64,27 @@ Module CPS.
             | Some op => App_e v1 (v2::op::nil)
           end) (ret (Var_o a)).
 
-  Check @callCC.
+  (** run to an exp, the [e] making it call the continuation [c] when done **)
+  Definition run (e:K exp op) (c : var) : state nat exp :=
+    runContT e (fun v => ret (App_e (Var_o c) (v::nil))).
 
-  (** TODO: run to an exp, the [e] making it call the continuation [c] when done **)
-  Definition run (e:K exp op) (c : var) : K exp exp :=
-    lift (runContT e (fun v => ret (App_e (Var_o c) (v::nil)))).
+  Section mapM.
+    Context {A B : Type}.
+    Context {m : Type -> Type}.
+    Context {M : Monad m}.
+    Variable f : A -> m B.
 
-  Fixpoint cps (e:Lambda.exp) : K exp op.
-  refine (
+    Fixpoint mapM (ls : list A) : m (list B) :=
+      match ls with
+        | nil => ret nil
+        | l :: ls => 
+          l <- f l ;
+          ls <- mapM ls ;
+          ret (l :: ls)
+      end.
+  End mapM.
+
+  Fixpoint cps (e:Lambda.exp) : K exp op :=
     match e with 
       | Lambda.Var_e x => ret (Var_o x)
       | Lambda.Con_e c nil => ret (Con_o c)
@@ -96,7 +111,7 @@ Module CPS.
       | Lambda.Lam_e x e => 
         f <- freshTemp "f" ; 
         c <- freshTemp "c" ;
-        e' <- run (cps e) c ;
+        e' <- lift (run (cps e) c) ;
         (LetLam_e f (x::c::nil) e' [[ Var_o f ]])
       | Lambda.Letrec_e fs e => 
         fs' <- (fix cps_fns (fs:env_t (var*Lambda.exp)) (cpsfs:env_t (list var * exp)) : K exp (env_t (list var * exp)) := 
@@ -104,7 +119,7 @@ Module CPS.
                   | nil => ret (List.rev cpsfs)
                   | (f,(x,e))::fs' => 
                     c <- freshTemp "c" ;
-                    e' <- run (cps e) c ;
+                    e' <- lift (run (cps e) c) ;
                     cps_fns fs' ((f,(x::c::nil, e'))::cpsfs)
                 end) fs nil ; 
         v <- cps e ; 
@@ -113,8 +128,9 @@ Module CPS.
         v <- cps e ; 
         c <- freshTemp "c" ; 
         x <- freshTemp "x" ;
-        withContT _ (ret (Var_o x))
-        (*
+        arms' <- lift (mapM (fun p_e => e' <- run (cps (snd p_e)) c ; ret (fst p_e, e')) arms) ;
+        mapContT (fun cc : state nat exp => z <- cc ; ret (LetLam_e c (x :: nil) z (Match_e v arms'))) (ret (Var_o x))
+(*
         (fun k n => 
           let (n, cont) := k (Var_o x) n in 
             (fix cps_arms (arms:list (pattern * Lambda.exp)) (cpsarms:list (pattern * exp)) : nat -> (nat * exp) := 
@@ -128,10 +144,9 @@ Module CPS.
                           cps_arms arms' ((p,e')::cpsarms) n'
                   end) arms nil n)
 *)
-    end). clear cps.
-  admit.
-Defined.
+    end.
+  
+  Definition CPS (e:Lambda.exp) : exp := 
+    evalState (runContT (cps e) (fun v => ret (App_e (Var_o "halt") (v::nil)))) 0.
 
-    Definition CPS (e:Lambda.exp) : exp := 
-      evalState (runContT (cps e) (fun v => ret (App_e (Var_o "halt") (v::nil)))) 0.
 End CPS.
