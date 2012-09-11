@@ -33,7 +33,7 @@ Module CPS.
 
   (** Get a fresh temporary variable **)
   Definition freshTemp {Ans} (x:string) : K Ans var :=
-    n <- lift (Lambda.fresh x) ;
+    n <- lift (LambdaNotation.fresh x) ;
     ret ("$" ++ n).
 
   (** apply [f] before returning the result of [k] **)
@@ -128,6 +128,7 @@ Module CPS.
   Definition CPS (e:Lambda.exp) : exp := 
     evalState (runContT (cps e) (fun v => ret (App_e (Var_o "halt") (v::nil)))) 0.
 
+  (** Pretty Printing CPS terms *)
   Definition op2string (v:op) : string := 
     match v with 
       | Var_o x => x
@@ -214,6 +215,6 @@ Module CPS.
   Definition cps2string(e:exp) := 
     newline ++ List.fold_left (fun x y => y ++ x) (snd (runState (emitcps 0 e) nil)) "".
         
-  Eval compute in cps2string (CPS (Lambda.gen Lambda.e8)).
+  Eval compute in cps2string (CPS (LambdaNotation.gen LambdaNotation.e8)).
 
 End CPS.

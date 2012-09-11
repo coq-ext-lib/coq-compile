@@ -1,4 +1,4 @@
-MODULES    := Lambda Cps
+MODULES    := Lambda Cps Optimize
 TESTS      := 
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
