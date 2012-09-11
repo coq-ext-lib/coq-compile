@@ -161,14 +161,29 @@ Module Lambda.
     Local Open Scope string_scope.
     Section Program_Scope.
     Require Import Program.
-    Program Fixpoint nat2string (n:nat) {measure n}: string := 
-      match n with 
+    Definition digit2string (n:nat) : string := 
+      match n with
         | 0 => "0"
-        | S 0 => "1"
-        | m => (nat2string (Arith.Div2.div2 m)) ++ (if even m then "0" else "1")
+        | 1 => "1"
+        | 2 => "2"
+        | 3 => "3"
+        | 4 => "4"
+        | 5 => "5"
+        | 6 => "6"
+        | 7 => "7"
+        | 8 => "8"
+        | _ => "9"
       end.
-    Next Obligation. destruct n. congruence. 
-      apply (Arith.Div2.lt_div2 (S n)). auto with arith.
+
+    Import Arith Div2.
+    Program Fixpoint nat2string (n:nat) {measure n}: string := 
+      if Compare_dec.le_gt_dec n 9 then 
+        digit2string n 
+      else 
+        let m := NPeano.div n 10 in 
+          (nat2string m) ++ (digit2string (10 * m - n)).
+        Next Obligation. 
+        assert (NPeano.div n 10 < n); eauto. eapply NPeano.Nat.div_lt ; omega. 
     Defined.
     End Program_Scope.
 

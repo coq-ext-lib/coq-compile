@@ -39,7 +39,6 @@ Module CPS.
   (** apply [f] before returning the result of [k] **)
   Definition plug (f : exp -> exp) (x : op) : K exp op :=
     mapContT (liftM f) (ret x).
-  (* fun k n => let (n',e) := k x n in (n', f e). *)
 
   Notation "f [[ x ]]" := (plug f x) 
     (at level 84).
@@ -88,12 +87,10 @@ Module CPS.
     match e with 
       | Lambda.Var_e x => ret (Var_o x)
       | Lambda.Con_e c nil => ret (Con_o c)
+      | Lambda.App_e e1 e2 => 
+        v1 <- cps e1 ; v2 <- cps e2 ; App_k v1 v2
       | Lambda.Con_e c es => 
-        ops <- (fix cps_list (es:list Lambda.exp) (ops:list op) : K exp (list op) := 
-                match es with 
-                  | nil => ret (List.rev ops)
-                  | e::es' => op <- cps e ; cps_list es' (op::ops)
-                end) es nil ; 
+        ops <- mapM cps es ;
         x <- freshTemp "x" ; 
         (Let_e x c ops [[ Var_o x ]])
       | Lambda.Let_e x e1 e2 => 
@@ -101,52 +98,122 @@ Module CPS.
         mapContT (fun c2 => 
           e2' <- c2 ;
           ret (Match_e v1 ((Lambda.Var_p x, e2')::nil))) (cps e2)
-        (*
-           (fun k n => 
-          let (n', e2') := cps e2 k n in
-            (n', Match_e v1 ((Lambda.Var_p x, e2')::nil)))
-        *)
-      | Lambda.App_e e1 e2 => 
-        v1 <- cps e1 ; v2 <- cps e2 ; App_k v1 v2
       | Lambda.Lam_e x e => 
         f <- freshTemp "f" ; 
         c <- freshTemp "c" ;
         e' <- lift (run (cps e) c) ;
         (LetLam_e f (x::c::nil) e' [[ Var_o f ]])
       | Lambda.Letrec_e fs e => 
-        fs' <- (fix cps_fns (fs:env_t (var*Lambda.exp)) (cpsfs:env_t (list var * exp)) : K exp (env_t (list var * exp)) := 
-                match fs with 
-                  | nil => ret (List.rev cpsfs)
-                  | (f,(x,e))::fs' => 
-                    c <- freshTemp "c" ;
-                    e' <- lift (run (cps e) c) ;
-                    cps_fns fs' ((f,(x::c::nil, e'))::cpsfs)
-                end) fs nil ; 
+        fs' <- mapM (fun fn => 
+                      match fn with 
+                        | (f,(x,e)) => 
+                          c <- freshTemp "c" ; 
+                          e' <- lift (run (cps e) c) ;
+                          ret (f,(x::c::nil,e'))
+                      end) fs ;
         v <- cps e ; 
         (Letrec_e fs' [[ v ]])
       | Lambda.Match_e e arms =>  
         v <- cps e ; 
         c <- freshTemp "c" ; 
         x <- freshTemp "x" ;
-        arms' <- lift (mapM (fun p_e => e' <- run (cps (snd p_e)) c ; ret (fst p_e, e')) arms) ;
-        mapContT (fun cc : state nat exp => z <- cc ; ret (LetLam_e c (x :: nil) z (Match_e v arms'))) (ret (Var_o x))
-(*
-        (fun k n => 
-          let (n, cont) := k (Var_o x) n in 
-            (fix cps_arms (arms:list (pattern * Lambda.exp)) (cpsarms:list (pattern * exp)) : nat -> (nat * exp) := 
-                  match arms with 
-                    | nil => 
-                      fun n => 
-                        (n, LetLam_e c (x::nil) cont (Match_e v (List.rev cpsarms)))
-                    | (p,e)::arms' => 
-                      fun n => 
-                        let (n', e') := cps e (fun v n => (n, App_e (Var_o c) (v::nil))) n in 
-                          cps_arms arms' ((p,e')::cpsarms) n'
-                  end) arms nil n)
-*)
+        arms' <- lift (mapM (fun p_e => 
+                              e' <- run (cps (snd p_e)) c ; 
+                              ret (fst p_e, e')) arms) ;
+        mapContT (fun cc : state nat exp => 
+                    z <- cc ; 
+                    ret (LetLam_e c (x :: nil) z (Match_e v arms'))) (ret (Var_o x))
     end.
   
   Definition CPS (e:Lambda.exp) : exp := 
     evalState (runContT (cps e) (fun v => ret (App_e (Var_o "halt") (v::nil)))) 0.
+
+  Definition op2string (v:op) : string := 
+    match v with 
+      | Var_o x => x
+      | Con_o c => c
+    end.
+
+  Fixpoint spaces (n:nat) : string := 
+    match n with
+      | 0 => ""
+      | S n => " " ++ (spaces n)
+    end.
+
+  Definition indent_by : nat := 2.
+
+  Definition emit (s:string) : state (list string) unit := 
+    sofar <- get ; 
+    put (s::sofar).
+
+  (* should add to Monad.v *)
+  Notation "e1 ;; e2" := (_ <- e1 ; e2) (at level 51, right associativity).
+
+  Fixpoint indent (n:nat) : state (list string) unit := 
+    match n with 
+      | 0 => ret tt
+      | S n => emit " ";; indent n
+    end.
+
+  Fixpoint emit_list{A}(f:A->string)(vs:list A) : state (list string) unit := 
+    match vs with 
+      | nil => ret tt
+      | v::nil => emit (f v) 
+      | v::vs => emit (f v) ;; emit "," ;; emit_list f vs
+    end.
+
+  Definition emitpat(p:pattern) : state (list string) unit := 
+    match p with 
+      | Lambda.Var_p x => emit x
+      | Lambda.Con_p c nil => emit c
+      | Lambda.Con_p c xs => 
+        emit c ;; emit "(" ;; emit_list (fun x => x) xs ;; emit ")"
+    end.
+
+  Section ITER.
+    Context {S A:Type}.
+    Variable f : A -> state S unit.
+
+    Fixpoint iter (xs:list A) : state S unit := 
+    match xs with 
+      | nil => ret tt
+      | h::t => f h ;; iter t
+    end.
+  End ITER.
+
+  Definition newline : string := (String (Ascii.ascii_of_nat 10) EmptyString).
+
+  Fixpoint emitcps(n:nat)(e:exp) : state (list string) unit := 
+    indent n ;;
+    match e with 
+      | App_e v vs => 
+        emit (op2string v) ;;
+        emit "(" ;; emit_list op2string vs ;; emit ")" ;; emit newline 
+      | Let_e x c vs e => 
+        emit "let " ;; emit x ;; emit " = " ;; 
+        emit c ;; emit "(" ;; emit_list op2string vs ;; emit ") in" ;; emit newline ;;
+        emitcps (n + 2) e
+      | Match_e v arms => 
+        emit "match " ;; emit (op2string v) ;; emit " with" ;; emit newline ;;
+        iter (fun (arm : pattern * exp) => 
+          let (p,e) := arm in 
+            indent n ;; emit "| ";; emitpat p ;; emit " => ";; emit newline ;; emitcps (2+n) e
+        ) arms ;; 
+        indent n ;; emit "end" ;; emit newline
+      | Letrec_e fns e => 
+        emit "letrec " ;; 
+        iter (fun fn => 
+          match fn with 
+            | (f,(xs,e)) => 
+              emit f ;; emit "(" ;; emit_list (fun x => x) xs ;; emit ") = " ;; emit newline ;;
+              emitcps (n+8) e
+          end) fns ;;
+        indent n ;; emit "in " ;; emit newline ;; emitcps (n+2) e
+    end.
+
+  Definition cps2string(e:exp) := 
+    newline ++ List.fold_left (fun x y => y ++ x) (snd (runState (emitcps 0 e) nil)) "".
+        
+  Eval compute in cps2string (CPS (Lambda.gen Lambda.e8)).
 
 End CPS.
