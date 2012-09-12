@@ -1,3 +1,10 @@
+# This library requires Coq 8.4 which you can get here:
+#   http://coq.inria.fr/download
+# Since it made some interface changes, it will likely be useful
+# to have the latest proof general
+#   http://proofgeneral.inf.ed.ac.uk/devel
+
+
 # You will need to add something like this to your .emacs
 # replace PATH with the path to this directory
 
