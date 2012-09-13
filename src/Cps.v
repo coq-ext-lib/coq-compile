@@ -2,6 +2,7 @@ Require Import Lambda.
 Require Import String List.
 Require Import ExtLib.Monad.Monad.
 Require Import ExtLib.Monad.OptionMonad ExtLib.Monad.StateMonad ExtLib.Monad.ContMonad.
+Require Import ExtLib.Monad.Folds.
 Require Import ExtLib.Data.Strings.
 Require Import ExtLib.Decidables.Decidable.
 
@@ -67,22 +68,6 @@ Module CPS.
   Definition run (e:K exp op) (c : var) : state nat exp :=
     runContT e (fun v => ret (App_e (Var_o c) (v::nil))).
 
-  Section mapM.
-    Context {A B : Type}.
-    Context {m : Type -> Type}.
-    Context {M : Monad m}.
-    Variable f : A -> m B.
-
-    Fixpoint mapM (ls : list A) : m (list B) :=
-      match ls with
-        | nil => ret nil
-        | l :: ls => 
-          l <- f l ;
-          ls <- mapM ls ;
-          ret (l :: ls)
-      end.
-  End mapM.
-
   Fixpoint cps (e:Lambda.exp) : K exp op :=
     match e with 
       | Lambda.Var_e x => ret (Var_o x)
@@ -146,9 +131,6 @@ Module CPS.
   Definition emit (s:string) : state (list string) unit := 
     sofar <- get ; 
     put (s::sofar).
-
-  (* should add to Monad.v *)
-  Notation "e1 ;; e2" := (_ <- e1 ; e2) (at level 51, right associativity).
 
   Fixpoint indent (n:nat) : state (list string) unit := 
     match n with 
