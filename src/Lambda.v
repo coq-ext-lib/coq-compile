@@ -255,7 +255,7 @@ Module LambdaNotation.
        | S[p] => compose @ (plus @ p) @ inc 
     in plus @ two.
 
-   Eval compute in LambdaSemantics.eval_n 20 nil (gen (e8 @ two)).
+   (* Eval compute in LambdaSemantics.eval_n 20 nil (gen (e8 @ two)). *)
 
 End LambdaNotation.
 

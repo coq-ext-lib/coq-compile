@@ -197,6 +197,6 @@ Module CPS.
   Definition cps2string(e:exp) := 
     newline ++ List.fold_left (fun x y => y ++ x) (snd (runState (emitcps 0 e) nil)) "".
         
-  Eval compute in cps2string (CPS (LambdaNotation.gen LambdaNotation.e8)).
+  (* Eval compute in cps2string (CPS (LambdaNotation.gen LambdaNotation.e8)). *)
 
 End CPS.
