@@ -3,6 +3,7 @@ Require Import Ascii.
 Require Import ExtLib.Data.HList ExtLib.Data.Strings.
 Require Import ExtLib.Rec.GenRec. 
 Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.Monad.Monad.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -21,104 +22,116 @@ Section charset.
   Arguments Epsilon {_} {_} (t).
   Arguments Consume {_} {_} (t) (rest) (pf).
 
-  Definition Parser (T : Type) : Type :=
-    forall s : stream, Parse s T.
+  Variable m : Type -> Type.
+  Context {Mon_m : Monad m}.
 
-  Definition runParser {T} (p : Parser T) (s : stream) : option T :=
-    match p s with
-      | Fail => None
-      | Epsilon v => Some v
-      | Consume v _ _ => Some v
-    end.
+  Definition ParserT (T : Type) : Type :=
+    forall s : stream, m (Parse s T).
 
-  Definition fail {T : Type} : Parser T :=
-    fun _ => Fail.
-
-  Definition map {T U} (f : T -> U) (p : Parser T) : Parser U :=
-    fun s =>
-      match p s with
-        | Fail => Fail
-        | Epsilon v => Epsilon (f v)
-        | Consume v rest pf => Consume (f v) rest pf
-      end.
-
-  Definition satisfies (f : Tok -> bool) : Parser Tok :=
+  Global Instance Monad_ParserT : Monad ParserT :=
+  { ret  := fun _ v => fun _ => ret (Epsilon v)
+  ; bind := fun _ c1 _ c2 =>
     fun s => 
-      match s with 
-        | nil => Fail
-        | a' :: s => 
-          if f a' then Consume a' s (le_n (length (a' :: s)))
-          else Fail
-      end.
-
-  Definition epsilon {T : Type} (v : T) : Parser T :=
-    fun _ => Epsilon v.
-
-  Definition seq {T} (p1 : Parser T) {U} (p2 : Parser U) : Parser (T * U) :=
-    fun s =>
-      match p1 s with
-        | Fail => Fail
-        | Epsilon v => 
-          match p2 s with
-            | Fail => Fail
-            | Epsilon u => Epsilon (v,u)
-            | Consume u rest pf => Consume (v, u) _ pf
-          end
+      bind (c1 s) (fun r =>
+      match r with
+        | Fail => ret Fail 
+        | Epsilon v => c2 v s          
         | Consume v rest pf =>
-          match p2 rest with
-            | Fail => Fail
-            | Epsilon u => Consume (v, u) _ pf
+          bind (c2 v rest) (fun r =>
+          match r with
+            | Fail => ret Fail
+            | Epsilon u => ret (Consume u rest pf)
             | Consume u rest pf' => 
               let pf := RelationClasses.transitivity pf' pf in
-                Consume (v, u) _ pf
-          end
-      end.
+              ret (Consume u rest pf)
+          end)
+      end) }.
 
-  Definition alt {T} (p1 p2 : Parser T) : Parser T :=
+  Global Instance MonadT_ParserT : MonadT ParserT m :=
+  { lift := fun _ c => fun s => bind c (fun x => ret (Epsilon x)) }.
+
+  Global Instance Zero_ParserT : Zero ParserT :=
+  { zero := fun _ _ => ret Fail }.
+
+  Definition runParserT {T} (p : ParserT T) (s : stream) : m (option T) :=
+    bind (p s) (fun r =>
+      match r with
+        | Fail => ret None
+        | Epsilon v => ret (Some v)
+        | Consume v _ _ => ret (Some v)
+      end).
+
+  Definition fail {T : Type} : ParserT T := zero.
+
+  Definition map {T U} (f : T -> m U) (p : ParserT T) : ParserT U :=
+    bind p (fun x => lift (f x)).
+
+  Definition satisfies (f : Tok -> bool) : ParserT Tok :=
     fun s => 
-      match p1 s with
-        | Fail => p2 s
-        | x => x
+      match s with 
+        | nil => ret Fail
+        | a' :: s => 
+          if f a' then ret (Consume a' s (le_n (length (a' :: s))))
+          else ret Fail
       end.
 
-  Definition EParser (ls : list Type) (T : Type) :=
-    (forall a, member a ls -> Parser a) -> Parser T.
+  Definition epsilon {T : Type} (v : T) : ParserT T :=
+    fun _ => ret (Epsilon v).
 
-  Definition star {T} (p : Parser T) : Parser (list T).
-  red. eapply Fix. eapply wf_R_list_len.
-  refine (fun x rec => match p x with
-            | Fail => Epsilon nil
-            | Epsilon v =>
-              (** This is a bad grammar b/c it is doing epsilon*! **)
-              Fail (* Epsilon (cons v nil) *)
-            | Consume v rest pf =>
-              match rec rest (R_l_len _ _ pf) with
-                | Fail => Consume (cons v nil) rest pf
-                | Epsilon vs => Consume (cons v vs) rest pf
-                | Consume vs rest pf' => 
-                  let pf := RelationClasses.transitivity pf' pf in
-                    Consume (cons v vs) rest pf
-              end
-          end).
-  Defined.
+  Definition seq {T} (p1 : ParserT T) {U} (p2 : ParserT U) : ParserT (T * U) :=
+    bind p1 (fun u =>
+      bind p2 (fun v => ret (u, v))).
 
-  Definition rec ls (env : @hlist _ (EParser ls) ls) {T} (p : EParser ls T) (n : nat) : Parser T.
-  red.
-  refine (fun s => 
-    p _ s).
-  refine ((fix rec (n : nat) {struct n} : forall a : Type, member a ls -> Parser a :=
-    match n with
-      | 0 => fun _ m => (get m env) (fun _ _ => fail)
-      | S n => fun _ m => (get m env) (rec n)
-    end) n).
-  Defined.
+  Definition alt {T} (p1 p2 : ParserT T) : ParserT T :=
+    fun s =>
+      bind (p1 s) (fun r => 
+        match r with
+          | Fail => p2 s
+          | x => ret x
+        end).
+
+  Definition EParserT (ls : list Type) (T : Type) :=
+    (forall a, member a ls -> ParserT a) -> ParserT T.
+
+  Definition star {T} (p : ParserT T) : ParserT (list T) :=
+    Fix (@wf_R_list_len _) 
+        (fun s => m (Parse s (list T)))
+        (fun x rec =>
+          bind (p x) (fun r =>
+            match r with
+              | Fail => ret (Epsilon nil)
+              | Epsilon v =>
+                (** This is a bad grammar b/c it is doing epsilon*! **)
+                ret Fail (* Epsilon (cons v nil) *)
+              | Consume v rest pf =>
+                bind (rec rest (R_l_len _ _ pf)) (fun r =>
+                  match r with
+                    | Fail => ret (Consume (cons v nil) rest pf)
+                    | Epsilon vs => ret (Consume (cons v vs) rest pf)
+                    | Consume vs rest pf' => 
+                      let pf := RelationClasses.transitivity pf' pf in
+                      ret (Consume (cons v vs) rest pf)
+                  end)
+            end)).
+  
+  Definition rec ls (env : @hlist _ (EParserT ls) ls) {T} (p : EParserT ls T) (n : nat) 
+    : ParserT T :=
+    fun s => 
+      let env :=
+        (fix rec (n : nat) {struct n} : forall a : Type, member a ls -> ParserT a :=
+          match n with
+            | 0 => fun _ m => (hlist_get m env) (fun _ _ => fail)
+            | S n => fun _ m => (hlist_get m env) (rec n)
+          end) n
+      in p env s.
 
   (** Derived Parsers **)
-  Definition ignore {T} : Parser T -> Parser unit :=
-    map (fun _ => tt).
 
-  Definition surround {T U V} (b : Parser T) (mid : Parser U) (a : Parser V) : Parser U :=
-    map (fun _m_ => fst (snd _m_)) (seq b (seq mid a)).
+  Definition ignore {T} : ParserT T -> ParserT unit :=
+    map (fun _ => ret tt).
+
+  Definition surround {T U V} (b : ParserT T) (mid : ParserT U) (a : ParserT V) : ParserT U :=
+    map (fun _m_ => ret (fst (snd _m_))) (seq b (seq mid a)).
 
 End charset.
 
@@ -136,10 +149,12 @@ Section ascii_charset.
       | String s ss => s :: string_to_list ss
     end.
 
-  Definition runParserS {T} (p : Parser ascii T) (s : string) : option T :=
-    runParser p (string_to_list s).
+  Require Import ExtLib.Monad.IdentityMonad.
 
-  Definition lit (a : ascii) : Parser ascii ascii :=
+  Definition runParserS {T} (p : ParserT ascii ident T) (s : string) : option T :=
+    runParserT p (string_to_list s).
+
+  Definition lit (a : ascii) : ParserT ascii ident ascii :=
     satisfies (eq_dec a).
 
   Fixpoint in_dec {T} {RD : @RelDec T (@eq T)} (ls : list T) (v : T) : bool :=
@@ -149,7 +164,7 @@ Section ascii_charset.
         if eq_dec v l then true else in_dec ls v
     end.
 
-  Definition anyC (a : list ascii) : Parser ascii ascii :=
+  Definition anyC (a : list ascii) : ParserT ascii ident ascii :=
     satisfies (in_dec a).
 
   (** Helper functions **)
@@ -164,15 +179,15 @@ Section ascii_charset.
 
   (** Derived Parsers **)
 
-  Definition space : Parser ascii unit :=
+  Definition space : ParserT ascii ident unit :=
     Eval cbv beta iota zeta delta [ string_to_list ] in
     ignore (anyC (string_to_list " ")).
 
   (** Tests **)
 
-  Definition lparen : Parser ascii ascii := lit "("%char.
-  Definition rparen : Parser ascii ascii := lit ")"%char.
-  Definition a_star : Parser ascii string := map list_to_string (star (lit "a"%char)).
+  Definition lparen : ParserT ascii ident ascii := lit "("%char.
+  Definition rparen : ParserT ascii ident ascii := lit ")"%char.
+  Definition a_star : ParserT ascii ident string := map list_to_string (star (lit "a"%char)).
 
   Eval compute in runParserS (map (fun x => fst (snd x)) (seq lparen (seq a_star rparen))) "(aaaaaaaaaaa)"%string.
 
@@ -180,18 +195,18 @@ Section ascii_charset.
   Arguments MZ {_} {_} {_}.
   Arguments MN {_} {_} {_} {_} (_).
 
-  Definition ab_rec : Parser ascii string :=
+  Definition ab_rec : ParserT ascii ident string :=
     let env := (string : Type) :: (string : Type) :: nil in
-    let ps : hlist (EParser ascii env) env :=
-      HCons (F := EParser ascii env) _ (fun get => 
+    let ps : hlist (EParserT ascii ident env) env :=
+      HCons (F := EParserT ascii ident env) _ (fun get => 
         alt (map (fun x => String (fst x) (snd x)) (seq (lit "a"%char) (get _ (MN MZ))))
             (epsilon EmptyString))
-      (HCons (F := EParser ascii env) _ (fun get => 
+      (HCons (F := EParserT ascii ident env) _ (fun get => 
         alt (map (fun x => String (fst x) (snd x)) (seq (lit "b"%char) (get _ MZ)))
             (epsilon EmptyString))
-      (HNil (EParser ascii env)))
+      (HNil (EParserT ascii ident env)))
     in
-    @rec ascii env ps _ (fun get => get _ MZ) 10.
+    @rec ascii ident _ env ps _ (fun get => get _ MZ) 10.
 
   Eval compute in runParserS ab_rec "ababababa"%string.
 End ascii_charset.
