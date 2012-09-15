@@ -79,7 +79,7 @@ Module Parse.
   Fixpoint lookup {A} (x:string) (xs:list (string * A)) : option A := 
     match xs with 
       | nil => None
-      | (y,c)::t => if rel_dec y x then Some c else lookup x t
+      | (y,c)::t => if eq_dec y x then Some c else lookup x t
     end.
 
   Definition id_to_token (s:string) : token := 
@@ -91,7 +91,7 @@ Module Parse.
   Fixpoint member(c:ascii)(cs:list ascii) : bool := 
     match cs with 
       | nil => false
-      | c'::cs => if rel_dec c c' then true else member c cs
+      | c'::cs => if eq_dec c c' then true else member c cs
     end.
 
   (** Pull off characters from the string to form an identifier.  [cs] is
@@ -128,11 +128,11 @@ Module Parse.
         | EmptyString => Some (rev ts)
         | String c s' => 
           if member c white then tokenize s' ts
-          else if rel_dec c "(" then tokenize s' (LPAREN::ts)
-          else if rel_dec c ")" then tokenize s' (RPAREN::ts)
-          else if rel_dec c "@" then tokenize s' (AT::ts)
-          else if rel_dec c "`" then tokenize s' (QUOTE::ts)
-          else if rel_dec c "," then tokenize s' (COMMA::ts)
+          else if eq_dec c "(" then tokenize s' (LPAREN::ts)
+          else if eq_dec c ")" then tokenize s' (RPAREN::ts)
+          else if eq_dec c "@" then tokenize s' (AT::ts)
+          else if eq_dec c "`" then tokenize s' (QUOTE::ts)
+          else if eq_dec c "," then tokenize s' (COMMA::ts)
           else if member c id_start then 
             match token_id s' (c::nil) with
               | (t,s'') => tokenize s'' (t::ts)

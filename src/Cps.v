@@ -50,7 +50,7 @@ Module CPS.
   Definition match_eta (x:var) (e:exp) := 
     match e with 
       | App_e op1 ((Var_o y)::nil) => 
-        if rel_dec y x then Some op1 else None
+        if eq_dec y x then Some op1 else None
       | _ => None
     end.
 

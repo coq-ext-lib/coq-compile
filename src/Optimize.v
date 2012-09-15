@@ -29,13 +29,13 @@ Module Optimize.
   Fixpoint update {A} (x:var) (c:A) (xs:env_t A) : env_t A := 
     match xs with 
       | nil => (x,c)::nil
-      | (y,k)::t => if rel_dec y x then (y,c)::t else (y,k)::(update x c t)
+      | (y,k)::t => if eq_dec y x then (y,c)::t else (y,k)::(update x c t)
     end.
   
   Fixpoint lookup {A} (x:var) (xs:env_t A) : option A := 
     match xs with 
       | nil => None
-      | (y,c)::t => if rel_dec y x then Some c else lookup x t
+      | (y,c)::t => if eq_dec y x then Some c else lookup x t
     end.
 
   Definition extend {A} (xs:env_t A) (x:var) (v:A) : env_t A := 

@@ -25,7 +25,7 @@ Module Lambda.
   Fixpoint lookup {A} (env: env_t A) (x:var) : option A := 
     match env with 
       | nil => None
-      | (y,v)::env' => if string_dec x y then ret v else lookup env' x
+      | (y,v)::env' => if eq_dec x y then ret v else lookup env' x
     end.
 
   (** Lambda has only very basic patterns (no nesting).  So we can only write
