@@ -1,7 +1,7 @@
 Require Import List.
 Require Import Ascii.
 Require Import ExtLib.Data.HList ExtLib.Data.Strings.
-Require Import ExtLib.Rec.GenRec. 
+Require Import ExtLib.Rec.GenRec.
 Require Import ExtLib.Decidables.Decidable.
 Require Import ExtLib.Monad.Monad.
 
@@ -15,7 +15,7 @@ Section charset.
   Inductive Parse (init : stream) (t : Type) : Type :=
   | Fail    : Parse init t
   | Epsilon : t -> Parse init t
-  | Consume : t -> forall rest : stream, 
+  | Consume : t -> forall rest : stream,
     length rest < length init -> Parse init t.
 
   Arguments Fail {_} {_}.
@@ -31,17 +31,17 @@ Section charset.
   Global Instance Monad_ParserT : Monad ParserT :=
   { ret  := fun _ v => fun _ => ret (Epsilon v)
   ; bind := fun _ c1 _ c2 =>
-    fun s => 
+    fun s =>
       bind (c1 s) (fun r =>
       match r with
-        | Fail => ret Fail 
-        | Epsilon v => c2 v s          
+        | Fail => ret Fail
+        | Epsilon v => c2 v s
         | Consume v rest pf =>
           bind (c2 v rest) (fun r =>
           match r with
             | Fail => ret Fail
             | Epsilon u => ret (Consume u rest pf)
-            | Consume u rest pf' => 
+            | Consume u rest pf' =>
               let pf := RelationClasses.transitivity pf' pf in
               ret (Consume u rest pf)
           end)
@@ -67,10 +67,10 @@ Section charset.
     bind p (fun x => lift (f x)).
 
   Definition satisfies (f : Tok -> bool) : ParserT Tok :=
-    fun s => 
-      match s with 
+    fun s =>
+      match s with
         | nil => ret Fail
-        | a' :: s => 
+        | a' :: s =>
           if f a' then ret (Consume a' s (le_n (length (a' :: s))))
           else ret Fail
       end.
@@ -84,7 +84,7 @@ Section charset.
 
   Definition alt {T} (p1 p2 : ParserT T) : ParserT T :=
     fun s =>
-      bind (p1 s) (fun r => 
+      bind (p1 s) (fun r =>
         match r with
           | Fail => p2 s
           | x => ret x
@@ -94,7 +94,7 @@ Section charset.
     (forall a, member a ls -> ParserT a) -> ParserT T.
 
   Definition star {T} (p : ParserT T) : ParserT (list T) :=
-    Fix (@wf_R_list_len _) 
+    Fix (@wf_R_list_len _)
         (fun s => m (Parse s (list T)))
         (fun x rec =>
           bind (p x) (fun r =>
@@ -108,15 +108,15 @@ Section charset.
                   match r with
                     | Fail => ret (Consume (cons v nil) rest pf)
                     | Epsilon vs => ret (Consume (cons v vs) rest pf)
-                    | Consume vs rest pf' => 
+                    | Consume vs rest pf' =>
                       let pf := RelationClasses.transitivity pf' pf in
                       ret (Consume (cons v vs) rest pf)
                   end)
             end)).
-  
-  Definition rec ls (env : @hlist _ (EParserT ls) ls) {T} (p : EParserT ls T) (n : nat) 
+
+  Definition rec ls (env : @hlist _ (EParserT ls) ls) {T} (p : EParserT ls T) (n : nat)
     : ParserT T :=
-    fun s => 
+    fun s =>
       let env :=
         (fix rec (n : nat) {struct n} : forall a : Type, member a ls -> ParserT a :=
           match n with
@@ -160,7 +160,7 @@ Section ascii_charset.
   Fixpoint in_dec {T} {RD : @RelDec T (@eq T)} (ls : list T) (v : T) : bool :=
     match ls with
       | nil => false
-      | l :: ls => 
+      | l :: ls =>
         if eq_dec v l then true else in_dec ls v
     end.
 
@@ -198,10 +198,10 @@ Section ascii_charset.
   Definition ab_rec : ParserT ascii ident string :=
     let env := (string : Type) :: (string : Type) :: nil in
     let ps : hlist (EParserT ascii ident env) env :=
-      HCons (F := EParserT ascii ident env) _ (fun get => 
+      HCons (F := EParserT ascii ident env) _ (fun get =>
         alt (map (fun x => String (fst x) (snd x)) (seq (lit "a"%char) (get _ (MN MZ))))
             (epsilon EmptyString))
-      (HCons (F := EParserT ascii ident env) _ (fun get => 
+      (HCons (F := EParserT ascii ident env) _ (fun get =>
         alt (map (fun x => String (fst x) (snd x)) (seq (lit "b"%char) (get _ MZ)))
             (epsilon EmptyString))
       (HNil (EParserT ascii ident env)))
