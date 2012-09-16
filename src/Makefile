@@ -1,11 +1,11 @@
 MODULES    := Lambda Parse Cps Optimize
-TESTS      := 
+TESTS      :=
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
 
 ARGS :=-R . CoqCompile -R ../coq-ext-lib/theories ExtLib
 
-.PHONY: coq clean 
+.PHONY: coq clean
 
 coq: Makefile.coq
 	$(MAKE) -f Makefile.coq

@@ -26,68 +26,68 @@ Module Optimize.
   *)
   Definition initial_env {A} : env_t A := nil.
 
-  Fixpoint update {A} (x:var) (c:A) (xs:env_t A) : env_t A := 
-    match xs with 
+  Fixpoint update {A} (x:var) (c:A) (xs:env_t A) : env_t A :=
+    match xs with
       | nil => (x,c)::nil
       | (y,k)::t => if eq_dec y x then (y,c)::t else (y,k)::(update x c t)
     end.
-  
-  Fixpoint lookup {A} (x:var) (xs:env_t A) : option A := 
-    match xs with 
+
+  Fixpoint lookup {A} (x:var) (xs:env_t A) : option A :=
+    match xs with
       | nil => None
       | (y,c)::t => if eq_dec y x then Some c else lookup x t
     end.
 
-  Definition extend {A} (xs:env_t A) (x:var) (v:A) : env_t A := 
+  Definition extend {A} (xs:env_t A) (x:var) (v:A) : env_t A :=
     (x,v)::xs.
-    
-  Fixpoint substs {A} (xs:list var) (vs:list A) : env_t A := 
-    match xs, vs with 
+
+  Fixpoint substs {A} (xs:list var) (vs:list A) : env_t A :=
+    match xs, vs with
       | x::xs, v::vs => extend (substs xs vs) x v
       | _, _ => initial_env
     end.
-  
+
   (** Copy Propagation:  reduce all expressions of the form:
-   
-      match v with 
-      | x => e 
+
+      match v with
+      | x => e
       end
 
-     into e[v/x]. 
+     into e[v/x].
 
      (Note that this is the only real way we have to encode: "let x = v in e")
-   
+
      This assumes we don't capture variables.  There are at least two
      ways to deal with this problem:  ensure all variables are
      uniquely named so we don't have to worry about it;  alternatively,
-     rename as we go. 
+     rename as we go.
 
      Or, we could use deBruijn indices but that introduces many problems
      later on.  For instance, we cannot use a global map from variable names
      to counts in the dead-code and inline passes below.  We would need
-     some notion of "path" instead.  
+     some notion of "path" instead.
   *)
-  Definition cprop_op (subst:env_t op) (v:op) : op := 
-    match v with 
+  Definition cprop_op (subst:env_t op) (v:op) : op :=
+    match v with
       | Var_o x => match lookup x subst with | None => v | Some v' => v' end
       | _ => v
     end.
 
-  Definition cprop_list (subst:env_t op) (vs:list op): list op := 
+  Definition cprop_list (subst:env_t op) (vs:list op): list op :=
     List.map (cprop_op subst) vs.
 
-  Fixpoint cprop (subst:env_t op) e : exp := 
-    match e with 
+  Fixpoint cprop (subst:env_t op) e : exp :=
+    match e with
       | App_e v vs => App_e (cprop_op subst v) (cprop_list subst vs)
       | Let_e x c vs e => Let_e x c (cprop_list subst vs) (cprop subst e)
-      | Match_e v ((Lambda.Var_p x,e)::nil) => 
+      | Match_e v ((Lambda.Var_p x,e)::nil) =>
         let v' := cprop_op subst v in cprop (extend subst x v') e
-      | Match_e v arms => 
-        Match_e (cprop_op subst v) 
+      | Match_e v arms =>
+        Match_e (cprop_op subst v)
         (List.map (fun (arm:pattern*exp) => (fst arm, cprop subst (snd arm))) arms)
-      | Letrec_e fs e => 
-        Letrec_e 
-        (List.map (fun (fn:var*(list var*exp)) => 
+      | Letrec_e fs e =>
+        Letrec_e
+        (List.map (fun (fn:var*(list var*exp)) =>
           match fn with (f,(x,e)) => (f,(x,cprop subst e)) end) fs) (cprop subst e)
     end.
 
@@ -100,54 +100,54 @@ Module Optimize.
   End TEST_COPYPROP.
 
   (** More match reduction:
-     
+
      match C with | ... | C => e | ... end => e
-     
-     let x = C v1 ... vn in 
+
+     let x = C v1 ... vn in
      ...
      match x with | ... | C x1 ... xn => e | ... end => e[vi/xi]
-     
+
      This also has the variable capture problem.  In addition, the way
      it's coded makes it hard to prove termination.  Finally, the right
      way to do this is to fuse together the copy propagation with the
-     reductions.  
+     reductions.
      *)
-  Fixpoint reduce (n:nat)(env:env_t (constructor * list op)) (e:exp) : exp := 
-    match n with 
+  Fixpoint reduce (n:nat)(env:env_t (constructor * list op)) (e:exp) : exp :=
+    match n with
       | 0 => e
-      | S n => 
+      | S n =>
         let reduce_arm := fun (arm:pattern*exp) => (fst arm, reduce n env (snd arm)) in
-          let find_arm := 
-            fix find (c:constructor)(arms:list (pattern*exp)) : option (pattern*exp) := 
-            match arms with 
-              | nil => None 
-              | (Lambda.Con_p c' xs,e)::rest => 
+          let find_arm :=
+            fix find (c:constructor)(arms:list (pattern*exp)) : option (pattern*exp) :=
+            match arms with
+              | nil => None
+              | (Lambda.Con_p c' xs,e)::rest =>
                 if string_dec c c' then Some (Lambda.Con_p c' xs,e) else find c rest
               | (Lambda.Var_p x,e)::rest => Some (Lambda.Var_p x,e)
-            end in 
-            match e with 
-              | Match_e (Var_o x) arms => 
-                match lookup x env with 
-                  | Some (c,vs) => 
-                    match find_arm c arms with 
-                      | Some (Lambda.Con_p _ ys,ec) => 
+            end in
+            match e with
+              | Match_e (Var_o x) arms =>
+                match lookup x env with
+                  | Some (c,vs) =>
+                    match find_arm c arms with
+                      | Some (Lambda.Con_p _ ys,ec) =>
                         reduce n env (cprop (substs ys vs) ec)
-                      | Some (Lambda.Var_p y,ec) => 
+                      | Some (Lambda.Var_p y,ec) =>
                         reduce n env (cprop (substs (y::nil) ((Var_o x)::nil)) ec)
                       | _ => e
                     end
                   | None => Match_e (Var_o x) (List.map reduce_arm arms)
                 end
-              | Match_e (Con_o c) arms => 
-                match find_arm c arms with 
+              | Match_e (Con_o c) arms =>
+                match find_arm c arms with
                   | Some (Lambda.Con_p _ _,ec) => reduce n env ec
                   | _ => e
                 end
               | Let_e x c vs e => Let_e x c vs (reduce n (extend env x (c,vs)) e)
-              | Letrec_e fs e => 
-                Letrec_e 
-                (List.map (fun fn => 
-                  match fn with 
+              | Letrec_e fs e =>
+                Letrec_e
+                (List.map (fun fn =>
+                  match fn with
                     | (f,(xs,e)) => (f,(xs,reduce n env e))
                   end) fs) (reduce n env e)
               | App_e v vs => App_e v vs
@@ -159,41 +159,41 @@ Module Optimize.
 
   Notation "e1 ;; e2" := (_ <- e1 ; e2) (at level 51, right associativity).
 
-  Definition clear_count (x:var) : ST counts unit := 
+  Definition clear_count (x:var) : ST counts unit :=
     s <- get ; put (update x 0 s).
 
-  Definition inc_count (x:var) : ST counts unit := 
-    s <- get ; 
-    match lookup x s with 
+  Definition inc_count (x:var) : ST counts unit :=
+    s <- get ;
+    match lookup x s with
       | None => put (update x 1 s)
       | Some c => put (update x (1+c) s)
     end.
 
-  Definition use_op (v:op) : ST counts unit := 
-    match v with 
-      | Var_o x => inc_count x 
+  Definition use_op (v:op) : ST counts unit :=
+    match v with
+      | Var_o x => inc_count x
       | Con_o _ => ret tt
     end.
 
-  Definition use_pat (p:pattern) : ST counts unit := 
-    match p with 
+  Definition use_pat (p:pattern) : ST counts unit :=
+    match p with
       | Lambda.Con_p _ xs => iter clear_count xs
       | Lambda.Var_p x => clear_count x
     end.
 
-  Fixpoint uses (e:exp) : ST counts unit := 
-    match e with 
+  Fixpoint uses (e:exp) : ST counts unit :=
+    match e with
       | App_e v vs => use_op v ;; iter use_op vs
-      | Let_e x c vs e => 
+      | Let_e x c vs e =>
         iter use_op vs ;; clear_count x ;; uses e
-      | Match_e v arms => 
-        use_op v ;; 
+      | Match_e v arms =>
+        use_op v ;;
         iter (fun (arm:pattern*exp) => use_pat (fst arm) ;; uses (snd arm)) arms
-      | Letrec_e fs e => 
-        iter (fun fn => match fn with 
+      | Letrec_e fs e =>
+        iter (fun fn => match fn with
                           | (f,(xs,e)) => clear_count f ;; iter clear_count xs
-                        end) fs ;; 
-        iter (fun fn => match fn with | (_,(_,e)) => uses e end) fs ;; 
+                        end) fs ;;
+        iter (fun fn => match fn with | (_,(_,e)) => uses e end) fs ;;
         uses e
     end.
 
@@ -205,36 +205,36 @@ Module Optimize.
     (** Determine whether a let-bound or letrec-bound variable is "dead"
        (has a use-count of zero) and if so, eliminate it.  Note that this
        will never get rid of a truly recursive function. *)
-    Definition is_dead (fn : (var * (list var * exp))) := 
-      match lookup (fst fn) cs with 
+    Definition is_dead (fn : (var * (list var * exp))) :=
+      match lookup (fst fn) cs with
         | Some 0 => true
         | _ => false
       end.
 
-    Fixpoint dead(e:exp) : exp := 
-      match e with 
+    Fixpoint dead(e:exp) : exp :=
+      match e with
         | App_e _ _ => e
-        | Let_e x c vs e' => 
-          match lookup x cs with 
+        | Let_e x c vs e' =>
+          match lookup x cs with
             | Some 0 => dead e'
             | _ => Let_e x c vs (dead e')
           end
-        | Match_e v arms => 
+        | Match_e v arms =>
           Match_e v (List.map (fun arm => (fst arm, dead (snd arm))) arms)
-        | Letrec_e fs e => 
+        | Letrec_e fs e =>
           let fs' := List.map (fun fn => (fst fn, (fst (snd fn), dead (snd (snd fn))))) fs in
-          let gs := filter (fun x => negb (is_dead x)) fs' in 
-            match gs with 
+          let gs := filter (fun x => negb (is_dead x)) fs' in
+            match gs with
               | nil => dead e
               | _ => Letrec_e gs (dead e)
             end
       end.
 
     (** Inline a function definition that is used only once.  Question:  is
-        this correct?  It's not clear that when we have a set of recursive 
+        this correct?  It's not clear that when we have a set of recursive
         functions that this is right... *)
-    Definition used_once (fn : (var * (list var * exp))) := 
-      match lookup (fst fn) cs with 
+    Definition used_once (fn : (var * (list var * exp))) :=
+      match lookup (fst fn) cs with
         | Some 1 => true
         | _ => false
       end.
@@ -245,23 +245,23 @@ Module Optimize.
        named.  So generalizing this to multiple uses requires a bit more
        work, as we must pick fresh variable names for each copy of a function
        that we inline. *)
-    Fixpoint inline1 (defs:env_t (list var * exp)) (e:exp) : exp := 
-        match e with 
-          | App_e (Var_o f) vs => 
-            match lookup f defs with 
+    Fixpoint inline1 (defs:env_t (list var * exp)) (e:exp) : exp :=
+        match e with
+          | App_e (Var_o f) vs =>
+            match lookup f defs with
               | None => e
               | Some (xs,e') => cprop (substs xs vs) e'
             end
           | App_e _ _ => e
           | Let_e x c vs e => Let_e x c vs (inline1 defs e)
-          | Match_e v arms => 
+          | Match_e v arms =>
             Match_e v (map (fun arm => (fst arm, inline1 defs (snd arm))) arms)
-          | Letrec_e fs e => 
-            let fs' := 
+          | Letrec_e fs e =>
+            let fs' :=
               filter (fun x => negb (used_once x))
               (map (fun fn => (fst fn, (fst (snd fn), inline1 defs (snd (snd fn))))) fs) in
-              let new_defs := (filter used_once fs) ++ defs in 
-                match fs' with 
+              let new_defs := (filter used_once fs) ++ defs in
+                match fs' with
                   | nil => (inline1 new_defs e)
                   | fs' => Letrec_e fs' (inline1 new_defs e)
                 end
@@ -269,21 +269,21 @@ Module Optimize.
 
   End DEADCODE.
 
-  Definition deadcode (e:exp) : exp := 
+  Definition deadcode (e:exp) : exp :=
       dead (calc_uses e) e.
 
-  Definition inline_once (e:exp) : exp := 
+  Definition inline_once (e:exp) : exp :=
       inline1 (calc_uses e) nil e.
-  
+
   (** Our simple optimizer *)
-  Definition optimize (fuel:nat) (e:exp) : exp := 
+  Definition optimize (fuel:nat) (e:exp) : exp :=
     inline_once (deadcode (reduce fuel initial_env (cprop initial_env e))).
 
   (** Note that some reductions may enable other reductions.  For instance,
       after inlining a function, we have opportunities to do more match
       reductions.  And after a match reduction, we may be able to inline
       a function.  So the way we've written this, we really should iterate
-      the optimizer until there are no more reductions to perform.  
+      the optimizer until there are no more reductions to perform.
 
       Note also that we are recalculating the usage counts for both deadcode
       and inline_once.  An alternative would be to try to keep the counts
@@ -291,11 +291,11 @@ Module Optimize.
   *)
 
   Section TEST_OPTIMIZER.
-    Import LambdaNotation. 
+    Import LambdaNotation.
     (*Eval compute in (cps2string (CPS (gen e6))).
     Eval compute in (cps2string (optimize 100 (CPS (gen e6)))).
 
-    Definition test_exp := 
+    Definition test_exp :=
       def f := \ x => S_c x in f @ Z_c.
 
     Eval compute in (cps2string (CPS (gen test_exp))).
