@@ -4,3 +4,4 @@
 *.glob
 Makefile.coq
 coq-ext-lib
+.dir-locals.el

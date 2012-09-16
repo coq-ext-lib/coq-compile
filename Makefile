@@ -1,5 +1,3 @@
-.PHONY: all clean dist
-
 PROJECT_NAME=coq-compile
 
 all: lib-update
@@ -15,6 +13,10 @@ lib-update: coq-ext-lib
 	@ (cd coq-ext-lib; git pull -u; $(MAKE))
 
 coq-ext-lib:
-	./setup.sh
+	./tools/setup.sh
 
-.PHONEY: lib-update
+.dir-locals.el: tools/setup.sh
+	@ sed s,PWD,$(shell pwd -P),g tools/dir-locals.el > .dir-locals.el
+
+.PHONY: all clean dist
+.PHONY: lib-update
