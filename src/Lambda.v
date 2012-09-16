@@ -180,7 +180,7 @@ Module LambdaNotation.
         digit2string n 
       else 
         let m := NPeano.div n 10 in 
-          (nat2string m) ++ (digit2string (10 * m - n)).
+          (nat2string m) ++ (digit2string (n - 10 * m)).
         Next Obligation. 
         assert (NPeano.div n 10 < n); eauto. eapply NPeano.Nat.div_lt ; omega. 
     Defined.

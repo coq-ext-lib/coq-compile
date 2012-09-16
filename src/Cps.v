@@ -47,7 +47,7 @@ Module CPS.
   Definition LetLam_e (f:var) (xs: list var) (e:exp) (e':exp) : exp := 
     Letrec_e ((f,(xs,e))::nil) e'.
 
-  Definition match_eta (x:var) (e:exp) := 
+  Definition match_eta (x:var) (e:exp) : option op := 
     match e with 
       | App_e op1 ((Var_o y)::nil) => 
         if rel_dec y x then Some op1 else None
@@ -67,6 +67,70 @@ Module CPS.
   (** run to an exp, the [e] making it call the continuation [c] when done **)
   Definition run (e:K exp op) (c : var) : state nat exp :=
     runContT e (fun v => ret (App_e (Var_o c) (v::nil))).
+
+  (** I've recoded cps with an explicit continuation.  I think it's a little
+      easier to get right than the monadic abstraction. *)
+  Fixpoint cps2 (e:Lambda.exp)(k:op -> state nat exp) : state nat exp := 
+    match e with 
+      | Lambda.Var_e x => k (Var_o x)
+      | Lambda.Con_e c nil => k (Con_o c)
+      | Lambda.App_e e1 e2 => 
+        cps2 e1 (fun v1 => 
+          cps2 e2 (fun v2 => 
+            a <- LambdaNotation.fresh "$a" ; 
+            f <- LambdaNotation.fresh "$f" ; 
+            e <- k (Var_o a) ; 
+            match match_eta a e with
+              | None => ret (Letrec_e ((f,(a::nil,e))::nil) (App_e v1 (v2::(Var_o a)::nil)))
+              | Some c => ret (App_e v1 (v2::c::nil))
+            end))
+      | Lambda.Con_e c es => 
+        (fix cps_es (es:list Lambda.exp) (vs:list op)(k:list op -> state nat exp) : state nat exp := 
+          match es with 
+            | nil => k vs
+            | e::es => cps2 e (fun v => cps_es es (v::vs) k)
+          end) es nil 
+        (fun vs => 
+            x <- LambdaNotation.fresh "$x" ; 
+            e <- k (Var_o x) ; 
+            ret (Let_e x c vs e))
+      | Lambda.Let_e x e1 e2 => 
+        cps2 e1 (fun v1 => 
+          e2' <- cps2 e2 k ; 
+          ret (Match_e v1 ((Lambda.Var_p x, e2')::nil)))
+      | Lambda.Lam_e x e => 
+        f <- LambdaNotation.fresh "$f" ; 
+        c <- LambdaNotation.fresh "$c" ;
+        e' <- cps2 e (fun v => ret (App_e (Var_o c) (v::nil))) ; 
+        e0 <- k (Var_o f) ; 
+        ret (Letrec_e ((f,(x::c::nil,e'))::nil) e0)
+      | Lambda.Letrec_e fs e => 
+        fs' <- mapM (fun fn => 
+          match fn with 
+            | (f,(x,e)) => 
+              c <- LambdaNotation.fresh "$c" ; 
+              e' <- cps2 e (fun v => ret (App_e (Var_o c) (v::nil))) ; 
+              ret (f,(x::c::nil,e'))
+          end) fs ;
+        e0 <- cps2 e k ; 
+        ret (Letrec_e fs' e0)
+      | Lambda.Match_e e arms =>  
+        cps2 e (fun v => 
+          x <- LambdaNotation.fresh "$x" ;
+          e0 <- k (Var_o x) ; 
+          c <- match match_eta x e0 with 
+                 | Some (Var_o c) => ret c
+                 | _ => LambdaNotation.fresh "$c"
+               end ; 
+          arms' <- 
+            mapM (fun p_e => 
+              e' <- cps2 (snd (p_e)) (fun v => ret (App_e (Var_o c) (v::nil))) ; 
+              ret (fst p_e, e':exp)) arms ; 
+          match match_eta x e0 with 
+            | None => ret (Letrec_e ((c,(x::nil,e0))::nil) (Match_e v arms'))
+            | Some _ => ret (Match_e v arms')
+          end)
+    end.
 
   Fixpoint cps (e:Lambda.exp) : K exp op :=
     match e with 
@@ -111,7 +175,11 @@ Module CPS.
     end.
   
   Definition CPS (e:Lambda.exp) : exp := 
+    (*
     evalState (runContT (cps e) (fun v => ret (App_e (Var_o "halt") (v::nil)))) 0.
+    *)
+    evalState (cps2 e (fun v => ret (App_e (Var_o "halt") (v::nil)))) 0.
+
 
   (** Pretty Printing CPS terms *)
   Definition op2string (v:op) : string := 
@@ -196,7 +264,7 @@ Module CPS.
 
   Definition cps2string(e:exp) := 
     newline ++ List.fold_left (fun x y => y ++ x) (snd (runState (emitcps 0 e) nil)) "".
-        
+
   (* Eval compute in cps2string (CPS (LambdaNotation.gen LambdaNotation.e8)). *)
 
 End CPS.
