@@ -54,7 +54,6 @@ Module Parse.
       | String c s' => c::(string2list s')
     end.
         
-  Definition ascii_eq (x y:ascii) := if ascii_dec x y then true else false.
   Definition alpha : list ascii := 
     string2list "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".
   Definition numeric : list ascii := 
@@ -80,7 +79,7 @@ Module Parse.
   Fixpoint lookup {A} (x:string) (xs:list (string * A)) : option A := 
     match xs with 
       | nil => None
-      | (y,c)::t => if rel_dec y x then Some c else lookup x t
+      | (y,c)::t => if eq_dec y x then Some c else lookup x t
     end.
 
   Definition id_to_token (s:string) : token := 
@@ -92,7 +91,7 @@ Module Parse.
   Fixpoint member(c:ascii)(cs:list ascii) : bool := 
     match cs with 
       | nil => false
-      | c'::cs => if ascii_dec c c' then true else member c cs
+      | c'::cs => if eq_dec c c' then true else member c cs
     end.
 
   (** Pull off characters from the string to form an identifier.  [cs] is
@@ -129,11 +128,11 @@ Module Parse.
         | EmptyString => Some (rev ts)
         | String c s' => 
           if member c white then tokenize s' ts
-          else if ascii_dec c "(" then tokenize s' (LPAREN::ts)
-          else if ascii_dec c ")" then tokenize s' (RPAREN::ts)
-          else if ascii_dec c "@" then tokenize s' (AT::ts)
-          else if ascii_dec c "`" then tokenize s' (QUOTE::ts)
-          else if ascii_dec c "," then tokenize s' (COMMA::ts)
+          else if eq_dec c "(" then tokenize s' (LPAREN::ts)
+          else if eq_dec c ")" then tokenize s' (RPAREN::ts)
+          else if eq_dec c "@" then tokenize s' (AT::ts)
+          else if eq_dec c "`" then tokenize s' (QUOTE::ts)
+          else if eq_dec c "," then tokenize s' (COMMA::ts)
           else if member c id_start then 
             match token_id s' (c::nil) with
               | (t,s'') => tokenize s'' (t::ts)
@@ -145,7 +144,7 @@ Module Parse.
       intros. omega.
     Defined.
   End TOKENIZE.
-  
+
   (** Parsing *)
   (** The parser below has a number of different "states" which represent
       functions that I wish I could break out into a set of mutually-
