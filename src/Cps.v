@@ -78,10 +78,11 @@ Module CPS.
         cps2 e1 (fun v1 => 
           cps2 e2 (fun v2 => 
             a <- LambdaNotation.fresh "$a" ; 
-            f <- LambdaNotation.fresh "$f" ; 
             e <- k (Var_o a) ; 
             match match_eta a e with
-              | None => ret (Letrec_e ((f,(a::nil,e))::nil) (App_e v1 (v2::(Var_o a)::nil)))
+              | None =>
+                f <- LambdaNotation.fresh "$f" ; 
+                ret (Letrec_e ((f,(a::nil,e))::nil) (App_e v1 (v2::(Var_o f)::nil)))
               | Some c => ret (App_e v1 (v2::c::nil))
             end))
       | Lambda.Con_e c es => 
