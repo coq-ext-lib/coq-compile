@@ -154,7 +154,8 @@ Module Optimize.
             end
     end.
 
-  (** Calculate the number of uses of a variable (i.e., free occurrences.) *)
+  (** Calculate the number of uses of a variable (i.e., free occurrences) and
+      return an environment mapping variables to counts.  *)
   Definition counts := env_t nat.
 
   Notation "e1 ;; e2" := (_ <- e1 ; e2) (at level 51, right associativity).
@@ -200,6 +201,8 @@ Module Optimize.
   Definition calc_uses (e:exp) : counts := snd (runState (uses e) nil).
 
   Section DEADCODE.
+    (** Assume we have usage counts for each variable -- this gets lambda
+        abstracted outside the section for each function that uses this. *)
     Variable cs : counts.
 
     (** Determine whether a let-bound or letrec-bound variable is "dead"
@@ -211,6 +214,7 @@ Module Optimize.
         | _ => false
       end.
 
+    (** Eliminate dead bindings -- i.e., that have a use-count of zero. *)
     Fixpoint dead(e:exp) : exp :=
       match e with
         | App_e _ _ => e
@@ -230,21 +234,43 @@ Module Optimize.
             end
       end.
 
-    (** Inline a function definition that is used only once.  Question:  is
-        this correct?  It's not clear that when we have a set of recursive
-        functions that this is right... *)
-    Definition used_once (fn : (var * (list var * exp))) :=
-      match lookup (fst fn) cs with
-        | Some 1 => true
-        | _ => false
+    (** Count the number of times a function is called *)
+    Fixpoint calls (e:exp) : ST counts unit := 
+      match e with 
+        | App_e (Var_o x) _ => use_op (Var_o x)
+        | App_e _ _ => ret tt
+        | Let_e x c vs e => calls e
+        | Match_e v arms => 
+          iter (fun (arm:pattern*exp) => calls (snd arm)) arms
+        | Letrec_e fs e => 
+          iter (fun fn => clear_count (fst fn)) fs ;; 
+          iter (fun fn => calls (snd (snd fn))) fs ;;
+          calls e
+      end.
+
+    (** Assume we have calculated the numer of calls for each function in an environment. *)
+    Variable num_calls : env_t nat.
+
+    (** Claim:  A letrec function f can be safely inlined if it is called in exactly
+        one spot, and there are no other uses of the function.  (Is this correct?
+        Consider the case of a letrec with two functions f and g that call each
+        other and there are no other calls.  Then there's no way to enter the loop!
+        So f and g must be dead code.  If one of the functions (say f) has another call 
+        site, then we can still safely inline g into f. *)
+    Definition called_once (fn:var * (list var * exp)) : bool := 
+      let (f,_) := fn in 
+      match lookup f num_calls, lookup f cs with 
+        | Some 1, Some 1 => true
+        | _, _ => false
       end.
 
     (* Again, fusing the copy propagation with the inline1 pass would make
-       this more efficient.  Note that inlining a function that is used
+       this more efficient.  Note that inlining a function that is called
        at most once preserves the property that each variable is uniquely
        named.  So generalizing this to multiple uses requires a bit more
        work, as we must pick fresh variable names for each copy of a function
-       that we inline. *)
+       that we inline. 
+       *)
     Fixpoint inline1 (defs:env_t (list var * exp)) (e:exp) : exp :=
         match e with
           | App_e (Var_o f) vs =>
@@ -257,13 +283,13 @@ Module Optimize.
           | Match_e v arms =>
             Match_e v (map (fun arm => (fst arm, inline1 defs (snd arm))) arms)
           | Letrec_e fs e =>
-            let fs' :=
-              filter (fun x => negb (used_once x))
-              (map (fun fn => (fst fn, (fst (snd fn), inline1 defs (snd (snd fn))))) fs) in
-              let new_defs := (filter used_once fs) ++ defs in
+            let defs' := (filter called_once fs) ++ defs in 
+              let fs' := 
+                filter (fun fn => negb (called_once fn)) 
+                (map (fun fn => (fst fn, (fst (snd fn), inline1 defs' (snd (snd fn))))) fs) in
                 match fs' with
-                  | nil => (inline1 new_defs e)
-                  | fs' => Letrec_e fs' (inline1 new_defs e)
+                  | nil => (inline1 defs' e)
+                  | fs' => Letrec_e fs' (inline1 defs' e)
                 end
         end.
 
@@ -273,7 +299,7 @@ Module Optimize.
       dead (calc_uses e) e.
 
   Definition inline_once (e:exp) : exp :=
-      inline1 (calc_uses e) nil e.
+      inline1 (snd (runState (calls e) initial_env)) (calc_uses e) nil e.
 
   (** Our simple optimizer *)
   Definition optimize (fuel:nat) (e:exp) : exp :=
@@ -289,17 +315,25 @@ Module Optimize.
       and inline_once.  An alternative would be to try to keep the counts
       up to date.
   *)
-
+(*
   Section TEST_OPTIMIZER.
     Import LambdaNotation.
-    (*Eval compute in (cps2string (CPS (gen e6))).
+    Eval compute in cps2string (reduce 100 initial_env (cprop initial_env (CPS (gen e8)))).
+    Eval compute in cps2string (optimize 100 (CPS (gen e8))).
+    Eval compute in (cps2string (CPS (gen e6))).
     Eval compute in (cps2string (optimize 100 (CPS (gen e6)))).
 
     Definition test_exp :=
       def f := \ x => S_c x in f @ Z_c.
 
     Eval compute in (cps2string (CPS (gen test_exp))).
+    Eval compute in (cps2string (inline_once (cprop initial_env (CPS (gen test_exp))))).
     Eval compute in (cps2string (optimize 100 (CPS (gen test_exp)))).
-    *)
+
+    Definition next_test := 
+      def f := \ x => x in Z_c.
+    Eval compute in (cps2string (CPS (gen next_test))).
+    Eval compute in (cps2string (deadcode (cprop initial_env (CPS (gen next_test))))).
   End TEST_OPTIMIZER.
+*)
 End Optimize.
