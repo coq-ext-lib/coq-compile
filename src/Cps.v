@@ -89,7 +89,7 @@ Module CPS.
         (fix cps_es (es:list Lambda.exp) (vs:list op)(k:list op -> state nat exp) : state nat exp := 
           match es with 
             | nil => k vs
-            | e::es => cps2 e (fun v => cps_es es (v::vs) k)
+            | e::es => cps2 e (fun v => cps_es es (vs ++ v :: nil)%list k)
           end) es nil 
         (fun vs => 
             x <- LambdaNotation.fresh "$x" ; 
