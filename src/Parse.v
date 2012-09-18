@@ -421,11 +421,18 @@ Module Parse.
       recursive and so use a "letrec" for lambdas.  We could try to do something
       smarter, like see if the function really is recursive, but that's something
       we can leave to the optimizer. *)
-  Fixpoint collapse_decls (ds:list (var*exp)) (e:exp) : exp :=
+  Fixpoint collapse_decls (ds:list (var*exp)) (fs:env_t (var * exp)) (e:exp) : exp :=
     match ds with
-      | nil => e
-      | (f,(Lam_e x e'))::rest => Letrec_e ((f,(x,e'))::nil) (collapse_decls rest e)
-      | (x,e')::rest => Let_e x e' (collapse_decls rest e)
+      | nil => match rev fs with 
+                 | nil => e
+                 | fs' => Letrec_e fs' e
+               end
+      | (f,(Lam_e x e'))::rest => collapse_decls rest ((f,(x,e'))::fs) e
+      | (x,e')::rest => 
+        match rev fs with 
+          | nil => Let_e x e' (collapse_decls rest nil e)
+          | fs' => Letrec_e fs' (Let_e x e' (collapse_decls rest nil e))
+        end
     end.
 
   (** Parse a set of top-level declarations and return a bit "let", binding
@@ -438,7 +445,7 @@ Module Parse.
       | Some ts => match parse ts TOPDECL with
                      | None => None
                      | Some ds =>
-                       Some (collapse_decls ds (App_e (Var_e "main") (Con_e "Tt" nil)))
+                       Some (collapse_decls ds nil (App_e (Var_e "main") (Con_e "Tt" nil)))
                    end
     end.
 
