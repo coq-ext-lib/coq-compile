@@ -15,6 +15,9 @@ lib-update: coq-ext-lib
 coq-ext-lib:
 	./tools/setup.sh
 
+html:
+	$(MAKE) -C src html
+
 .dir-locals.el: tools/setup.sh
 	@ sed s,PWD,$(shell pwd -P),g tools/dir-locals.el > .dir-locals.el
 

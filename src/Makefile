@@ -33,3 +33,6 @@ depgraph: Makefile.coq
 
 toplevel: coq
 	coqtop.opt $(ARGS)
+
+html:
+	$(MAKE) -f Makefile.coq html
