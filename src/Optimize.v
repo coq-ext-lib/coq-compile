@@ -116,7 +116,33 @@ Module Optimize.
     match n with
       | 0 => e
       | S n =>
-        let reduce_arm := fun (arm:pattern*exp) => (fst arm, reduce n env (snd arm)) in
+      (* specialize the match arm under the assumption that the
+         pattern is now equal to x.  For instance, if we have:
+         
+         match x with 
+         | Cons h t => ... match x with 
+                           | Cons h1 t1 => e1
+                           | Nil => e2
+         | Nil => ... match x with 
+                      | Cons h3 t3 => e3
+                      | Nil => e4
+
+         then we can reduce the inner matches if for each arm, we remember
+         that (x = Cons h t) and (x = Nil) respectively. *)
+        let reduce_arm := 
+          fun (x:var) (arm:pattern*exp) => 
+            (fst arm, 
+            match (fst arm) with 
+              | Lambda.Con_p c nil =>
+                  (* in this branch, substitute Con_o c for x *)
+                  reduce n env (cprop (substs (x::nil) ((Con_o c)::nil)) (snd arm))
+                  (* in this branch, treat x as bound to (c vs) *)
+              | Lambda.Con_p c xs => reduce n ((x,(c, (map Var_o xs)))::env) (snd arm)
+              | Lambda.Var_p y => 
+                  (* in this branch, substitute x for y *)
+                  reduce n env (cprop (substs (y::nil) ((Var_o x)::nil)) (snd arm))
+            end)
+            in
           let find_arm :=
             fix find (c:constructor)(arms:list (pattern*exp)) : option (pattern*exp) :=
             match arms with
@@ -128,6 +154,7 @@ Module Optimize.
             match e with
               | Match_e (Var_o x) arms =>
                 match lookup x env with
+                  (* earlier, we had Let_e x c vs, so we can reduce the match *)
                   | Some (c,vs) =>
                     match find_arm c arms with
                       | Some (Lambda.Con_p _ ys,ec) =>
@@ -136,9 +163,13 @@ Module Optimize.
                         reduce n env (cprop (substs (y::nil) ((Var_o x)::nil)) ec)
                       | _ => e
                     end
-                  | None => Match_e (Var_o x) (List.map reduce_arm arms)
+                  | None =>
+                    (* we can't reduce this match, but we can reduce nested matches
+                       on the same variable. *)
+                    Match_e (Var_o x) (List.map (reduce_arm x) arms)
                 end
               | Match_e (Con_o c) arms =>
+                (* this is a special case for the nullary constructors *)
                 match find_arm c arms with
                   | Some (Lambda.Con_p _ _,ec) => reduce n env ec
                   | _ => e
@@ -317,6 +348,8 @@ Module Optimize.
   *)
 (*
   Section TEST_OPTIMIZER.
+    Import LambdaNotation.
+    
     Eval compute in cps2string (reduce 100 initial_env (cprop initial_env (CPS (gen e8)))).
     Eval compute in cps2string (optimize 100 (CPS (gen e8))).
     Eval compute in (cps2string (CPS (gen e6))).
@@ -333,6 +366,26 @@ Module Optimize.
       def f := \ x => x in Z_c.
     Eval compute in (cps2string (CPS (gen next_test))).
     Eval compute in (cps2string (deadcode (cprop initial_env (CPS (gen next_test))))).
+
+    Require Import Parse.
+    Import Parse. Import String.
+    Definition other_test := 
+      match 
+      parse_exp ( "
+        (lambda (x) 
+          (match x 
+              ((Z) (match x 
+                    ((Z) `(Z))
+                    ((S a) a)
+                   ))
+              ((S z) (match x
+                      ((Z) `(Z))
+                      ((S b) b)))))
+      ")
+      with 
+        Some p => fst p | None => Lambda.Con_e "c"%string nil end.
+     Eval compute in (cps2string (optimize 100 (CPS other_test))).
   End TEST_OPTIMIZER.
 *)
+
 End Optimize.
