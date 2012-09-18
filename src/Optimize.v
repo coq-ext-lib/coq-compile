@@ -122,7 +122,7 @@ Module Optimize.
             match arms with
               | nil => None
               | (Lambda.Con_p c' xs,e)::rest =>
-                if string_dec c c' then Some (Lambda.Con_p c' xs,e) else find c rest
+                if eq_dec c c' then Some (Lambda.Con_p c' xs,e) else find c rest
               | (Lambda.Var_p x,e)::rest => Some (Lambda.Var_p x,e)
             end in
             match e with
@@ -317,7 +317,6 @@ Module Optimize.
   *)
 (*
   Section TEST_OPTIMIZER.
-    Import LambdaNotation.
     Eval compute in cps2string (reduce 100 initial_env (cprop initial_env (CPS (gen e8)))).
     Eval compute in cps2string (optimize 100 (CPS (gen e8))).
     Eval compute in (cps2string (CPS (gen e6))).
