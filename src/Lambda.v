@@ -226,10 +226,10 @@ Module LambdaNotation.
   Definition PAIR_e (E1 E2:Exp) : Exp :=
     e1 <- E1 ; e2 <- E2 ; ret (Con_e "pair" (e1::e2::nil)).
   Notation "[[ e1 , e2 ]]" := (PAIR_e e1 e2).
-  Definition fst (E1:Exp) : Exp :=
+  Definition fst' (E1:Exp) : Exp :=
     e1 <- E1 ; a <- fresh "a" ; b <- fresh "b" ;
     ret (Match_e e1 ((Con_p "pair" (a::b::nil), Var_e a)::nil)).
-  Definition snd (E1:Exp) : Exp :=
+  Definition snd' (E1:Exp) : Exp :=
     e1 <- E1 ; a <- fresh "a" ; b <- fresh "b" ;
     ret (Match_e e1 ((Con_p "pair" (a::b::nil), Var_e b)::nil)).
 
@@ -245,7 +245,7 @@ Module LambdaNotation.
   Definition four := S_c (S_c (S_c (S_c Z_c))).
   Definition two := S_c (S_c Z_c).
   Definition p := [[ two , four ]].
-  Definition two' := fst two.
+  Definition two' := fst' two.
   Definition e8 :=
     def compose := \f => \g => \x => g @ (f @ x) in
     def inc := \x => S_c x in
