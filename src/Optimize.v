@@ -13,6 +13,33 @@ Set Strict Implicit.
     provide a number of regression tests, use better data structures,
     and fuse the passes as best we can.
 *)
+
+(** To do for the current code:
+    - use a better finite map data structure for environments
+    - fuse copy propagation with other transformations to make them linear time
+    - fuse some of the optimizations together a la Jim & Appel?
+    - add distinction between recursive & non-recursive functions
+    - add distinction between continuations & user-level functions (and calls)?
+    - make projection from constructors explicit?
+
+   To do for future basic optimizations:
+    - eta expansion elimination (for both functions and constructors)
+    - common sub-expression elimination (CSE)
+      - the interesting part of this is function calls in the CPS setting
+    - splitting mutually recursive functions that aren't really recursive
+      (strongly connected components), supporting better dead-code and 
+      inline-once optimization.
+    - general inlining for functions
+    - partial redundancy elimination
+
+   To do for loop optimizations:
+    - loop invariant removal, including loop invariant arguments
+    - interprocedural copy propagation, reduction, and CSE
+
+   To do for general engineering:
+    - break optimizations into separate files
+    - better test/regression infrastructure
+*)
 Module Optimize.
   Import MonadNotation CPS.
   (** The optimizer (and much of the compiler) is going to want to use
