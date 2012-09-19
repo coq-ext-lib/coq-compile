@@ -216,8 +216,6 @@ Module Optimize.
       return an environment mapping variables to counts.  *)
   Definition counts := env_t nat.
 
-  Notation "e1 ;; e2" := (_ <- e1 ; e2) (at level 51, right associativity).
-
   Definition clear_count (x:var) : ST counts unit :=
     s <- get ; put (update x 0 s).
 

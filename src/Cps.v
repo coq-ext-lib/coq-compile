@@ -31,6 +31,7 @@ Module CPS.
 
   Local Open Scope string_scope.
   Import MonadNotation.
+  Open Scope monad_scope.
 
   (** Get a fresh temporary variable **)
   Definition freshTemp {Ans} (x:string) : K Ans var :=

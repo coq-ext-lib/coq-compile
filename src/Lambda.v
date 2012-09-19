@@ -21,6 +21,7 @@ Module Lambda.
   Definition env_t A := list (var * A).
 
   Import MonadNotation.
+  Open Scope monad_scope.
 
   Fixpoint lookup {A} (env: env_t A) (x:var) : option A :=
     match env with
