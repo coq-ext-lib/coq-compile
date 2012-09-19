@@ -152,7 +152,7 @@ Section ascii_charset.
   Require Import ExtLib.Monad.IdentityMonad.
 
   Definition runParserS {T} (p : ParserT ascii ident T) (s : string) : option T :=
-    runParserT p (string_to_list s).
+    unIdent (runParserT p (string_to_list s)).
 
   Definition lit (a : ascii) : ParserT ascii ident ascii :=
     satisfies (eq_dec a).
@@ -185,11 +185,17 @@ Section ascii_charset.
 
   (** Tests **)
 
+  Require Import ExtLib.Functor.Functor.
+  Require Import ExtLib.Functional.Fun.
+
+  Import FunctorNotation.
+  Import FunNotation.
+
   Definition lparen : ParserT ascii ident ascii := lit "("%char.
   Definition rparen : ParserT ascii ident ascii := lit ")"%char.
-  Definition a_star : ParserT ascii ident string := map list_to_string (star (lit "a"%char)).
+  Definition a_star : ParserT ascii ident string := map (ret <$> list_to_string) (star (lit "a"%char)).
 
-  Eval compute in runParserS (map (fun x => fst (snd x)) (seq lparen (seq a_star rparen))) "(aaaaaaaaaaa)"%string.
+  Eval compute in runParserS (map (fun x => ret $ fst (snd x)) (seq lparen (seq a_star rparen))) "(aaaaaaaaaaa)"%string.
 
   Arguments HCons {iT} {F} (l) {ls} (_) (_).
   Arguments MZ {_} {_} {_}.
@@ -199,10 +205,10 @@ Section ascii_charset.
     let env := (string : Type) :: (string : Type) :: nil in
     let ps : hlist (EParserT ascii ident env) env :=
       HCons (F := EParserT ascii ident env) _ (fun get =>
-        alt (map (fun x => String (fst x) (snd x)) (seq (lit "a"%char) (get _ (MN MZ))))
+        alt (map (fun x => ret $ String (fst x) (snd x)) (seq (lit "a"%char) (get _ (MN MZ))))
             (epsilon EmptyString))
       (HCons (F := EParserT ascii ident env) _ (fun get =>
-        alt (map (fun x => String (fst x) (snd x)) (seq (lit "b"%char) (get _ MZ)))
+        alt (map (fun x => ret $ String (fst x) (snd x)) (seq (lit "b"%char) (get _ MZ)))
             (epsilon EmptyString))
       (HNil (EParserT ascii ident env)))
     in
