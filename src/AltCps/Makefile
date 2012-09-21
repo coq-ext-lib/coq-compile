@@ -1,11 +1,9 @@
-CORE       := Env Lambda Parse Cps Optimize
-OPT        := CopyPropCps MatchRedCps
-MODULES    := $(CORE) $(OPT:%=Opt/%)
+MODULES    := CpsSyntax TrCps CpsSemantics 
 TESTS      :=
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
 
-ARGS :=-R . CoqCompile -R ../coq-ext-lib/theories ExtLib
+ARGS :=-R .. CoqCompile -R ../../coq-ext-lib/theories ExtLib
 
 .PHONY: coq clean
 

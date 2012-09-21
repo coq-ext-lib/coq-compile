@@ -21,7 +21,7 @@ Module Lambda.
   Definition env_t A := list (var * A).
 
   Import MonadNotation.
-  Open Local Scope monad.
+  Open Local Scope monad_scope.
 
   Fixpoint lookup {A} (env: env_t A) (x:var) : option A :=
     match env with
@@ -62,7 +62,7 @@ End Lambda.
 
 Module LambdaSemantics.
   Import Lambda MonadNotation.
-  Open Local Scope monad.
+  Open Local Scope monad_scope.
   (** Here, we model evaluation of expressions to give a "formal" definition
       of the meaning of programs.  Because [exp] includes the potential for
       diverging programs, we can't directly write the semantics as a Coq
