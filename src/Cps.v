@@ -31,10 +31,11 @@ Module CPS.
 
   Local Open Scope string_scope.
   Import MonadNotation.
+  Local Open Scope monad_scope.
 
   (** Get a fresh temporary variable **)
   Definition freshTemp {Ans} (x:string) : K Ans var :=
-    n <- lift (LambdaNotation.fresh x) ;
+    n <- lift (LambdaNotation.fresh x) ;;
     ret ("$" ++ n).
 
   (** apply [f] before returning the result of [k] **)
@@ -55,10 +56,10 @@ Module CPS.
     end.
 
   Definition App_k (v1 v2:op) : K exp op :=
-    a <- freshTemp "a" ;
-    f <- freshTemp "f" ;
+    a <- freshTemp "a" ;;
+    f <- freshTemp "f" ;;
     mapContT (fun c =>
-      e <- c ;
+      e <- c ;;
       ret match match_eta a e with
             | None => LetLam_e f (a::nil) e (App_e v1 (v2::(Var_o f)::nil))
             | Some op => App_e v1 (v2::op::nil)
@@ -77,11 +78,11 @@ Module CPS.
       | Lambda.App_e e1 e2 => 
         cps2 e1 (fun v1 => 
           cps2 e2 (fun v2 => 
-            a <- LambdaNotation.fresh "$a" ; 
-            e <- k (Var_o a) ; 
+            a <- LambdaNotation.fresh "$a" ;; 
+            e <- k (Var_o a) ;; 
             match match_eta a e with
               | None =>
-                f <- LambdaNotation.fresh "$f" ; 
+                f <- LambdaNotation.fresh "$f" ;; 
                 ret (Letrec_e ((f,(a::nil,e))::nil) (App_e v1 (v2::(Var_o f)::nil)))
               | Some c => ret (App_e v1 (v2::c::nil))
             end))
@@ -92,41 +93,41 @@ Module CPS.
             | e::es => cps2 e (fun v => cps_es es (vs ++ v :: nil)%list k)
           end) es nil 
         (fun vs => 
-            x <- LambdaNotation.fresh "$x" ; 
-            e <- k (Var_o x) ; 
+            x <- LambdaNotation.fresh "$x" ;; 
+            e <- k (Var_o x) ;; 
             ret (Let_e x c vs e))
       | Lambda.Let_e x e1 e2 => 
         cps2 e1 (fun v1 => 
-          e2' <- cps2 e2 k ; 
+          e2' <- cps2 e2 k ;; 
           ret (Match_e v1 ((Lambda.Var_p x, e2')::nil)))
       | Lambda.Lam_e x e => 
-        f <- LambdaNotation.fresh "$f" ; 
-        c <- LambdaNotation.fresh "$c" ;
-        e' <- cps2 e (fun v => ret (App_e (Var_o c) (v::nil))) ; 
-        e0 <- k (Var_o f) ; 
+        f <- LambdaNotation.fresh "$f" ;; 
+        c <- LambdaNotation.fresh "$c" ;;
+        e' <- cps2 e (fun v => ret (App_e (Var_o c) (v::nil))) ;; 
+        e0 <- k (Var_o f) ;; 
         ret (Letrec_e ((f,(x::c::nil,e'))::nil) e0)
       | Lambda.Letrec_e fs e => 
         fs' <- mapM (fun fn => 
           match fn with 
             | (f,(x,e)) => 
-              c <- LambdaNotation.fresh "$c" ; 
-              e' <- cps2 e (fun v => ret (App_e (Var_o c) (v::nil))) ; 
+              c <- LambdaNotation.fresh "$c" ;; 
+              e' <- cps2 e (fun v => ret (App_e (Var_o c) (v::nil))) ;; 
               ret (f,(x::c::nil,e'))
-          end) fs ;
-        e0 <- cps2 e k ; 
+          end) fs ;;
+        e0 <- cps2 e k ;; 
         ret (Letrec_e fs' e0)
       | Lambda.Match_e e arms =>  
         cps2 e (fun v => 
-          x <- LambdaNotation.fresh "$x" ;
-          e0 <- k (Var_o x) ; 
+          x <- LambdaNotation.fresh "$x" ;;
+          e0 <- k (Var_o x) ;; 
           c <- match match_eta x e0 with 
                  | Some (Var_o c) => ret c
                  | _ => LambdaNotation.fresh "$c"
-               end ; 
+               end ;; 
           arms' <- 
             mapM (fun p_e => 
-              e' <- cps2 (snd (p_e)) (fun v => ret (App_e (Var_o c) (v::nil))) ; 
-              ret (fst p_e, e':exp)) arms ; 
+              e' <- cps2 (snd (p_e)) (fun v => ret (App_e (Var_o c) (v::nil))) ;; 
+              ret (fst p_e, e':exp)) arms ;; 
           match match_eta x e0 with 
             | None => ret (Letrec_e ((c,(x::nil,e0))::nil) (Match_e v arms'))
             | Some _ => ret (Match_e v arms')
@@ -138,40 +139,40 @@ Module CPS.
       | Lambda.Var_e x => ret (Var_o x)
       | Lambda.Con_e c nil => ret (Con_o c)
       | Lambda.App_e e1 e2 =>
-        v1 <- cps e1 ; v2 <- cps e2 ; App_k v1 v2
+        v1 <- cps e1 ;; v2 <- cps e2 ;; App_k v1 v2
       | Lambda.Con_e c es =>
-        ops <- mapM cps es ;
-        x <- freshTemp "x" ;
+        ops <- mapM cps es ;;
+        x <- freshTemp "x" ;;
         (Let_e x c ops [[ Var_o x ]])
       | Lambda.Let_e x e1 e2 =>
-        v1 <- cps e1 ;
+        v1 <- cps e1 ;;
         mapContT (fun c2 =>
-          e2' <- c2 ;
+          e2' <- c2 ;;
           ret (Match_e v1 ((Lambda.Var_p x, e2')::nil))) (cps e2)
       | Lambda.Lam_e x e =>
-        f <- freshTemp "f" ;
-        c <- freshTemp "c" ;
-        e' <- lift (run (cps e) c) ;
+        f <- freshTemp "f" ;;
+        c <- freshTemp "c" ;;
+        e' <- lift (run (cps e) c) ;;
         (LetLam_e f (x::c::nil) e' [[ Var_o f ]])
       | Lambda.Letrec_e fs e =>
         fs' <- mapM (fun fn =>
                       match fn with
                         | (f,(x,e)) =>
-                          c <- freshTemp "c" ;
-                          e' <- lift (run (cps e) c) ;
+                          c <- freshTemp "c" ;;
+                          e' <- lift (run (cps e) c) ;;
                           ret (f,(x::c::nil,e'))
-                      end) fs ;
-        v <- cps e ;
+                      end) fs ;;
+        v <- cps e ;;
         (Letrec_e fs' [[ v ]])
       | Lambda.Match_e e arms =>
-        v <- cps e ;
-        c <- freshTemp "c" ;
-        x <- freshTemp "x" ;
+        v <- cps e ;;
+        c <- freshTemp "c" ;;
+        x <- freshTemp "x" ;;
         arms' <- lift (mapM (fun p_e =>
-                              e' <- run (cps (snd p_e)) c ;
-                              ret (fst p_e, e')) arms) ;
+                              e' <- run (cps (snd p_e)) c ;;
+                              ret (fst p_e, e')) arms) ;;
         mapContT (fun cc : state nat exp =>
-                    z <- cc ;
+                    z <- cc ;;
                     ret (LetLam_e c (x :: nil) z (Match_e v arms'))) (ret (Var_o x))
     end.
   
@@ -198,13 +199,13 @@ Module CPS.
   Definition indent_by : nat := 2.
 
   Definition emit (s:string) : state (list string) unit :=
-    sofar <- get ;
+    sofar <- get ;;
     put (s::sofar).
 
   Fixpoint indent (n:nat) : state (list string) unit :=
     match n with
       | 0 => ret tt
-      | S n => emit " ";; indent n
+      | S n => emit " " ;; indent n
     end.
 
   Fixpoint emit_list{A}(f:A->string)(vs:list A) : state (list string) unit :=

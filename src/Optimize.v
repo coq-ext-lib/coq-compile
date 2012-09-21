@@ -15,6 +15,7 @@ Set Strict Implicit.
 *)
 Module Optimize.
   Import MonadNotation CPS.
+  Local Open Scope monad_scope.
   (** The optimizer (and much of the compiler) is going to want to use
       some sort of environment:  a finite map from variables to some type
       of information.  Here, I've just used association lists, but obviously,
@@ -158,13 +159,11 @@ Module Optimize.
       return an environment mapping variables to counts.  *)
   Definition counts := env_t nat.
 
-  Notation "e1 ;; e2" := (_ <- e1 ; e2) (at level 51, right associativity).
-
   Definition clear_count (x:var) : ST counts unit :=
-    s <- get ; put (update x 0 s).
+    s <- get ;; put (update x 0 s).
 
   Definition inc_count (x:var) : ST counts unit :=
-    s <- get ;
+    s <- get ;;
     match lookup x s with
       | None => put (update x 1 s)
       | Some c => put (update x (1+c) s)

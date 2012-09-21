@@ -21,6 +21,7 @@ Module Lambda.
   Definition env_t A := list (var * A).
 
   Import MonadNotation.
+  Open Local Scope monad.
 
   Fixpoint lookup {A} (env: env_t A) (x:var) : option A :=
     match env with
@@ -61,6 +62,7 @@ End Lambda.
 
 Module LambdaSemantics.
   Import Lambda MonadNotation.
+  Open Local Scope monad.
   (** Here, we model evaluation of expressions to give a "formal" definition
       of the meaning of programs.  Because [exp] includes the potential for
       diverging programs, we can't directly write the semantics as a Coq
@@ -88,7 +90,7 @@ Module LambdaSemantics.
   Fixpoint zip {A B} (xs:list A) (ys:list B) : option (list (A * B)) :=
     match xs, ys with
       | nil, nil => ret nil
-      | x::xs, y::ys => t <- (zip xs ys) ; ret ((x,y)::t)
+      | x::xs, y::ys => t <- (zip xs ys) ;; ret ((x,y)::t)
       | _, _ => None
     end.
 
@@ -100,8 +102,8 @@ Module LambdaSemantics.
           | Var_e x => lookup env x
           | Lam_e x e => ret (Closure_v env x e)
           | App_e e1 e2 =>
-            v1 <- eval_n n env e1 ;
-            v2 <- eval_n n env e2 ;
+            v1 <- eval_n n env e1 ;;
+            v2 <- eval_n n env e2 ;;
             match v1 with
               | Closure_v env x e => eval_n n ((x,v2)::env) e
               | Fix_v env fs f =>
@@ -120,18 +122,18 @@ Module LambdaSemantics.
             (fix map_eval_n (xs:list exp) (k:list value -> option value) : option value :=
               match xs with
                 | nil => k nil
-                | e::es => v <- eval_n n env e ; map_eval_n es (fun vs => k (v::vs))
+                | e::es => v <- eval_n n env e ;; map_eval_n es (fun vs => k (v::vs))
               end)
             es (fun vs => ret (Con_v c vs))
           | Let_e x e1 e2 =>
-            v1 <- eval_n n env e1 ; eval_n n ((x,v1)::env) e2
+            v1 <- eval_n n env e1 ;; eval_n n ((x,v1)::env) e2
           | Letrec_e fs e =>
             let env' :=
               List.map
               (fun (p:var * (var * exp)) => let (f,_) := p in (f,Fix_v env fs f)) fs in
               eval_n n (env' ++ env) e
           | Match_e e arms =>
-            v <- eval_n n env e ;
+            v <- eval_n n env e ;;
             match v with
               | Con_v c vs =>
                 (fix find_arm (arms:list (pattern * exp)) :=
@@ -140,7 +142,7 @@ Module LambdaSemantics.
                     | ((Var_p x),e)::arms => eval_n n ((x,v)::env) e
                     | ((Con_p c' xs),e)::arms =>
                       if string_dec c c' then
-                        env' <- zip xs vs ; eval_n n (env' ++ env) e
+                        env' <- zip xs vs ;; eval_n n (env' ++ env) e
                       else find_arm arms
                   end) arms
               | _ => None
@@ -157,6 +159,7 @@ End LambdaSemantics.
 Module LambdaNotation.
   Import Lambda MonadNotation.
   Local Open Scope string_scope.
+  Local Open Scope monad_scope.
 
   Definition digit2string (n:nat) : string :=
     match n with
@@ -187,50 +190,50 @@ Module LambdaNotation.
   End Program_Scope.
 
   Definition fresh (x:string) : state nat string :=
-    n <- get ;
-    _ <- put (S n) ;
+    n <- get ;;
+    put (S n) ;;
     ret (x ++ nat2string n).
 
   Definition Exp := ST nat exp.
   Definition gen (E : Exp) : exp :=
     fst (runState E 0).
   Definition FN (f : Exp -> Exp) : Exp :=
-    x <- fresh "x" ; e <- f (ret (Var_e x)) ; ret (Lam_e x e).
+    x <- fresh "x" ;; e <- f (ret (Var_e x)) ;; ret (Lam_e x e).
   Notation "\ x => e" := (FN (fun x => e)) (at level 80).
-  Definition APP (E1 E2:Exp) : Exp := e1 <- E1 ; e2 <- E2 ; ret (App_e e1 e2).
+  Definition APP (E1 E2:Exp) : Exp := e1 <- E1 ;; e2 <- E2 ;; ret (App_e e1 e2).
   Notation "E1 @ E2" := (APP E1 E2) (left associativity, at level 69).
   Definition LET (E1:Exp) (f:Exp -> Exp) : Exp :=
-    x <- fresh "x" ; e1 <- E1 ; e2 <- f (ret (Var_e x)) ; ret (Let_e x e1 e2).
+    x <- fresh "x" ;; e1 <- E1 ;; e2 <- f (ret (Var_e x)) ;; ret (Let_e x e1 e2).
   Notation "'def' x := E1 'in' E2" := (LET E1 (fun x => E2))
     (right associativity, at level 75, E2 at next level).
   Definition LETREC (f:Exp -> Exp -> Exp) (E:Exp -> Exp) : Exp :=
-    fname <- fresh "f" ; x <- fresh "x" ;
-    fbody <- f (ret (Var_e fname)) (ret (Var_e x)) ;
-    e <- E (ret (Var_e fname)) ;
+    fname <- fresh "f" ;; x <- fresh "x" ;;
+    fbody <- f (ret (Var_e fname)) (ret (Var_e x)) ;;
+    e <- E (ret (Var_e fname)) ;;
     ret (Letrec_e ((fname,(x,fbody))::nil) e).
   Notation "'defrec' f [ x ] := E1 'in' E2" := (LETREC (fun f x => E1) (fun f => E2))
     (right associativity, at level 75, E2 at next level).
   Definition true_c : Exp := ret (Con_e "true" nil).
   Definition false_c : Exp := ret (Con_e "false" nil).
   Definition Z_c : Exp := ret (Con_e "0" nil).
-  Definition S_c (E:Exp) : Exp := e <- E ; ret (Con_e "S" (e::nil)).
+  Definition S_c (E:Exp) : Exp := e <- E ;; ret (Con_e "S" (e::nil)).
   Definition IF_e (E1 E2 E3:Exp) : Exp :=
-    e1 <- E1 ; e2 <- E2 ; e3 <- E3 ;
+    e1 <- E1 ;; e2 <- E2 ;; e3 <- E3 ;;
     ret (Match_e e1 ((Con_p "true" nil, e2)::(Con_p "false" nil, e3)::nil)).
   Notation "'If' E1 'then' E2 'else' E3" := (IF_e E1 E2 E3)
     (right associativity, at level 72, E3 at next level).
   Notation "'nat_match' E 'with' 'Z' => E1 | 'S' [ x2 ] => E2" :=
-    (e <- E ; e1 <- E1 ; n <- fresh "n" ; e2 <- (fun x2 => E2) (ret (Var_e n)) ;
+    (e <- E ;; e1 <- E1 ;; n <- fresh "n" ;; e2 <- (fun x2 => E2) (ret (Var_e n)) ;;
       ret (Match_e e ((Con_p "0" nil, e1) :: (Con_p "S" (n::nil), e2) :: nil)))
     (at level 72, e2 at next level).
   Definition PAIR_e (E1 E2:Exp) : Exp :=
-    e1 <- E1 ; e2 <- E2 ; ret (Con_e "pair" (e1::e2::nil)).
+    e1 <- E1 ;; e2 <- E2 ;; ret (Con_e "pair" (e1::e2::nil)).
   Notation "[[ e1 , e2 ]]" := (PAIR_e e1 e2).
   Definition fst' (E1:Exp) : Exp :=
-    e1 <- E1 ; a <- fresh "a" ; b <- fresh "b" ;
+    e1 <- E1 ;; a <- fresh "a" ;; b <- fresh "b" ;;
     ret (Match_e e1 ((Con_p "pair" (a::b::nil), Var_e a)::nil)).
   Definition snd' (E1:Exp) : Exp :=
-    e1 <- E1 ; a <- fresh "a" ; b <- fresh "b" ;
+    e1 <- E1 ;; a <- fresh "a" ;; b <- fresh "b" ;;
     ret (Match_e e1 ((Con_p "pair" (a::b::nil), Var_e b)::nil)).
 
   Definition e1 := def y := S_c Z_c in S_c y.
