@@ -5,6 +5,7 @@ Require Import ExtLib.Monad.OptionMonad ExtLib.Monad.StateMonad ExtLib.Monad.Con
 Require Import ExtLib.Monad.Folds.
 Require Import ExtLib.Data.Strings.
 Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.Tactics.Consider.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -18,6 +19,19 @@ Module CPS.
   Inductive op : Type :=
   | Var_o : var -> op
   | Con_o : constructor -> op.
+
+  Global Instance RelDec_op_eq : RelDec (@eq op) :=
+  { rel_dec l r := match l , r with
+                     | Var_o l , Var_o r => eq_dec l r
+                     | Con_o l , Con_o r => eq_dec l r
+                     | _ , _ => false
+                   end }.
+
+  Global Instance RelDecCorrect_op_eq : RelDec_Correct RelDec_op_eq.
+  Proof.
+    constructor. destruct x; destruct y; simpl; split; intros; subst; try congruence;
+    try ((consider (string_dec v v0) || consider (string_dec c c0))); intros; subst; congruence. 
+  Qed.
 
   Inductive exp : Type :=
   | App_e : op -> list op -> exp
