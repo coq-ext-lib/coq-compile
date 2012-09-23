@@ -88,6 +88,7 @@ Module Optimize.
   Fixpoint find_arm (v:op) (arms : list (pattern * exp)) (def: option exp) := 
     match v, arms, def with 
       | Var_o _, _, _ => None
+      | Halt_o, _, _ => None
       | v, nil, None => None
       | v, nil, Some e => Some e
       | Con_o c, ((Int_p _,_)::_), _ => None
@@ -216,6 +217,7 @@ Module Optimize.
         | Var_o x => inc_count x
         | Con_o _ => ret tt
         | Int_o _ => ret tt
+        | Halt_o => ret tt
       end.
 
     Fixpoint uses_exp (e:exp) : state counts unit := 
