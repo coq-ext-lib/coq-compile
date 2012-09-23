@@ -1,6 +1,7 @@
 CORE       := Env Lambda Parse Cps Optimize
-OPT        := CopyPropCps MatchRedCps
-MODULES    := $(CORE) $(OPT:%=Opt/%)
+#OPT        := CopyPropCps MatchRedCps
+#MODULES    := $(CORE) $(OPT:%=Opt/%)
+MODULES    := $(CORE) 
 TESTS      :=
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
