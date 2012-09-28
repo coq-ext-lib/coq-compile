@@ -165,7 +165,7 @@ Module Optimize.
               | _ => reduce_exp subst (snd p)
             end)) arms in 
         let def' := option_map (reduce_exp subst) def in
-          match find_arm v' arms def' with
+          match find_arm v' arms' def' with
             | None => SimplSwitch_e v' arms' def'
             | Some e => e
           end
@@ -370,26 +370,9 @@ Module Optimize.
       | S n => optimize n (reduce (deadcode (inline_once e)))
     end.
 
-(*
+  (*
   Section TEST_OPTIMIZER.
-    Require Import Parse.  
-    Import Lambda Parse.
-    Import LambdaNotation.
-    Definition test_exp := 
-      match 
-      parse_exp ( "
-        (lambda (x) 
-          (match x 
-              ((Z) (match x 
-                    ((Z) `(Z))
-                    ((S a) a)
-                   ))
-              ((S z) (match x
-                      ((Z) `(Z))
-                      ((S b) b)))))
-      ")
-      with 
-        Some p => fst p | None => Lambda.Con_e "c"%string nil end.
+     Import LambdaNotation.
      Eval compute in (exp2string (CPS test_exp)).
      Eval compute in (exp2string (optimize 2 (CPS test_exp))).
      Eval compute in (exp2string (CPS (gen e1))).
@@ -409,6 +392,6 @@ Module Optimize.
      Eval compute in (exp2string (CPS (gen e8))).
      Eval compute in (exp2string (optimize 2 (CPS (gen e8)))).
   End TEST_OPTIMIZER.
-*)
+  *)
 
 End Optimize.
