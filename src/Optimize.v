@@ -88,7 +88,6 @@ Module Optimize.
   Fixpoint find_arm (v:op) (arms : list (pattern * exp)) (def: option exp) := 
     match v, arms, def with 
       | Var_o _, _, _ => None
-      | Halt_o, _, _ => None
       | v, nil, None => None
       | v, nil, Some e => Some e
       | Con_o c, ((Int_p _,_)::_), _ => None
@@ -169,6 +168,7 @@ Module Optimize.
             | None => SimplSwitch_e v' arms' def'
             | Some e => e
           end
+      | Halt_e o => Halt_e (reduce_op subst o)
     end 
   with reduce_decl (subst:env_t decl) (d:decl) : option decl * env_t decl := 
     match d with 
@@ -217,7 +217,6 @@ Module Optimize.
         | Var_o x => inc_count x
         | Con_o _ => ret tt
         | Int_o _ => ret tt
-        | Halt_o => ret tt
       end.
 
     Fixpoint uses_exp (e:exp) : state counts unit := 
@@ -227,6 +226,7 @@ Module Optimize.
         | Switch_e v arms def => 
           use_op v ;; iter (fun p => uses_exp (snd p)) arms ;; 
           match def with None => ret tt | Some e => uses_exp e end
+        | Halt_e o => use_op o
       end
     with uses_decl (d:decl) : state counts unit := 
       match d with 
@@ -250,6 +250,7 @@ Module Optimize.
                        end
         | Switch_e v arms def => 
           Switch_e v (map (fun p => (fst p, dead_exp (snd p))) arms) (option_map dead_exp def)
+        | Halt_e o => e
       end
     with dead_decl (d:decl) : option decl := 
       match d with 
@@ -279,6 +280,7 @@ Module Optimize.
         | Switch_e _ arms def => 
           iter (fun p => calls_exp (snd p)) arms ;; 
           match def with None => ret tt | Some e => calls_exp e end
+        | Halt_e o => ret tt
       end
     with calls_decl (d:decl) : state counts unit := 
       match d with
@@ -322,6 +324,7 @@ Module Optimize.
         | Switch_e v arms def => 
           Switch_e v (map (fun p => (fst p, inline1_exp env (snd p))) arms) 
             (option_map (inline1_exp env) def)
+        | Halt_e o => e
       end
     (** We keep track of whether the declaration is in a [Rec_d] and if so, we don't
         add the declaration to those to be inlined to avoid some problems (see below). *)

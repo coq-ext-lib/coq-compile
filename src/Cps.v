@@ -25,8 +25,7 @@ Module CPS.
   Inductive op : Type := 
   | Var_o : var -> op
   | Con_o : constructor -> op
-  | Int_o : Z -> op
-  | Halt_o : op. (* special operand for denoting the terminal continuation *)
+  | Int_o : Z -> op.
 
   (** We compile pattern matching into simple C-like switch expressions, where
       you can only match an operand against a tag, which is either an integer
@@ -63,6 +62,7 @@ Module CPS.
         pattern matching.  The optional expression at the end is a default in case
         none of the patterns matches the value. *)
   | Switch_e : op -> list (pattern * exp) -> option exp -> exp
+  | Halt_e : op -> exp
   with decl : Type := 
     (** let x := v *)
   | Op_d : var -> op -> decl
@@ -128,7 +128,6 @@ Module CPS.
         | Var_o x => x
         | Con_o c => "Con(" ++ c ++ ")"
         | Int_o i => z2string i
-        | Halt_o => "HALT"
       end.
     Definition pat2string (p:pattern) : string := 
       match p with 
@@ -165,6 +164,7 @@ Module CPS.
              | Some e => emit newline ;; indent n ;; emit "| _ => " ;; emitexp (2+n) e
            end ;;
            emit newline ;; indent n ;; emit "end"
+         | Halt_e o => emit "HALT " ;; emit (op2string o)
        end
      with emitdecl (inrec:bool)(n:nat)(d:decl) : state (list string) unit := 
        let emit_sep : state (list string) unit := if inrec then emit " and" else emit " in" in 
@@ -207,7 +207,6 @@ Module CPS.
                      | Var_o l , Var_o r => eq_dec l r
                      | Con_o l , Con_o r => eq_dec l r
                      | Int_o l , Int_o r => eq_dec l r
-                     | Halt_o, Halt_o => true
                      | _ , _ => false
                    end }.
 
@@ -373,7 +372,7 @@ Module CPS.
     end.
 
   Definition CPS(e:Lambda.exp) : exp := 
-    fst (runState (cps e (fun v => ret (App_e Halt_o (v::nil)))) 0).
+    fst (runState (cps e (fun x => ret (Halt_e x))) 0).
 
   Section CPSEVAL.
     (** Because this version of CPS supports recursive records, as well as recursive
@@ -386,8 +385,7 @@ Module CPS.
     Inductive value : Type := 
     | Con_v : constructor -> value
     | Int_v : Z -> value
-    | Ptr_v : nat -> value
-    | Halt_v : value.
+    | Ptr_v : nat -> value.
 
     (** Allocated values *)
     Inductive heap_value : Type := 
@@ -419,7 +417,6 @@ Module CPS.
       match v with 
         | Con_o c => ret (Con_v c)
         | Int_o i => ret (Int_v i)
-        | Halt_o => ret Halt_v
         | Var_o x => lookup env x
       end.
 
@@ -568,12 +565,12 @@ Module CPS.
                     | Closure_v env xs e => env' <- extends env xs vs' ; eval_exp n env' e
                     | _ => zero
                   end
-                | Halt_v => ret vs'
                 | _ => zero
               end
             | Let_e d e => env' <- eval_decl env d ; eval_exp n env' e
             | Switch_e v arms def => 
               v' <- eval_op env v ; e <- find_arm v' arms def ; eval_exp n env e
+            | Halt_e o => x <- eval_op env o ;; ret (x::nil)
           end 
       end.
 
