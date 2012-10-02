@@ -146,79 +146,16 @@ Module Parse.
   End TOKENIZE.
 
   (** Parsing *)
-  (** The parser below has a number of different "states" which represent
-      functions that I wish I could break out into a set of mutually-
-      recursive functions.  Alas, the [Program Fixpoint] construct doesn't
-      support mutual recursion.  So the states represent which function
-      I'm really meaning to be in. *)
-  Inductive state : Type :=
-  | TOPDECL | EXP | EXPLIST | CONARGLIST | ARGLIST | ARMLIST | DECLLIST.
-
-  Import List.  (* to avoid notation conflicts with String. *)
-
-  (** Each state has a distinct answer type.  Some of these don't really need to
-      be options.   For many of the cases, we need to also know that we've
-      consumed the input stream of tokens, or at least that the input is no bigger.
-      So even though I wish I could break parse into separate functions, it's
-      at least nice that the return type for the different states can be broken
-      out this way. *)
-  Definition result(ts:list token)(s:state) : Type :=
-    match s with
-      | TOPDECL => option (list (var * exp))
-      | EXP => option {p : exp * (list token) & length (snd p) < length ts}
-      | EXPLIST => option {p: (list exp) * (list token) & length (snd p) <= length ts}
-      | ARGLIST => option {p: (list var) * (list token) & length (snd p) <= length ts}
-      | CONARGLIST => option {p: (list exp)*(list token) & length (snd p) <= length ts}
-      | ARMLIST => option {p:(list (pattern*exp))*(list token) &
-                                length (snd p) <= length ts}
-      | DECLLIST => option {p:(list (var*(var*exp)))*(list token) &
-                            length (snd p) <= length ts}
-    end.
-
-  (** We need to define an order on states.  This is because I want to be able
-      to have some states invoke the parser on other states without consuming
-      any input.  So to ensure that we don't loop infinitely, we just need that
-      the [EXP] state is "less than" the other states that invoke it. *)
-  Definition state2nat (s:state) : nat :=
-    match s with
-      | EXP => 0
-      | EXPLIST => 1
-      | CONARGLIST => 2
-      | ARGLIST => 3
-      | ARMLIST => 4
-      | DECLLIST => 5
-      | TOPDECL => 6
-    end.
-
-  (** Our well-founded order for the parser will be the lexicographic order
-      on pairs of a token list and a state.  So each time around the loop,
-      either the token list gets shorter, or else the state goes down
-      according to the order above. *)
-  Definition state_list_lt :=
-    @lexprod (list token) (fun _ => state)
-    (fun ts1 ts2 => length ts1 < length ts2)
-    (fun ts s1 s2 => state2nat s1 < state2nat s2).
-
-  (** The [measure] annotation says that we are using the [state_list_lt] relation
-      on pairs of lists of tokens and a state to ensure termination.  One of the
-      proof obligations that is generated is showing that [state_list_lt] is
-      a well-founded relation (i.e., has no infinite descending chain).  The
-      other proof obligations arise from needing to prove that we are going down
-      in the [state_list_lt] order each time we go through the loop, or else
-      arise from simple type equations/ordering issues due to the use of [Program].
-      All of this is just to convince Coq that the parser terminates!
-  *)
-  Program Fixpoint parse (ts:list token) (s:state)
-    {measure (existT _ ts s) (state_list_lt)} : result ts s :=
-    match s with
-      | TOPDECL =>
-        (** TOPDECL -> (define x <EXP>) <TOPDECL> | epsilon *)
+  Fixpoint parse (ts:list token) (fuel:nat) : option (list (var * exp)) :=
+    match fuel with
+      | O => None
+      | S fuel =>
         match ts with
           | nil => Some nil
           | LPAREN::DEFINE::(ID x)::ts1 =>
-            match parse ts1 EXP with
-              | Some (existT (e,RPAREN::ts2) H2) =>
-                match parse ts2 TOPDECL with
+            match parse_exp' ts1 fuel with
+              | Some (e,RPAREN::ts2) =>
+                match parse ts2 fuel with
                   | Some es => Some ((x,e)::es)
                   | _ => None
                 end
@@ -226,181 +163,177 @@ Module Parse.
             end
           | _ => None
         end
-      | EXP =>
+    end
+  with parse_exp' (ts:list token) (fuel:nat) : option (exp * (list token)) :=
+    match fuel with
+      | O => None
+      | S fuel =>
         match ts with
-          (* EXP -> <ID> *)
-          | (ID x)::ts2 => Some (existT _ (Var_e x, ts2) _)
-          (* EXP -> (lambda (<ID>) <EXP>) *)
+        (* EXP -> <ID> *)
+          | (ID x)::ts2 => Some (Var_e x, ts2)
+        (* EXP -> (lambda (<ID>) <EXP>) *)
           | LPAREN::LAMBDA::LPAREN::(ID x)::RPAREN::ts2 =>
-            match parse ts2 EXP with
-              | Some (existT (e,RPAREN::ts3) H3) =>
-                Some (existT _ (Lam_e x e,ts3) _)
+            match parse_exp' ts2 fuel with
+              | Some (e,RPAREN::ts3) => Some (Lam_e x e,ts3)
               | _ => None
             end
           (* EXP -> (lambdas (<ARGLIST>) <EXP>) *)
           | LPAREN::LAMBDAS::LPAREN::ts2 =>
-            match parse ts2 ARGLIST with
-              | Some (existT (xs,RPAREN::ts3) H3) =>
-                match parse ts3 EXP with
-                  | Some (existT (e,RPAREN::ts4) H4) =>
-                    Some (existT _ (fold_right Lam_e e xs,ts4) _)
+            match parse_arglist ts2 fuel with
+              | Some (xs,RPAREN::ts3) =>
+                match parse_exp' ts3 fuel with
+                  | Some (e,RPAREN::ts4) =>
+                    Some (fold_right Lam_e e xs,ts4)
                   | _ => None
                 end
               | _ => None
             end
           (* EXP -> `(<ID> <CONARGLIST>) *)
           | QUOTE::LPAREN::(ID c)::ts2 =>
-            match parse ts2 CONARGLIST with
-              | Some (existT (es,RPAREN::ts3) H3) =>
-                Some (existT _ (Con_e c es,ts3) _)
+            match parse_conarglist ts2 fuel with
+              | Some (es,RPAREN::ts3) =>
+                Some (Con_e c es,ts3)
               | _ => None
             end
           (* EXP -> (@ <EXPLIST>) *)
           | LPAREN::AT::ts2 =>
-            match parse ts2 EXP with
-              | Some (existT (e1,ts3) H3) =>
-                match parse ts3 EXPLIST with
-                  | Some (existT (es,RPAREN::ts4) H4) =>
-                    Some (existT _ (fold_left App_e es e1,ts4) _)
+            match parse_exp' ts2 fuel with
+              | Some (e1,ts3) =>
+                match parse_exp'list ts3 fuel with
+                  | Some (es,RPAREN::ts4) =>
+                    Some (fold_left App_e es e1,ts4)
                   | _ => None
                 end
               | _ => None
             end
           (* EXP -> (match <EXP> <ARMLIST>) *)
           | LPAREN::MATCH::ts1 =>
-            match parse ts1 EXP with
-              | Some (existT (e,ts2) H2) =>
-                match parse ts2 ARMLIST with
-                  | Some (existT (arms,RPAREN::ts3) H3) =>
-                    Some (existT _ (Match_e e arms,ts3) _)
+            match parse_exp' ts1 fuel with
+              | Some (e,ts2) =>
+                match parse_armlist ts2 fuel with
+                  | Some (arms,RPAREN::ts3) =>
+                    Some (Match_e e arms,ts3)
                   | _ => None
                 end
               | _ => None
             end
           (* EXP -> (letrec (<DECLLIST>) <EXP>) *)
           | LPAREN::LETREC::LPAREN::ts1 =>
-            match parse ts1 DECLLIST with
-              | Some (existT (ds,RPAREN::ts2) H2) =>
-                match parse ts2 EXP with
-                  | Some (existT (e,RPAREN::ts3) H3) =>
-                    Some (existT _ (Letrec_e ds e,ts3) _)
+            match parse_decllist ts1 fuel with
+              | Some (ds,RPAREN::ts2)=>
+                match parse_exp' ts2 fuel with
+                  | Some (e,RPAREN::ts3) =>
+                    Some (Letrec_e ds e,ts3)
                   | _ => None
                 end
               | _ => None
             end
           (* EXP -> (<EXP> <EXP>) *)
           | LPAREN::ts2 =>
-            match parse ts2 EXP with
-              | Some (existT (e1,ts3) H3) =>
-                match parse ts3 EXP with
-                  | Some (existT (e2,RPAREN::ts4) H4) =>
-                    Some (existT _ (App_e e1 e2,ts4) _)
+            match parse_exp' ts2 fuel with
+              | Some (e1,ts3) =>
+                match parse_exp' ts3 fuel with
+                  | Some (e2,RPAREN::ts4) =>
+                    Some (App_e e1 e2,ts4)
                   | _ => None
                 end
               | _ => None
             end
           | _ => None
         end
-      (* EXPLIST -> <EXP> <EXPLIST> | epsilon *)
-      | EXPLIST =>
-        match parse ts EXP with
-          | Some (existT (e,ts2) H2) =>
-            match parse ts2 EXPLIST with
-              | Some (existT (es,ts3) H3) => Some (existT _ (e::es,ts3) _)
+    end
+  with parse_exp'list (ts:list token) (fuel:nat) : option ((list exp) * (list token)) :=
+    match fuel with
+      | O => None
+      | S fuel =>
+        match parse_exp' ts fuel with
+          | Some (e,ts2) =>
+            match parse_exp'list ts2 fuel with
+              | Some (es,ts3) => Some (e::es,ts3)
               | None => None
             end
-          | None => Some (existT _ (nil,ts) _)
+          | None => Some (nil,ts)
         end
-      (* CONARGLIST -> ,<EXP> <CONARGLIST> | epsilon *)
-      | CONARGLIST =>
+    end
+  with parse_conarglist (ts:list token) (fuel:nat) : option ((list exp) * (list token)) :=
+    match fuel with
+      | O => None
+      | S fuel =>
         match ts with
           | COMMA::ts1 =>
-            match parse ts1 EXP with
-              | Some (existT (e,ts2) H2) =>
-                match parse ts2 CONARGLIST with
-                  | Some (existT (es,ts3) H3) => Some (existT _ (e::es,ts3) _)
+            match parse_exp' ts1 fuel with
+              | Some (e,ts2) =>
+                match parse_conarglist ts2 fuel with
+                  | Some (es,ts3) => Some (e::es,ts3)
                   | None => None
                 end
               | None => None
             end
-          | _ => Some (existT _ (nil,ts) _)
+          | _ => Some (nil,ts)
         end
+    end
+  with parse_arglist (ts:list token) (fuel:nat) : option ((list var) * (list token)) :=
+    match fuel with
+      | O => None
+      | S fuel =>
       (* ARGLIST -> <ID> <ARGLIST> | epsilon *)
-      | ARGLIST =>
         match ts with
           | (ID x)::ts2 =>
-            match parse ts2 ARGLIST with
-              | Some (existT (xs,ts3) H3) =>
-                Some (existT _ (x::xs,ts3) _)
+            match parse_arglist ts2 fuel with
+              | Some (xs,ts3) =>
+                Some (x::xs,ts3)
               | _ => None
             end
-          | _ => Some (existT _ (nil,ts) _)
+          | _ => Some (nil,ts)
         end
+    end
+  with parse_armlist (ts:list token) (fuel:nat) : option ((list (pattern*exp)) * (list token)) :=
+    match fuel with
+      | O => None
+      | S fuel =>
       (* ARMLIST -> ((<ID> <ARGLIST>) <EXP>) ARMLIST | epsilon *)
-      | ARMLIST =>
         match ts with
           | LPAREN::LPAREN::(ID c)::ts1 =>
-            match parse ts1 ARGLIST with
-              | Some (existT (xs,RPAREN::ts2) H2) =>
-                match parse ts2 EXP with
-                  | Some (existT (e,RPAREN::ts3) H3) =>
-                    match parse ts3 ARMLIST with
-                      | Some (existT (arms,ts4) H4) =>
-                        Some (existT _ ((Con_p c xs,e)::arms,ts4) _)
+            match parse_arglist ts1 fuel with
+              | Some (xs,RPAREN::ts2) =>
+                match parse_exp' ts2 fuel with
+                  | Some (e,RPAREN::ts3) =>
+                    match parse_armlist ts3 fuel with
+                      | Some (arms,ts4) =>
+                        Some ((Con_p c xs,e)::arms,ts4)
                       | _ => None
                     end
                   | _ => None
                 end
               | _ => None
             end
-          | _ => Some (existT _ (nil,ts) _)
+          | _ => Some (nil,ts)
         end
-      | DECLLIST =>
+    end
+  with parse_decllist (ts:list token) (fuel:nat) : option ((list (var*(var*exp))) * (list token)) :=
+    match fuel with
+      | O => None
+      | S fuel =>
         match ts with
           | LPAREN::(ID f)::ts1 =>
-            match parse ts1 EXP with
-              | Some (existT (Lam_e x e,RPAREN::ts2) H2) =>
-                match parse ts2 DECLLIST with
-                  | Some (existT (ds,ts3) H3) =>
-                    Some (existT _ ((f,(x,e))::ds,ts3) _)
+            match parse_exp' ts1 fuel with
+              | Some (Lam_e x e,RPAREN::ts2) =>
+                match parse_decllist ts2 fuel with
+                  | Some (ds,ts3) =>
+                    Some ((f,(x,e))::ds,ts3)
                   | _ => None
                 end
               | _ => None
             end
-          | _ => Some (existT _ (nil,ts) _)
+          | _ => Some (nil,ts)
         end
     end.
-  (* Tactic for knocking off all of the obligations except the well-foundedness
-     of [state_list_lt]. *)
-  Solve Obligations using
-    simpl ; intros ; subst ; simpl in * ; auto ;
-    match goal with
-      | [ |- state_list_lt _ _ ] =>
-        eapply left_lex ; simpl ; auto with arith ; omega ; fail
-      | [ |- state_list_lt _ _] =>
-        eapply right_lex ; simpl ; auto with arith ; omega
-      | _ => intuition ; congruence
-    end.
-   Next Obligation.
-     (* This is conveniently proved using lemmas from the libraries.  To prove
-        that [state_list_lt] is well-founded, we use the [wf_lexprod] lemma which
-        basically makes us show that the two relations we used on the pairs are
-        well-founded.  In turn, these reduce to showing that a relation
-        [fun x y -> (f x) < (f y)] is well founded for some [f:A->nat], which
-        is conveniently provided by the [well_founded_ltof] lemma. *)
-     apply measure_wf. unfold state_list_lt. apply wf_lexprod.
-     apply (well_founded_ltof (list token) (fun x => length x)). intros.
-     apply (well_founded_ltof state state2nat).
-   Defined.
 
   (** A parser for expresions *)
   Definition parse_exp (s:string) : option (exp * list token) :=
     match tokenize s nil with
       | None => None
-      | Some ts => match parse ts EXP with
-                     | None => None
-                     | Some (existT (e,ts) _) => Some (e,ts)
-                   end
+      | Some ts => parse_exp' ts (List.length ts) 
     end.
 
   (** Some test cases -- should turn these into real unit tests. *)
@@ -442,7 +375,7 @@ Module Parse.
   Definition parse_topdecls (s:string) : option exp :=
     match tokenize s nil with
       | None => None
-      | Some ts => match parse ts TOPDECL with
+      | Some ts => match parse ts (List.length ts) with
                      | None => None
                      | Some ds =>
                        Some (collapse_decls ds nil (App_e (Var_e "main") (Con_e "Tt" nil)))
