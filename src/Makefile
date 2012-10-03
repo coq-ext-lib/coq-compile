@@ -1,4 +1,4 @@
-CORE       := Env Lambda Parse Cps Optimize
+CORE       := Env Lambda Parse Cps Optimize LLVM
 #OPT        := CopyPropCps MatchRedCps
 #MODULES    := $(CORE) $(OPT:%=Opt/%)
 MODULES    := $(CORE) 
