@@ -202,6 +202,27 @@ Module CPS.
     constructor. intros.  generalize (Zeq_is_eq_bool x y). simpl. intros. tauto.
   Qed.
 
+  Global Instance RelDec_primop_eq : RelDec (@eq primop) := 
+  { rel_dec := fun x y =>
+    match x , y with
+      | Eq_p , Eq_p 
+      | Neq_p , Neq_p
+      | Lt_p , Lt_p
+      | Lte_p , Lte_p
+      | Ptr_p , Ptr_p
+      | Plus_p , Plus_p
+      | Minus_p , Minus_p
+      | Times_p , Times_p
+      | MkTuple_p , MkTuple_p 
+      | Proj_p , Proj_p => true
+      | _ , _ => false
+    end }.
+
+  Global Instance RelDecCorrect_primop_eq : RelDec_Correct RelDec_primop_eq.
+  Proof.
+    constructor. destruct x; destruct y; simpl; split; intros; subst; try congruence.
+  Qed.
+
   Global Instance RelDec_op_eq : RelDec (@eq op) :=
   { rel_dec l r := match l , r with
                      | Var_o l , Var_o r => eq_dec l r
