@@ -162,8 +162,9 @@ Module LLVM.
 
   Fixpoint string_of_constant (c:constant) : string := 
     match c with 
-      | True_c => "true" | False_c => "false" | Int_c i => string_of_Z i
-      | Float_c s => s | Null_c => "null" | Global_c v => v 
+      | True_c => "true" | False_c => "false" 
+      | Int_c i => string_of_Z i
+      | Float_c s => s | Null_c =>  "null" | Global_c v => v 
       | Undef_c => "undef" | Zero_c => "zeroinitializer"
       | Struct_c cs => "{" ++ (sep ", " (List.map string_of_constant cs)) ++ "}"
       | Array_c cs => "[" ++ (sep ", " (List.map string_of_constant cs)) ++ "]"
@@ -233,7 +234,7 @@ Module LLVM.
   | Alloca_e : type -> option (type * nat) -> option nat -> exp
   | Load_e : forall (atomic:bool) (volatile:bool) (ty:type) (pointer:value) (align:option nat)
                     (nontemporal:option nat) (invariant:option nat) (singlethread:bool), exp
-  | Getelementptr_e : forall (inbounds:bool)(pointer_ty:type) (pointerval: value), list (type * nat) -> exp
+  | Getelementptr_e : forall (inbounds:bool)(pointer_ty:type) (pointerval: value), list (type * value) -> exp
   | Trunc_e : type -> value -> type -> exp
   | Zext_e : type -> value -> type -> exp
   | Sext_e : type -> value -> type -> exp
@@ -317,7 +318,7 @@ Module LLVM.
       | Getelementptr_e inbounds ty v indexes =>
         "getelementptr " ++ (flag inbounds "inbounds ") ++ (string_of_type ty) ++ " " ++ 
         (sep ", " ((string_of_value v)::
-          (List.map (fun p => (string_of_type (fst p)) ++ " " ++ (string_of_nat (snd p))) indexes)))
+          (List.map (fun p => (string_of_type (fst p)) ++ " " ++ (string_of_value (snd p))) indexes)))
       | Trunc_e ty1 v ty2 => string_of_conv "trunc" ty1 v ty2 
       | Zext_e ty1 v ty2 => string_of_conv "zext" ty1 v ty2 
       | Sext_e ty1 v ty2 => string_of_conv "sext" ty1 v ty2 
@@ -361,7 +362,7 @@ Module LLVM.
   | Switch_i : type -> value -> label -> list (type * Z * label) -> instr
   | Resume_i : type -> value -> instr
   | Unreachable_i : instr
-  | Assign_i : var -> exp -> instr
+  | Assign_i : (option value) -> exp -> instr
   | Store_i : forall (atomic:bool) (volatile:bool) (ty:type) (v:value) (ptrty:type) (pointer:value) 
                      (align:option nat) (nontemporal:option nat) (singlethread:bool), instr.
 
@@ -383,7 +384,8 @@ Module LLVM.
       | Resume_i t v => 
           "resume " ++ (string_of_type t) ++ " " ++ (string_of_value v)
       | Unreachable_i => "unreachable"
-      | Assign_i x e => x ++ " = " ++ (string_of_exp e)
+      | Assign_i (Some x) e => (string_of_value x) ++ " = " ++ (string_of_exp e)
+      | Assign_i None e => (string_of_exp e)
       | Store_i atomic volatile ty v ptrty pointer align nontemporal singlethread => 
         (* fix -- doesn't do nontemporal or ordering *)
         "store " ++ (flag atomic "atomic ") ++ (flag volatile "volatile ") ++ (string_of_type ty) ++ " " ++
