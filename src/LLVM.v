@@ -498,10 +498,34 @@ Module LLVM.
   Definition emit_module (m:module) : ST unit := iter emit_topdecl m.
 
   Definition runST (c:ST unit) := 
-    List.fold_left (fun x y => x ++ y) (snd (runState c nil)).
+    List.fold_left (fun x y => y ++ x) (snd (runState c nil)).
 
   Definition string_of_module := runST $ emit_module.
   Definition string_of_topdecl := runST $ emit_topdecl.
   Definition string_of_fn_header b := runST $ (emit_fn_header b).
-      
+
+  (* 
+  Definition test_block : block := (None, Comment_i "Here is a comment." :: Ret_i None :: nil).
+  Definition test : topdecl :=
+    Define_d
+    {|
+      linkage_fh := None;
+      visibility_fh := None;
+      cconv_fh := None;
+      unnamed_addr_fh := false;
+      return_type_fh := I_t 3;
+      return_type_attrs_fh := nil;
+      name_fh := "test";
+      args_fh := nil;
+      attrs_fh := nil;
+      section_fh := None;
+      align_fh := None;
+      gc_fh := None |} 
+    (test_block :: nil).
+
+  Eval compute in (string_of_topdecl test "").
+  *)
+
+
 End LLVM.
+
