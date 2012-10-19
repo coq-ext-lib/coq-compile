@@ -108,7 +108,7 @@ Module ClosureConvert.
           e' <- underBinders (Var_o envV) fvars 1 (cloconv_exp' e') ;;
           e <- cloconv_exp' e ;;
           liftDecl (Fn_d v_code (envV :: vs) e') ;;
-          ret (Let_e (Prim_d v MkTuple_p (Var_o v :: map Var_o fvars))
+          ret (Let_e (Prim_d v MkTuple_p (Var_o v_code :: map Var_o fvars))
                      e)
         | Let_e (Rec_d ds) e =>
           let ds := gather_decls (Rec_d ds) in
@@ -210,6 +210,11 @@ Module ClosureConvert.
     Require Import Lambda.
     Import LambdaNotation.
     Require Import ExtLib.FMaps.FMapAList.
+
+    Definition e5 := CPS (gen ((\ x => If x then Z_c else S_c Z_c) @ true_c)).
+    Eval compute in exp2string e5.
+    Definition e5c := cloconv_exp e5.
+    Eval compute in exp2string e5c.
 
     Definition cc1 := CPS (gen (def y := S_c Z_c in def z := S_c Z_c in S_c y)).
     

@@ -13,6 +13,11 @@ Require Import ExtLib.Decidables.Decidable.
 Set Implicit Arguments.
 Set Strict Implicit.
 
+(** This module provides a function [alpha_cvt] that renames
+    a CPS expression systematically using fresh names everywhere.
+    It's useful for restoring the unique name invariant after some
+    optimization pass such as after inlining functions.
+*)
 Module AlphaCvt.
   Import CPS.
 
