@@ -181,7 +181,7 @@ Module ClosureConvert.
           (** Cps the result **)
           e <- cloconv_exp' e ;;
           (** Return everything **)
-          ret (Let_e (Rec_d ds') e)
+          ret (Let_e (Rec_d (all_env_d :: ds')) e)
         | Switch_e o arms def =>
           o <- cloconv_op o ;;
           arms <- mapM (fun pe =>
