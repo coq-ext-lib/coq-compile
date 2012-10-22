@@ -32,15 +32,16 @@ Module LLVM.
   Definition label := string.
 
   Inductive cconv : Type := 
-  | C_cc | Fast_cc | Cold_cc | CC10_cc | Num_cc : nat -> cconv.
+  | X86_fastcallcc | C_cc | Fast_cc | Cold_cc | CC10_cc | Num_cc : nat -> cconv.
 
   Definition double_quote := Ascii.ascii_of_nat 34.
   Definition quoted (s:string) := 
     String double_quote (s ++ (String double_quote EmptyString)).
 
   Definition string_of_cconv (c:cconv) : string := 
-    quoted
+    (* quoted *)
     match c with 
+      | X86_fastcallcc => "x86_fastcallcc" 
       | C_cc => "ccc" | Fast_cc => "fastcc" | Cold_cc => "coldcc" | CC10_cc => "cc 10"
       | Num_cc n => "cc " ++ (string_of_nat n)
     end.
@@ -182,8 +183,8 @@ Module LLVM.
 
   Definition string_of_value(v:value) : string := 
     match v with 
-      | Local x => x
-      | Global x => x
+      | Local x => "%" ++ x
+      | Global x => "@" ++ x
       | AnonLocal n => "%" ++ (string_of_nat n)
       | AnonGlobal n => "@" ++ (string_of_nat n)
       | Constant c => string_of_constant c
@@ -373,13 +374,13 @@ Module LLVM.
           "ret " ++ 
           (string_of_option (fun p => (string_of_type (fst p) ++ " " ++ (string_of_value (snd p)))) vopt)
       | Br_cond_i v l1 l2 => 
-          "br i1 " ++ (string_of_value v) ++ " label " ++ l1 ++ ", label " ++ l2
+          "br i1 " ++ (string_of_value v) ++ ", label %" ++ l1 ++ ", label %" ++ l2
       | Br_uncond_i l => 
           "br label "++l
       | Switch_i t v def arms => 
-          "switch " ++ (string_of_type t) ++ " " ++ (string_of_value v) ++ ", label " ++ def ++ " [" ++
+          "switch " ++ (string_of_type t) ++ " " ++ (string_of_value v) ++ ", label %" ++ def ++ " [" ++
           (sep " " (List.map (fun p => match p with | (t,i,l) => 
-                                         (string_of_type t) ++ " " ++ (string_of_Z i) ++ ", label " ++ l
+                                         (string_of_type t) ++ " " ++ (string_of_Z i) ++ ", label %" ++ l
                                        end) arms)) ++ " ]"
       | Resume_i t v => 
           "resume " ++ (string_of_type t) ++ " " ++ (string_of_value v)
@@ -398,6 +399,20 @@ Module LLVM.
   Definition emit : string -> ST unit := CPS.emit.
   Definition spaces (n:nat) : ST unit := emit (CPS.spaces n).
   Definition newline : ST unit := emit CPS.newline.
+
+  Section SEPBY.
+    Variable A : Type.
+    Variable f : A -> ST unit.
+    Variable sep : ST unit.
+
+    Fixpoint sepby (xs:list A) : ST unit :=
+      match xs with
+        | nil => ret tt
+        | h::nil => f h
+        | h::t => f h ;; sep ;; sepby t
+      end.
+  End SEPBY.
+
   Definition iter := @CPS.iter.
   Definition emit_option {A} (f:A -> ST unit) (x:option A) : ST unit := 
     match x with 
@@ -446,12 +461,12 @@ Module LLVM.
     (if (unnamed_addr_fh fh) then emit "unnamed_addr " else ret tt) ;; 
     emit (string_of_type (return_type_fh fh)) ;; emit " " ;;
     iter (fun x => emit (string_of_param_attr x) ;; emit " ") (return_type_attrs_fh fh) ;;
-    emit (name_fh fh) ;; emit "(" ;; 
-    iter (fun p => match p with (t,x,attrs) => 
+    emit "@" ;; emit (name_fh fh) ;; emit "(" ;; 
+    sepby (fun p => match p with (t,x,attrs) => 
                      emit (string_of_type t) ;; 
-                     (if drop_vars then ret tt else emit x) ;;
+                     (if drop_vars then ret tt else emit " %"%string ;; emit x) ;;
                      iter (fun x => emit (string_of_param_attr x) ;; emit " ") attrs
-                   end) (args_fh fh) ;;
+                   end) (emit ", ") (args_fh fh) ;;
     emit ") " ;;
     iter (fun x => emit (string_of_fn_attr x) ;; emit " ") (attrs_fh fh) ;;
     emit_option_s (fun s => emit ", section " ;; emit (quoted s) ;; emit " ") (section_fh fh) ;;
@@ -479,9 +494,9 @@ Module LLVM.
         emit_option_s (fun s => emit ", section " ;; emit (quoted s) ;; emit " ") s ;;
         emit_option_s (fun n => emit ", align " ;; emit (string_of_nat n) ;; emit " ") al ;;
         newline 
-      | Define_d fh bs => 
-        emit_fn_header true fh ;; emit " {" ;; newline ;; iter emit_block bs ;; emit "}" ;; newline
-      | Declare_d fh => emit_fn_header false fh ;; newline
+      | Define_d fh bs => emit "define " ;;
+        emit_fn_header false fh ;; emit " {" ;; newline ;; iter emit_block bs ;; emit "}" ;; newline
+      | Declare_d fh => emit "declare " ;; emit_fn_header true fh ;; newline
       | Alias_d x l v t e => 
         emit x ;; emit " = alias " ;; 
         emit_option_s (emit $ string_of_linkage) l ;;
