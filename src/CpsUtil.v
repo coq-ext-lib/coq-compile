@@ -20,7 +20,7 @@ Section AllB.
 
   Fixpoint anyb (ls : list T) : bool :=
     match ls with
-      | nil => true
+      | nil => false
       | l :: ls =>
         if p l then true else anyb ls
     end.
