@@ -1,4 +1,4 @@
-CORE       := Env Lambda Parse Cps Optimize LLVM CpsUtil AlphaCvtCps CloConv
+CORE       := Env Lambda Parse Cps Optimize LLVM CpsUtil AlphaCvtCps CloConv SimpleAnalysis
 OPT        := AlphaCps CseCps
 MODULES    := $(CORE) $(OPT:%=Opt/%)
 TESTS      :=
