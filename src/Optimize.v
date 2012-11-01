@@ -1,9 +1,11 @@
-Require Import Lambda Cps.
+Require Import CoqCompile.Lambda CoqCompile.Cps CoqCompile.CpsUtil.
 Require Import ZArith String List Bool.
-Require Import ExtLib.Monad.Monad.
-Require Import ExtLib.Monad.OptionMonad ExtLib.Monad.StateMonad ExtLib.Monad.ContMonad.
+Require Import ExtLib.Structures.Monads.
+Require Import ExtLib.Structures.Reducible.
+Require Import ExtLib.Data.Monads.OptionMonad.
+Require Import ExtLib.Data.Monads.StateMonad.
 Require Import ExtLib.Data.Strings.
-Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.Core.RelDec.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -165,7 +167,7 @@ Module Optimize.
             end)) arms in
         let def' := option_map (reduce_exp subst) def in
           match find_arm v' arms' def' with
-            | None => SimplSwitch_e v' arms' def'
+            | None => switch_e v' arms' def'
             | Some e => e
           end
       | Halt_e o => Halt_e (reduce_op subst o)
@@ -221,19 +223,19 @@ Module Optimize.
 
     Fixpoint uses_exp (e:exp) : state counts unit :=
       match e with
-        | App_e v vs => use_op v ;; iter use_op vs
+        | App_e v vs => use_op v ;; iterM use_op vs
         | Let_e d e => uses_decl d ;; uses_exp e
         | Switch_e v arms def =>
-          use_op v ;; iter (fun p => uses_exp (snd p)) arms ;;
+          use_op v ;; iterM (fun p => uses_exp (snd p)) arms ;;
           match def with None => ret tt | Some e => uses_exp e end
         | Halt_e o => use_op o
       end
     with uses_decl (d:decl) : state counts unit :=
       match d with
         | Op_d x v => use_op v
-        | Prim_d x p vs => iter use_op vs ;; clear_count x
+        | Prim_d x p vs => iterM use_op vs ;; clear_count x
         | Fn_d f xs e => uses_exp e
-        | Rec_d ds => iter uses_decl ds
+        | Rec_d ds => iterM uses_decl ds
       end.
 
     Definition calc_uses (e:exp) : counts := snd (runState (uses_exp e) initial_env).
@@ -278,7 +280,7 @@ Module Optimize.
         | App_e v vs => use_op v
         | Let_e d e => calls_decl d ;; calls_exp e
         | Switch_e _ arms def =>
-          iter (fun p => calls_exp (snd p)) arms ;;
+          iterM (fun p => calls_exp (snd p)) arms ;;
           match def with None => ret tt | Some e => calls_exp e end
         | Halt_e o => ret tt
       end
@@ -287,7 +289,7 @@ Module Optimize.
         | Op_d _ _ => ret tt
         | Prim_d _ _ _ => ret tt
         | Fn_d f xs e => calls_exp e
-        | Rec_d ds => iter calls_decl ds
+        | Rec_d ds => iterM calls_decl ds
       end.
 
     Definition calc_calls (e:exp) : counts := snd (runState (calls_exp e) initial_env).

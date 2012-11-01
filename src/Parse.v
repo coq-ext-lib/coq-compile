@@ -1,15 +1,17 @@
-Require Import Lambda.
+Require Import CoqCompile.Env.
+Require Import CoqCompile.Lambda.
 Require Import List.
 Require Import String.
 Require Import Ascii.
 Require Import Bool.
 Require Import ExtLib.Data.Strings.
-Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.Core.RelDec.
 Require Import Program.
 Require Import Omega.
 Require Import Wf.
-Require Import Wellfounded.Lexicographic_Product.
+(* Require Import Wellfounded.Lexicographic_Product. *)
 Require Import Relation_Operators.
+
 Set Implicit Arguments.
 Set Strict Implicit.
 
@@ -156,7 +158,7 @@ Module Parse.
             match parse_exp' ts1 fuel with
               | Some (e,RPAREN::ts2) =>
                 match parse ts2 fuel with
-                  | Some es => Some ((x,e)::es)
+                  | Some es => Some ((Env.wrapVar x,e)::es)
                   | _ => None
                 end
               | _ => None
@@ -170,11 +172,11 @@ Module Parse.
       | S fuel =>
         match ts with
         (* EXP -> <ID> *)
-          | (ID x)::ts2 => Some (Var_e x, ts2)
+          | (ID x)::ts2 => Some (Var_e (Env.wrapVar x), ts2)
         (* EXP -> (lambda (<ID>) <EXP>) *)
           | LPAREN::LAMBDA::LPAREN::(ID x)::RPAREN::ts2 =>
             match parse_exp' ts2 fuel with
-              | Some (e,RPAREN::ts3) => Some (Lam_e x e,ts3)
+              | Some (e,RPAREN::ts3) => Some (Lam_e (Env.wrapVar x) e,ts3)
               | _ => None
             end
           (* EXP -> (lambdas (<ARGLIST>) <EXP>) *)
@@ -242,6 +244,7 @@ Module Parse.
           | _ => None
         end
     end
+
   with parse_exp'list (ts:list token) (fuel:nat) : option ((list exp) * (list token)) :=
     match fuel with
       | O => None
@@ -255,6 +258,7 @@ Module Parse.
           | None => Some (nil,ts)
         end
     end
+
   with parse_conarglist (ts:list token) (fuel:nat) : option ((list exp) * (list token)) :=
     match fuel with
       | O => None
@@ -272,6 +276,7 @@ Module Parse.
           | _ => Some (nil,ts)
         end
     end
+
   with parse_arglist (ts:list token) (fuel:nat) : option ((list var) * (list token)) :=
     match fuel with
       | O => None
@@ -281,12 +286,13 @@ Module Parse.
           | (ID x)::ts2 =>
             match parse_arglist ts2 fuel with
               | Some (xs,ts3) =>
-                Some (x::xs,ts3)
+                Some (Env.wrapVar x::xs,ts3)
               | _ => None
             end
           | _ => Some (nil,ts)
         end
     end
+
   with parse_armlist (ts:list token) (fuel:nat) : option ((list (pattern*exp)) * (list token)) :=
     match fuel with
       | O => None
@@ -310,6 +316,7 @@ Module Parse.
           | _ => Some (nil,ts)
         end
     end
+
   with parse_decllist (ts:list token) (fuel:nat) : option ((list (var*(var*exp))) * (list token)) :=
     match fuel with
       | O => None
@@ -320,7 +327,7 @@ Module Parse.
               | Some (Lam_e x e,RPAREN::ts2) =>
                 match parse_decllist ts2 fuel with
                   | Some (ds,ts3) =>
-                    Some ((f,(x,e))::ds,ts3)
+                    Some ((Env.wrapVar f,(x,e))::ds,ts3)
                   | _ => None
                 end
               | _ => None
@@ -378,7 +385,7 @@ Module Parse.
       | Some ts => match parse ts (List.length ts) with
                      | None => None
                      | Some ds =>
-                       Some (collapse_decls ds nil (App_e (Var_e "main") (Con_e "Tt" nil)))
+                       Some (collapse_decls ds nil (App_e (Var_e (Env.wrapVar "main")) (Con_e "Tt" nil)))
                    end
     end.
 

@@ -2,11 +2,10 @@ Require Import CoqCompile.Env.
 Require Import CoqCompile.Cps CoqCompile.Lambda.
 Require Import CoqCompile.Opt.AlphaCps.
 Require Import String List.
-Require Import ExtLib.Decidables.Decidable.
-Require Import ExtLib.FMaps.FMaps.
-Require Import ExtLib.Monad.Monad.
-Require Import ExtLib.Monad.ReaderMonad.
-Require Import ExtLib.Monad.Folds.
+Require Import ExtLib.ExtLib.
+Require Import ExtLib.Structures.Maps.
+Require Import ExtLib.Structures.Monads.
+Require Import ExtLib.Structures.Folds.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -40,13 +39,13 @@ Module Cse.
   Section with_env.
     Variable env_v : Type -> Type.
     Variable env_e : Type -> Type.
-    Context {Mv : Map var env_v}.
-    Context {Me : Map CseValue env_e}.
+    Context {Mv : DMap var env_v}.
+    Context {Me : DMap CseValue env_e}.
 
     Section monadic.
       Variable m : Type -> Type.
       Context {Mon_m : Monad m}.
-      Context {Reader_m : Reader (env_v var * env_e op) m}.
+      Context {Reader_m : MonadReader (env_v var * env_e op) m}.
       
       Import MonadNotation.
       Local Open Scope monad_scope.
@@ -55,7 +54,7 @@ Module Cse.
         match o with
           | Var_o v => 
             x <- ask ;;
-            match FMaps.lookup v (fst x) with
+            match Maps.lookup v (fst x) with
               | None => ret (Var_o v)
               | Some v => ret (Var_o v)
             end
@@ -71,13 +70,13 @@ Module Cse.
           | Prim_d v p os =>
             os <- mapM cse_op os ;;
             x <- ask ;;
-            match FMaps.lookup (Prim_s p os) (snd x) with
+            match Maps.lookup (Prim_s p os) (snd x) with
               | None => local (fun x => (fst x, add (Prim_s p os) (Var_o v) (snd x))) (cc (Prim_d v p os))
               | Some o => cc (Op_d v o)
             end
           | Fn_d v vs e =>
             x <- ask ;;
-            match FMaps.lookup (Fn_s vs e) (snd x) with
+            match Maps.lookup (Fn_s vs e) (snd x) with
               | None => local (fun x => (fst x, add (Fn_s vs e) (Var_o v) (snd x))) (cc (Fn_d v vs e))
               | Some o => cc (Op_d v o)
             end
@@ -113,13 +112,16 @@ Module Cse.
     End monadic.
 
   End with_env.
+
+  Require Import ExtLib.Data.Monads.ReaderMonad.
   
   Definition cse (e : exp) : exp :=
     runReader (cse_exp e) (empty, empty).
 
   Section Tests.
     Import LambdaNotation.
-    Require Import ExtLib.FMaps.FMapAList.
+    Require Import CoqCompile.CpsConvert.
+    Require Import ExtLib.Data.Map.FMapAList.
 
     Definition cse1 := def y := S_c Z_c in def z := S_c Z_c in S_c y.
     

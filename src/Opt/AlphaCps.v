@@ -1,10 +1,10 @@
 Require Import List.
 Require Import Cps.
-Require Import ExtLib.FMaps.FMaps.
-Require Import ExtLib.FMaps.FMapAList.
-Require Import ExtLib.Decidables.Decidable.
-Require Import ExtLib.Monad.Monad.
-Require Import ExtLib.Monad.ReaderMonad ExtLib.Monad.OptionMonad.
+Require Import ExtLib.Structures.Monads.
+Require Import ExtLib.Structures.Maps.
+Require Import ExtLib.Data.Map.FMapAList.
+Require Import ExtLib.Core.RelDec.
+Require Import ExtLib.Data.Monads.ReaderMonad ExtLib.Data.Monads.OptionMonad.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -14,13 +14,13 @@ Module Alpha.
 
   Section maps.
     Variable env_v : Type -> Type.
-    Context {Mv : Map var env_v}.
+    Context {Mv : DMap var env_v}.
     
     Section monadic. 
       Variable m : Type -> Type.
       Context {Monad_m : Monad m}.
-      Context {Reader_m : Reader (env_v var) m}.
-      Context {Zero_m : Zero m}.
+      Context {Reader_m : MonadReader (env_v var) m}.
+      Context {Zero_m : MonadZero m}.
 
       Import MonadNotation.
       Local Open Scope monad_scope.
@@ -30,7 +30,7 @@ Module Alpha.
         match o1 , o2 with
           | Var_o v1 , Var_o v2 =>
             x <- ask ;;
-            match FMaps.lookup v1 x with
+            match Maps.lookup v1 x with
               | None => assert (eq_dec v1 v2)
               | Some v1 => assert (eq_dec v1 v2)
             end
@@ -144,16 +144,16 @@ Module Alpha.
     (** Test cases needed **)
     Definition f (v : var) : exp := Halt_e (Var_o v).
 
-    Goal (alpha_exp (f "0") (f "2") = false)%string.
+    Goal (alpha_exp (f (wrapVar "0")) (f (wrapVar "2")) = false)%string.
     Proof. vm_compute; reflexivity. Abort.
 
-    Goal (alpha_exp (f "0") (f "0") = true)%string.
+    Goal (alpha_exp (f (wrapVar "0")) (f (wrapVar "0")) = true)%string.
     Proof. vm_compute; reflexivity. Abort.
 
-    Goal (alpha_lam (f "0") (f "1") ("0" :: nil) ("1" :: nil) = true)%string.
+    Goal (alpha_lam (f (wrapVar "0")) (f (wrapVar "1")) (wrapVar "0" :: nil) (wrapVar "1" :: nil) = true)%string.
     Proof. vm_compute; reflexivity. Abort.
 
-    Goal (alpha_lam (f "0") (f "1") ("0" :: nil) ("2" :: nil) = false)%string.
+    Goal (alpha_lam (f (wrapVar "0")) (f (wrapVar "1")) (wrapVar "0" :: nil) (wrapVar "2" :: nil) = false)%string.
     Proof. vm_compute; reflexivity. Abort.
 
   End TEST.

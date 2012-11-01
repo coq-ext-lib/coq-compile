@@ -1,14 +1,15 @@
 Require Import String.
 Require Import CoqCompile.Cps CoqCompile.CpsUtil.
-Require Import ExtLib.Monad.Monad.
-Require Import ExtLib.Monad.Folds.
-Require Import ExtLib.Data.Monoid.
+Require Import ExtLib.Structures.Monads.
+Require Import ExtLib.Structures.Folds.
+Require Import ExtLib.Structures.Monoid.
 Require Import List.
-Require Import ExtLib.Functor.Functor.
-Require Import ExtLib.Functor.Traversable.
+Require Import ExtLib.Structures.Functor.
+Require Import ExtLib.Structures.Reducible.
 Require Import Data.Strings.
-Require Import ExtLib.FMaps.FMaps.
-Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.Structures.Maps.
+Require Import ExtLib.Core.RelDec.
+Require Import BinPos.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -23,26 +24,30 @@ Module AlphaCvt.
 
   Section maps.
     Variable env_v : Type -> Type.
-    Context {Mv : Map var env_v}.
-    Context {FMv : FMap var env_v}.
+    Context {Mv : DMap var env_v}.
+    Context {FMv : forall V, Foldable (env_v V) (var * V)}.
     Section monadic.
       Variable M : Type -> Type.
       Context {Monad_m : Monad M}.
-      Context {State_m : State nat M}.
-      Context {Reader_m : Reader (env_v var) M}.
+      Context {State_m : MonadState positive M}.
+      Context {Reader_m : MonadReader (env_v var) M}.
 
       Import MonadNotation.
       Open Local Scope monad_scope.
 
-      Definition fresh (s:string) : M var := 
-        n <- get ;; 
-        put (S n) ;; 
-        ret ("%x" ++ nat2string10 n)%string.
+      Definition freshFor (v: var) : M var := 
+        n <- modify Psucc ;; 
+        match v with
+          | Env.Anon_v _ => 
+            ret (Env.Anon_v n)
+          | Env.Named_v s _ => 
+            ret (Env.Named_v s (Some n))
+        end.
 
       Definition alpha_op (v:op) : M op := 
         match v with 
           | Var_o x => 
-            env <- ask ; match FMaps.lookup x env with 
+            env <- ask ; match Maps.lookup x env with 
                            | None => ret v
                            | Some y => ret (Var_o y)
                          end
@@ -58,20 +63,20 @@ Module AlphaCvt.
           | _, _ => env
         end.
 
-      Definition fresh_or_rec (rec:bool) (x:string) : M var := 
+      Definition fresh_or_rec (rec:bool) (x:var) : M var := 
         if rec then 
           env <- ask ; 
-          match FMaps.lookup x env with 
+          match lookup x env with 
             | None => ret x
             | Some y => ret y
           end
-          else fresh x.
+        else freshFor x.
 
       Fixpoint alpha_rec_decl (d:decl) : M (env_v var) := 
         match d with 
-          | Fn_d f _ _ => f' <- fresh f ; ret (singleton f f')
-          | Op_d x _ => x' <- fresh x ; ret (singleton x x')
-          | Prim_d x _ _ => x' <- fresh x ; ret (singleton x x')
+          | Fn_d f _ _ => f' <- freshFor f ;; ret (singleton f f')
+          | Op_d x _ => x' <- freshFor x ;; ret (singleton x x')
+          | Prim_d x _ _ => x' <- freshFor x ;; ret (singleton x x')
           | Rec_d ds => 
             (fix alpha_rec_decls (ds:list decl) : M (env_v var) := 
               match ds with 
@@ -108,37 +113,38 @@ Module AlphaCvt.
       with alpha_decl (recursive:bool) (d:decl) : M (decl * env_v var) := 
         match d with 
           | Op_d x v => 
-            x' <- fresh_or_rec recursive x ; 
-            v' <- alpha_op v ; 
+            x' <- fresh_or_rec recursive x ;;
+            v' <- alpha_op v ;;
             ret (Op_d x' v', singleton x x')
           | Prim_d x p vs => 
-            x' <- fresh_or_rec recursive x ; 
-            vs' <- mapM alpha_op vs ; 
+            x' <- fresh_or_rec recursive x ;;
+            vs' <- mapM alpha_op vs ;;
             ret (Prim_d x' p vs', singleton x x')
           | Fn_d f xs e => 
-            f' <- fresh_or_rec recursive f ; 
-            xs' <- mapM fresh xs ; 
-            e' <- local (overlay_list xs xs') (alpha_exp e) ;
+            f' <- fresh_or_rec recursive f ;;
+            xs' <- mapM freshFor xs ;; 
+            e' <- local (overlay_list xs xs') (alpha_exp e) ;;
             ret (Fn_d f' xs' e', singleton f f')
           | Rec_d ds => 
-            env <- alpha_rec_decls ds ; 
-            ds' <- mapM (fun d => p <- local (overlay env) (alpha_decl true d) ; 
+            env <- alpha_rec_decls ds ;;
+            ds' <- mapM (fun d => p <- local (overlay env) (alpha_decl true d) ;;
                                   ret (fst p)) ds ; 
             ret (Rec_d ds', env)
         end.
     End monadic.
   End maps.
 
-  Require Import ExtLib.FMaps.FMapAList.
-  Require Import ExtLib.Monad.WriterMonad.
-  Require Import ExtLib.Monad.ReaderMonad.
-  Require Import ExtLib.Monad.StateMonad.
+  Require Import ExtLib.Data.Monads.WriterMonad.
+  Require Import ExtLib.Data.Monads.ReaderMonad.
+  Require Import ExtLib.Data.Monads.StateMonad.
+  Require Import ExtLib.Data.Map.FMapAList.
+
+  Require Import CoqCompile.Env.
 
   Definition alpha_cvt (e:exp) : exp := 
     let env_v := alist var in 
-      let c := alpha_exp (env_v := env_v) (M := readerT (env_v var) (state nat)) e
-        in 
-        fst (runState (runReaderT c empty) 0).
+    let c := alpha_exp (env_v := alist var) (M := readerT (env_v var) (state positive)) e in 
+    evalState (runReaderT c empty) 1%positive.
 
 (*
   Module Tests.

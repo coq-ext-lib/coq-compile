@@ -1,11 +1,14 @@
 Require Import ZArith String Bool.
-Require Import Cps.
-Require Import ExtLib.Monad.Monad.
+Require Import CoqCompile.Cps.
+Require Import ExtLib.Structures.Monads.
 Require Import List.
-Require Import ExtLib.Monad.StateMonad.
-Require Import ExtLib.Monad.Folds.
-Require Import ExtLib.FMaps.FMapAList.
-Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.Data.Monads.StateMonad.
+Require Import ExtLib.Structures.Reducible.
+Require Import ExtLib.Structures.Folds.
+Require Import ExtLib.Data.Map.FMapAList.
+Require Import ExtLib.Data.Lists.
+Require Import ExtLib.Core.RelDec.
+Require Import ExtLib.Programming.Show.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -42,7 +45,7 @@ Module SimpleAnalysis.
       | Op_d x _ => x
       | Fn_d x _ _ => x
       | Prim_d x _ _ => x
-      | Rec_d _ => "!bogus"%string
+      | Rec_d _ => wrapVar "!bogus"%string
     end.
 
   (** Returns [true] if the two abstract values are equal. *)
@@ -86,14 +89,14 @@ Module SimpleAnalysis.
   
   Definition get_var (x:var) : M Val := 
     s <- get; 
-    match FMaps.lookup x (absenv s) with 
+    match Maps.lookup x (absenv s) with 
       | None => ret empty_set
       | Some v => ret v
     end.
   
   Definition put_var (x:var) (V:Val) : M unit := 
     s <- get ; 
-    put {| absenv := FMaps.add x V (FMaps.remove x (absenv s)) ; 
+    put {| absenv := Maps.add x V (Maps.remove x (absenv s)) ; 
            changed := changed s |}.
   
   Definition set_changed (b:bool) : M unit := 
@@ -191,10 +194,10 @@ Module SimpleAnalysis.
       | App_e v vs => 
         V <- abseval_op v ; 
         VS <- mapM abseval_op vs ; 
-        iter (fun f => add_bindings (fst f) VS) (only_functions V) 
+        iterM (fun f => add_bindings (fst f) VS) (only_functions V) 
       | Switch_e v arms def => 
         V <- abseval_op v ; 
-        iter (fun p => 
+        iterM (fun p => 
           if may_contain (pattern_to_absval (fst p)) V then 
             abstep_exp (snd p)
             else ret tt) arms ;;
@@ -215,7 +218,7 @@ Module SimpleAnalysis.
       | Fn_d f xs e => 
         add_binding f (singleton_set (Decl_av d)) ;;
         abstep_exp e 
-      | Rec_d ds => iter abstep_decl ds
+      | Rec_d ds => iterM abstep_decl ds
     end.
   
   (* Iterate [abstep_exp] until we either run out of fuel or we
@@ -238,35 +241,41 @@ Module SimpleAnalysis.
     let p := runState (findfixpoint n e) initial_st in
       if (fst p) then Some (absenv (snd p)) else None.
 
+  Section hiding_notation.
+    Import ShowNotation.
+    Require Import ExtLib.Data.Char.
+    Local Open Scope show_scope.
+
   (** Tools for printing out the mapping of variables to sets of
       abstract values. *)
-  Definition emit_absval (a:absval_t) : state (list string) unit := 
-    emit "  ";;
-    match a with 
-      | Con_av c => emit ("Con(" ++ c ++ ")")
-      | Int_av i => emit (z2string i)
-      | Decl_av d => emitdecl false 2 d
-    end ;; 
-    emit newline.
+  Global Instance Show_absval : Show absval_t :=
+    fun a => " "%char << 
+      match a with 
+        | Con_av c => "Con("%string << c << ")"%char
+        | Int_av i => show i
+        | Decl_av d => emitdecl false d
+      end <<
+      chr_newline.
 
-  Fixpoint emit_env (env:absenv_t) : state (list string) unit := 
-    match env with 
-      | nil => emit newline
+  Fixpoint emit_env (env:absenv_t) : showM :=
+    match env return showM  with 
+      | nil => chr_newline
       | (x,V)::rest => 
-        emit (x ++ " = [" ++ newline) ;; 
-        iter emit_absval V ;; 
-        emit ("]" ++ newline) ;; 
+        show x << " = ["%string << chr_newline <<
+        iter_show (map show V) << 
+        "]"%char << chr_newline <<
         emit_env rest
     end.
 
-  Definition absenv2string (envopt:option absenv_t) : string := 
-    match envopt with 
-      | None => "<fail>"
-      | Some env => 
-        newline ++ 
-        (List.fold_left (fun x y => y ++ x)
-          (snd (runState (emit_env env) nil)) "")
-  end%string.
+  (* Definition absenv2string (envopt:option absenv_t) : string :=  *)
+  (*   match envopt with  *)
+  (*     | None => "<fail>" *)
+  (*     | Some env =>  *)
+  (*       chr_newline << *)
+  (*       (List.fold_left (fun x y => y ++ x) *)
+  (*         (snd (runState (emit_env env) nil)) "") *)
+  (* end%string. *)
+  End hiding_notation.
 
 (*
   Module Test.
@@ -297,4 +306,5 @@ Module SimpleAnalysis.
     Eval compute in absenv2string (absinv 100 c1).
   End Test.
 *)
+  
 End SimpleAnalysis.

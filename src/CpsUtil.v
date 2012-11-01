@@ -1,30 +1,47 @@
 Require Import CoqCompile.Cps.
 Require Import List.
-Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.Core.RelDec.
+Require Import ExtLib.Data.Lists.
+Require Import Bool ZArith.
 
 Set Implicit Arguments.
 Set Strict Implicit.
 
 Import CPS.
 
-Section AllB.
-  Variable T : Type.
-  Variable p : T -> bool.
-
-  Fixpoint allb (ls : list T) : bool :=
-    match ls with
-      | nil => true
-      | l :: ls =>
-        if p l then allb ls else false
+  (** returns the function name f if [fun x => e] is a simple eta expansion of the form
+     [fun x => f x]. *)
+  Definition match_eta (x:var) (e:exp) : option op := 
+    match e with 
+      | App_e op1 ((Var_o y)::nil) => 
+        if eq_dec y x then Some op1 else None
+      | _ => None
+    end.
+  
+  Fixpoint eq_vars_ops (xs:list var) (vs:list op) : bool := 
+    match xs, vs with 
+      | nil, nil => true
+      | x::xs, (Var_o y)::vs => eq_dec x y && eq_vars_ops xs vs
+      | _, _ => false
+    end.
+  
+  (** similar to the above, but for the general case of [fun (x1,...,xn) => e] being an
+     eta-expansion of [fun (x1,...,xn) => f(x1,...,xn)]. *)
+  Definition match_etas (xs:list var) (e:exp) : option op := 
+    match e with 
+      | App_e op1 ys =>
+        if eq_vars_ops xs ys then Some op1 else None
+      | _ => None
+    end.
+  
+  (** Let-bind [xi] to [#i v] for the expression [e].  This is used in the compilation
+      of pattern matching below. *)
+  Fixpoint bind_proj(v:op)(xs:list var)(offset:Z)(e:exp) : exp := 
+    match xs with 
+      | nil => e
+      | x::xs => Let_e (Prim_d x Proj_p ((Int_o offset)::v::nil)) (bind_proj v xs (1+offset) e)
     end.
 
-  Fixpoint anyb (ls : list T) : bool :=
-    match ls with
-      | nil => false
-      | l :: ls =>
-        if p l then true else anyb ls
-    end.
-End AllB.
 
 Section free.
   Variable v : var.
@@ -80,19 +97,24 @@ End free.
 
 Section free_vars.
   (** list is suboptimal here **)
-  Require Import ExtLib.Monad.Monad.
-  Require Import ExtLib.Monad.WriterMonad.
-  Require Import ExtLib.Monad.IdentityMonad.
-  Require Import ExtLib.Monad.Folds.
-  Require Import ExtLib.Data.Monoid.
+  Require Import ExtLib.Structures.Monads.
+  Require Import ExtLib.Structures.Folds.
+  Require Import ExtLib.Structures.Monoid.
+  Require Import ExtLib.Structures.Sets.
+  Require Import ExtLib.Data.Monads.IdentityMonad.
+  Require Import ExtLib.Data.Monads.WriterMonad.
+  Section with_sets.
+    Variable s : Type.
+    Context {DSet_s : DSet s (@eq var)}.
+
   Section monadic.
     Variable m : Type -> Type.
     Context {Monad_m : Monad m}.
-    Context { Writer_m : Writer (@Monoid_list_union var _) m}.
+    Context {Writer_m : MonadWriter (Monoid_set_union (R := @eq var)) m}.
 
     Definition free_vars_op (o : op) : m unit :=
       match o with
-        | Var_o v => tell (v :: nil)
+        | Var_o v => tell (singleton v)
         | _ => ret tt
       end.
     Import MonadNotation.
@@ -140,12 +162,13 @@ Section free_vars.
       end.
   End monadic.
 
-  Definition free_vars_exp (e : exp) : list var :=
+  Definition free_vars_exp (e : exp) : s :=
     let x := unIdent (runWriterT (free_vars_exp' e)) in
     snd x.
 
-  Definition free_vars_decl (r : bool) (d : decl) : list var :=
+  Definition free_vars_decl (r : bool) (d : decl) : s :=
     let x := unIdent (runWriterT (free_vars_decl' r d)) in
     snd x.
+  End with_sets.
 
 End free_vars.

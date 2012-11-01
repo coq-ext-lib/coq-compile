@@ -1,21 +1,18 @@
 Require Import String.
 Require Import List.
-Require Import ExtLib.Monad.Monad.
-Require Import ExtLib.Monad.OptionMonad ExtLib.Monad.StateMonad ExtLib.Monad.ContMonad.
+Require Import ExtLib.Structures.Monads.
+Require Import ExtLib.Data.Monads.StateMonad.
+Require Import ExtLib.Data.Monads.OptionMonad.
 Require Import ExtLib.Data.Strings.
-Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.Core.RelDec.
+Require Import CoqCompile.Env.
 
 Set Implicit Arguments.
 Set Strict Implicit.
 
-Definition ST := state.
-
 Module Lambda.
   (** data constructors, such as "true", "false", "nil", "::", "0", "S", etc. *)
   Definition constructor := string.
-
-  (** variables *)
-  Definition var := string.
 
   (** environments -- naively as an association list *)
   Definition env_t A := list (var * A).
@@ -113,10 +110,10 @@ Module LambdaSemantics.
                     let (f,_) := p in (f,Fix_v env fs f)) fs
                 in
                 match lookup fs f return option value with
-                  | None => zero
+                  | None => mzero
                   | Some (x,e) => eval_n n ((x,v2)::env' ++ env) e
                 end
-              | _ => zero
+              | _ => mzero
             end
           | Con_e c es =>
             (fix map_eval_n (xs:list exp) (k:list value -> option value) : option value :=
@@ -157,57 +154,32 @@ End LambdaSemantics.
 
 
 Module LambdaNotation.
+  Require ExtLib.Data.Strings.
   Import Lambda MonadNotation.
   Local Open Scope string_scope.
   Local Open Scope monad_scope.
+  Require Import BinPos.
 
-  Definition digit2string (n:nat) : string :=
-    match n with
-      | 0 => "0"
-      | 1 => "1"
-      | 2 => "2"
-      | 3 => "3"
-      | 4 => "4"
-      | 5 => "5"
-      | 6 => "6"
-      | 7 => "7"
-      | 8 => "8"
-      | _ => "9"
-    end.
+  Definition Exp := state positive exp.
 
-  Section Program_Scope.
-    Require Import Program.
-    Import Arith Div2.
-    Program Fixpoint nat2string (n:nat) {measure n}: string :=
-      if Compare_dec.le_gt_dec n 9 then
-        digit2string n
-      else
-        let m := NPeano.div n 10 in
-          (nat2string m) ++ (digit2string (n - 10 * m)).
-        Next Obligation.
-        assert (NPeano.div n 10 < n); eauto. eapply NPeano.Nat.div_lt ; omega.
-    Defined.
-  End Program_Scope.
-
-  Definition fresh (x:string) : state nat string :=
+  Definition fresh (x:option string) : state positive var :=
     n <- get ;;
-    put (S n) ;;
-    ret (x ++ nat2string n).
+    put (Psucc n) ;;
+    ret (mkVar x n).
 
-  Definition Exp := ST nat exp.
   Definition gen (E : Exp) : exp :=
-    fst (runState E 0).
+    fst (runState E 1%positive).
   Definition FN (f : Exp -> Exp) : Exp :=
-    x <- fresh "x" ;; e <- f (ret (Var_e x)) ;; ret (Lam_e x e).
+    x <- fresh (Some "x") ;; e <- f (ret (Var_e x)) ;; ret (Lam_e x e).
   Notation "\ x => e" := (FN (fun x => e)) (at level 80).
   Definition APP (E1 E2:Exp) : Exp := e1 <- E1 ;; e2 <- E2 ;; ret (App_e e1 e2).
   Notation "E1 @ E2" := (APP E1 E2) (left associativity, at level 69).
   Definition LET (E1:Exp) (f:Exp -> Exp) : Exp :=
-    x <- fresh "x" ;; e1 <- E1 ;; e2 <- f (ret (Var_e x)) ;; ret (Let_e x e1 e2).
+    x <- fresh (Some "x") ;; e1 <- E1 ;; e2 <- f (ret (Var_e x)) ;; ret (Let_e x e1 e2).
   Notation "'def' x := E1 'in' E2" := (LET E1 (fun x => E2))
     (right associativity, at level 75, E2 at next level).
   Definition LETREC (f:Exp -> Exp -> Exp) (E:Exp -> Exp) : Exp :=
-    fname <- fresh "f" ;; x <- fresh "x" ;;
+    fname <- fresh (Some "f") ;; x <- fresh (Some "x") ;;
     fbody <- f (ret (Var_e fname)) (ret (Var_e x)) ;;
     e <- E (ret (Var_e fname)) ;;
     ret (Letrec_e ((fname,(x,fbody))::nil) e).
@@ -223,17 +195,17 @@ Module LambdaNotation.
   Notation "'If' E1 'then' E2 'else' E3" := (IF_e E1 E2 E3)
     (right associativity, at level 72, E3 at next level).
   Notation "'nat_match' E 'with' 'Z' => E1 | 'S' [ x2 ] => E2" :=
-    (e <- E ;; e1 <- E1 ;; n <- fresh "n" ;; e2 <- (fun x2 => E2) (ret (Var_e n)) ;;
+    (e <- E ;; e1 <- E1 ;; n <- fresh (Some "n") ;; e2 <- (fun x2 => E2) (ret (Var_e n)) ;;
       ret (Match_e e ((Con_p "0" nil, e1) :: (Con_p "S" (n::nil), e2) :: nil)))
     (at level 72, e2 at next level).
   Definition PAIR_e (E1 E2:Exp) : Exp :=
     e1 <- E1 ;; e2 <- E2 ;; ret (Con_e "pair" (e1::e2::nil)).
   Notation "[[ e1 , e2 ]]" := (PAIR_e e1 e2).
   Definition fst' (E1:Exp) : Exp :=
-    e1 <- E1 ;; a <- fresh "a" ;; b <- fresh "b" ;;
+    e1 <- E1 ;; a <- fresh (Some "a") ;; b <- fresh (Some "b") ;;
     ret (Match_e e1 ((Con_p "pair" (a::b::nil), Var_e a)::nil)).
   Definition snd' (E1:Exp) : Exp :=
-    e1 <- E1 ;; a <- fresh "a" ;; b <- fresh "b" ;;
+    e1 <- E1 ;; a <- fresh (Some "a") ;; b <- fresh (Some "b") ;;
     ret (Match_e e1 ((Con_p "pair" (a::b::nil), Var_e b)::nil)).
 
   Definition e1 := def y := S_c Z_c in S_c y.
