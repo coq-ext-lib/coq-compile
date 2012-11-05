@@ -539,11 +539,125 @@ End LLVM.
         (string_of_option (fun n => ", align "++(string_of_nat n)++" ") align)
     end.
 
+<<<<<<< HEAD
+  Definition ST := state (list string).
+  Definition emit : string -> ST unit := CPS.emit.
+  Definition spaces (n:nat) : ST unit := emit (CPS.spaces n).
+  Definition newline : ST unit := emit CPS.newline.
+
+  Section SEPBY.
+    Variable A : Type.
+    Variable f : A -> ST unit.
+    Variable sep : ST unit.
+
+    Fixpoint sepby (xs:list A) : ST unit :=
+      match xs with
+        | nil => ret tt
+        | h::nil => f h
+        | h::t => f h ;; sep ;; sepby t
+      end.
+  End SEPBY.
+
+  Definition iter := @CPS.iter.
+  Definition emit_option {A} (f:A -> ST unit) (x:option A) : ST unit := 
+    match x with 
+      | None => ret tt
+      | Some v => f v 
+    end.
+  Definition emit_option_s {A} (f:A -> ST unit) (x:option A) : ST unit := 
+    match x with 
+      | None => ret tt
+      | Some v => f v ;; emit " "
+    end.
+
+  Definition emit_instr (i:instr) : state (list string) unit := 
+    spaces 4 ;; emit (string_of_instr i) ;; newline.
+
+  Definition block := ((option label) * (list instr))%type.
+
+  Definition emit_block (b:block) : state (list string) unit := 
+    emit_option (fun l => spaces 2 ;; emit l ;; emit ":" ;; newline) (fst b) ;; 
+    iter emit_instr (snd b).
+
+  Definition pipe {A B C} (f:B -> C) (g:A -> B) : A -> C := 
+    fun x => f (g x).
+
+  Infix "$" := pipe (at level 70, right associativity).
+
+  Record fn_header : Type := {
+    linkage_fh : option linkage ; 
+    visibility_fh : option visibility ; 
+    cconv_fh : option cconv ; 
+    unnamed_addr_fh : bool ; 
+    return_type_fh : type ; 
+    return_type_attrs_fh : list param_attr ; 
+    name_fh : var ; 
+    args_fh : list (type * var * list (param_attr)) ; 
+    attrs_fh : list fn_attr ; 
+    section_fh : option string ; 
+    align_fh : option nat ; 
+    gc_fh : option string
+  }.
+
+  Definition emit_fn_header (drop_vars:bool) (fh:fn_header) : state (list string) unit := 
+    emit_option_s (emit $ string_of_linkage) (linkage_fh fh) ;; 
+    emit_option_s (emit $ string_of_visibility) (visibility_fh fh) ;; 
+    emit_option_s (emit $ string_of_cconv) (cconv_fh fh) ;;
+    (if (unnamed_addr_fh fh) then emit "unnamed_addr " else ret tt) ;; 
+    emit (string_of_type (return_type_fh fh)) ;; emit " " ;;
+    iter (fun x => emit (string_of_param_attr x) ;; emit " ") (return_type_attrs_fh fh) ;;
+    emit "@" ;; emit (name_fh fh) ;; emit "(" ;; 
+    sepby (fun p => match p with (t,x,attrs) => 
+                     emit (string_of_type t) ;; 
+                     (if drop_vars then ret tt else emit " %"%string ;; emit x) ;;
+                     iter (fun x => emit (string_of_param_attr x) ;; emit " ") attrs
+                   end) (emit ", ") (args_fh fh) ;;
+    emit ") " ;;
+    iter (fun x => emit (string_of_fn_attr x) ;; emit " ") (attrs_fh fh) ;;
+    emit_option_s (fun s => emit ", section " ;; emit (quoted s) ;; emit " ") (section_fh fh) ;;
+    emit_option_s (fun n => emit ", align " ;; emit (string_of_nat n) ;; emit " ") (align_fh fh) ;;
+    emit_option_s (fun s => emit "gc " ;; emit (quoted s) ;; emit " ") (gc_fh fh).
+    
+  Inductive topdecl : Type := 
+  | Global_d : forall (x:var) (addrspace:option nat) (l:option linkage) (unnamed_addr:bool) (const:bool) 
+                      (t:type) (c:constant) (section:option string) (align:option nat), topdecl
+  | Define_d : fn_header -> list block -> topdecl
+  | Declare_d : fn_header -> topdecl
+  | Alias_d : forall (x:var) (l:option linkage) (v:option visibility) (t:type) (e:exp), topdecl
+  | Metadata_d : forall (x:var), list constant -> topdecl.
+
+  Definition emit_topdecl (t:topdecl) : ST unit := 
+    match t with 
+      | Global_d x a l u c t v s al => 
+        emit x ;; emit " = " ;;
+        emit_option_s (fun n => emit "addrspace(" ;; emit (string_of_nat n) ;; emit ")") a ;;
+        emit_option_s (emit $ string_of_linkage) l ;;
+        (if u then emit "unnamed_addr " else ret tt) ;;
+        (if c then emit "constant " else ret tt) ;;
+        emit (string_of_type t) ;; emit " " ;; 
+        emit (string_of_constant v) ;; emit " " ;;
+        emit_option_s (fun s => emit ", section " ;; emit (quoted s) ;; emit " ") s ;;
+        emit_option_s (fun n => emit ", align " ;; emit (string_of_nat n) ;; emit " ") al ;;
+        newline 
+      | Define_d fh bs => emit "define " ;;
+        emit_fn_header false fh ;; emit " {" ;; newline ;; iter emit_block bs ;; emit "}" ;; newline
+      | Declare_d fh => emit "declare " ;; emit_fn_header true fh ;; newline
+      | Alias_d x l v t e => 
+        emit x ;; emit " = alias " ;; 
+        emit_option_s (emit $ string_of_linkage) l ;;
+        emit_option_s (emit $ string_of_visibility) v ;;
+        emit (string_of_type t) ;; emit " " ;; 
+        emit (string_of_exp e) ;; newline
+      | Metadata_d x cs => 
+        emit x ;; emit " = metadata !{" ;; emit (sep ", " (List.map string_of_constant cs)) ;; 
+        emit "}" ;; newline
+=======
   Fixpoint sep (s:string) (ss:list string) : string := 
     match ss with 
       | nil => ""
       | h::nil => h
       | h::t => h ++ s ++ (sep s t)
+>>>>>>> class-master
     end.
 
 
