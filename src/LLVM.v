@@ -5,6 +5,8 @@ Require Import ExtLib.Data.Monads.OptionMonad.
 Require Import ExtLib.Data.Monads.StateMonad.
 Require Import ExtLib.Structures.Folds.
 Require Import ExtLib.Data.Strings.
+Require Import ExtLib.Data.Char.
+Require Import ExtLib.Data.Option.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Tactics.Consider.
 
@@ -186,479 +188,344 @@ Module LLVM.
   Section Printing.
     Require Import ExtLib.Programming.Show.
     Import ShowNotation.
-    (** TODO **)
-    Global Instance Show_module : Show module := fun _ => "<TODO>".
+    Local Open Scope show_scope.
+
+    Global Instance Show_cconv : Show cconv :=
+      fun c => 
+        match c with 
+          | X86_fastcallcc => "x86_fastcallcc" 
+          | C_cc => "ccc" | Fast_cc => "fastcc" | Cold_cc => "coldcc" | CC10_cc => "cc 10"
+          | Num_cc n => "cc " << show n 
+        end.
+
+    Global Instance Show_linkage : Show linkage :=
+      fun l => 
+        match l with 
+          | Private => "private"
+          | Linker_private => "linker_private"
+          | Linker_private_weak => "linker_private_weak"
+          | Linker_private_weak_def_auto => "linker_private_weak_def_auto"
+          | Internal => "internal"
+          | Available_externally => "available_externally"
+          | Linkonce => "linkonce"
+          | Weak => "weak"
+          | Common => "common"
+          | Appending => "appending"
+          | Extern_weak => "extern_weak"
+          | Linkonce_odr => "linkonce_odr"
+          | Weak_odr => "weak_odr"
+          | External => "external"
+          | Dllimport => "dllimport"
+          | Dllexport => "dllexport"
+        end.
+
+    Global Instance Show_param_attr : Show param_attr :=
+      fun p => 
+        match p with 
+          | Zeroext_pattr => "zeroext" | Signext_pattr => "signext" | Inreg_pattr => "inreg" 
+          | Byval_pattr => "byval" | Sret_pattr => "sret" | Noalias_pattr => "noalias"
+          | Nocapture_pattr => "nocapture" | Nest_pattr => "nest"
+        end.
+
+    Global Instance Show_visibility : Show visibility :=
+      fun v => quoted 
+        match v with 
+          | Default_v => "default" | Hidden_v => "hidden" | Protected_v => "protected"
+        end.
+
+    Global Instance Show_fn_attr : Show fn_attr :=
+      fun f =>
+        match f with 
+          | Address_safety => "address_safety" 
+          | Align_stack n => "alignstack(" << show n << ")" 
+          | Alwaysinline => "alwaysinline" 
+          | Nonlazybind => "nonlazybind"
+          | Inlinehint => "inlinehint"
+          | Naked => "naked"
+          | Noimplicitfloat => "noimplicitfloat"
+          | Noinline => "noinline" 
+          | Noredzone => "noredzone"
+          | Noreturn => "noreturn"
+          | Nounwind => "nounwind"
+          | Optsize => "optsize"
+          | Readnone => "readnone"
+          | Readonly => "readonly" 
+          | Returns_twice => "returns_twice"
+          | Ssp => "ssp"
+          | Sspreq => "sspreq"
+          | Uwtable => "uwtable"
+        end.
+
+    Global Instance Show_type : Show type :=
+      fix show_type (t : type) : showM :=
+        match t with 
+          | I_t n => "i" << show n
+          | Half_t => "half"
+          | Float_t => "float"
+          | Double_t => "double"
+          | X86_fp80_t => "x86_fp80"
+          | Fp128_t => "fp128"
+          | Ppc_fp128_t => "ppc_fp128"
+          | Void_t => "void"
+          | Label_t => "label"
+          | X86mmx_t => "x86mmx"
+          | Metadata_t => "metadata"
+          | Array_t ns t => 
+            List.fold_right (fun (i:nat) (t:showM) => 
+                         "[" << show i << " x " << t << "]") (show_type t) ns
+          | Fn_t t ts vararg => 
+            show_type t << "(" << sepBy ", " (List.map show_type ts) << 
+            (if vararg then ",...)" else ")")
+          | Struct_t packed elts => 
+            let s := "{" << (sepBy ", " (List.map show_type elts)) << "}" in 
+            if packed then "<" << s << ">" else s
+          | Named_t x => x
+          | Opaque_t => "opaque"
+          | Pointer_t 0 t => show_type t << " *"
+          | Pointer_t n t => show_type t << "addrspace(" << show n << ") *"
+          | Vector_t n t => "<" << show n << " x " << show_type t << ">"
+        end.
+    
+    Global Instance Show_constant : Show constant :=
+      fix show_constant c := 
+        match c return showM with 
+          | True_c => "true" 
+          | False_c => "false" 
+          | Int_c i => show i
+          | Float_c s => s
+          | Null_c =>  "null"
+          | Global_c v => v 
+          | Undef_c => "undef"
+          | Zero_c => "zeroinitializer"
+          | Struct_c cs => "{" << sepBy ", " (List.map show_constant cs) << "}"
+          | Array_c cs => "[" << sepBy ", " (List.map show_constant cs) << "]"
+          | Vector_c cs => "<" << sepBy ", " (List.map show_constant cs) << ">"
+          | Metastring_c s => "!" << (quoted s)
+          | Metadata_c cs => "!{" << sepBy ", " (List.map show_constant cs) << "}"
+        end.
+    
+    Global Instance Show_value : Show value :=
+      fun v =>
+        match v with 
+          | Local x => "%" << x
+          | Global x => "@" << x
+          | AnonLocal n => "%" << show n
+          | AnonGlobal n => "@" << show n
+          | Constant c => show c
+        end.
+
+    Global Instance Show_cond : Show cond :=
+      fun c =>
+        match c with 
+          | Eq => "eq" | Ne => "ne" | Ugt => "ugt" | Uge => "uge" | Ult => "ult" | Ule => "ule" 
+          | Sgt => "sgt" | Sge => "sge" | Slt => "slt" | Sle => "sle"
+        end.
+
+    Global Instance Show_fcond : Show fcond :=
+      fun f =>
+        match f with 
+          | False_fc => "false" | Oeq_fc => "oeq" | Ogt_fc => "ogt" | Oge_fc => "oge" | Olt_fc => "olt"
+          | Ole_fc => "ole" | One_fc => "one" | Ord_fc => "ord" | Ueq_fc => "ueq" | Ugt_fc => "ugt"
+          | Uge_fc => "uge" | Ult_fc => "ult" | Ule_fc => "ule" | Une_fc => "une" | Uno_fc => "uno"
+          | True_fc => "true"
+        end.
+
+    Definition option_show (T : Type) (f : T -> showM) (o : option T) : showM :=
+      match o with
+        | None => empty
+        | Some x => f x 
+      end.
+    
+    Global Instance Show_option (T : Type) {S : Show T} : Show (option T) :=
+      fun x => option_show show x.
+
+    Definition emit_fn_header (drop_vars:bool) (fh:fn_header) : showM :=
+      show (linkage_fh fh) <<
+      show (visibility_fh fh) <<
+      show (cconv_fh fh) <<
+      (if (unnamed_addr_fh fh) then "unnamed_addr " else empty) <<
+      show (return_type_fh fh) << " " <<
+      iter_show (map (fun x => show x << " ") (return_type_attrs_fh fh)) <<
+      "@" << name_fh fh << "(" <<
+      sepBy ", "
+            (map (fun (p : type * var * list param_attr) => 
+              let '(t, x, attrs) := p in
+              show t <<
+              (if drop_vars then empty else " %"%string << x) <<
+              iter_show (map (fun x => show x << " ") attrs))
+              (args_fh fh)) <<
+      ") " <<
+      iter_show (map (fun x => show x << " ") (attrs_fh fh)) <<
+      option_show (fun s => ", section " << quoted s << " ") (section_fh fh) <<
+      option_show (fun n => ", align " << show n << " ") (align_fh fh) <<
+      option_show (fun s => "gc " << quoted s << " ") (gc_fh fh).
+
+    Definition show_arith(opcode:string)(nuw nsw:bool)(ty:type)(op1 op2:value) : showM := 
+      opcode << " " << flag nuw "nuw " << flag nsw "nsw " << show ty << " " <<
+      show op1 << ", " << show op2.
+
+    Definition show_binop(opcode:string)(ty:type)(op1 op2:value) : showM := 
+      show_arith opcode false false ty op1 op2.
+
+    Definition show_logical(opcode:string)(ex:bool)(ty:type)(op1 op2:value) : showM := 
+      opcode << " " << flag ex "exact " << show ty << " " << show op1 << ", " << show op2.
+    
+    Definition show_conv(opcode:string)(ty1:type)(op:value)(ty2:type) : showM := 
+      opcode << " " << show ty1 << " " << show op << " to " << show ty2.
+
+    Global Instance Show_exp : Show exp :=
+      fun e =>
+        match e with 
+          | Add_e nuw nsw ty op1 op2 => show_arith "add" nuw nsw ty op1 op2
+          | Fadd_e ty op1 op2 => show_binop "fadd" ty op1 op2
+          | Sub_e nuw nsw ty op1 op2 => show_arith "sub" nuw nsw ty op1 op2
+          | Fsub_e ty op1 op2 => show_binop "fsub" ty op1 op2
+          | Mul_e nuw nsw ty op1 op2 => show_arith "mul" nuw nsw ty op1 op2
+          | Fmul_e ty op1 op2 => show_binop "fmul" ty op1 op2
+          | Udiv_e ex ty op1 op2 => show_logical "udiv" ex ty op1 op2
+          | Sdiv_e ex ty op1 op2 => show_logical "sdiv" ex ty op1 op2
+          | Fdiv_e ty op1 op2 => show_binop "fdiv" ty op1 op2
+          | Urem_e ty op1 op2 => show_binop "urem" ty op1 op2
+          | Srem_e ty op1 op2 => show_binop "srem" ty op1 op2
+          | Frem_e ty op1 op2 => show_binop "frem" ty op1 op2
+          | Shl_e nuw nsw ty op1 op2 => show_arith "shl" nuw nsw ty op1 op2
+          | Lshr_e ex ty op1 op2 => show_logical "lshr" ex ty op1 op2
+          | Ashr_e ex ty op1 op2 => show_logical "ashr" ex ty op1 op2
+          | And_e ty op1 op2 => show_binop "and" ty op1 op2
+          | Or_e ty op1 op2 => show_binop "or" ty op1 op2
+          | Xor_e ty op1 op2 => show_binop "xor" ty op1 op2
+          | Extractvalue_e ty op n ns => 
+            "extractvalue " << show ty << " " << show op << ", " <<
+            sepBy ", " (List.map show (n::ns))
+          | Insertvalue_e ty1 op1 ty2 op2 n ns =>
+            "insertvalue " << show ty1 << " " << show op1 << ", " <<
+            show ty2 << " " << show op2 << ", " <<
+            sepBy ", " (List.map show (n::ns))
+          | Alloca_e ty opttynum optalign => 
+            "alloca " << show ty <<
+            match opttynum return showM with 
+              | None => "" 
+              | Some (ty,n) => ", " << show ty << " " << show n
+            end <<
+            match optalign return showM with
+              | None => "" 
+              | Some n => ", align " << show n
+            end
+          | Load_e atomic volatile ty pointer align nontemporal invariant singlethread => 
+        (* fixme: just doing the simple stuff here *)
+           "load " << flag atomic "atomic " << flag volatile "volatile " <<
+            show ty << " " << show pointer << " " << flag singlethread "singlethread " <<
+            match align return showM with
+              | None => ""
+              | Some n => ", align " << show n
+            end
+          | Getelementptr_e inbounds ty v indexes =>
+    "getelementptr " << (flag inbounds "inbounds ") << (show ty) << " " << 
+            (sepBy ", " ((show v)::
+              (List.map (fun p => (show (fst p)) << " " << (show (snd p))) indexes)))
+          | Trunc_e ty1 v ty2 => show_conv "trunc" ty1 v ty2 
+          | Zext_e ty1 v ty2 => show_conv "zext" ty1 v ty2 
+          | Sext_e ty1 v ty2 => show_conv "sext" ty1 v ty2 
+          | Fptrunc_e ty1 v ty2 => show_conv "fptrunc" ty1 v ty2 
+          | Fpext_e ty1 v ty2 => show_conv "fpext" ty1 v ty2 
+          | Fptoui_e ty1 v ty2 => show_conv "fptoui" ty1 v ty2 
+          | Fptosi_e ty1 v ty2 => show_conv "fptosi" ty1 v ty2 
+          | Uitofp_e ty1 v ty2 => show_conv "uitofp" ty1 v ty2 
+          | Sitofp_e ty1 v ty2 => show_conv "sitofp" ty1 v ty2 
+          | Ptrtoint_e ty1 v ty2 => show_conv "ptrtoint" ty1 v ty2 
+          | Inttoptr_e ty1 v ty2 => show_conv "inttoptr" ty1 v ty2 
+          | Bitcast_e ty1 v ty2 => show_conv "bitcast" ty1 v ty2 
+          | Icmp_e cond ty v1 v2 => "icmp " << (show cond) << " " << (show ty) <<
+            (show v1) << ", " << (show v2)
+          | Fcmp_e cond ty v1 v2 => "fcmp " << (show cond) << " " << (show ty) <<
+            (show v1) << ", " << (show v2)
+          | Phi_e ty vls => 
+            "phi " << show ty << " " << 
+            sepBy ", " (List.map (fun p => "[ " << show (fst p) << ", " << show (snd p) << " ]") vls)
+          | Select_e ty1 v1 ty2 v2 ty3 v3 => 
+            "select " << (show ty1) << " " << (show v1) << ", " << 
+            (show ty2) << " " << (show v2) << ", " << 
+            (show ty3) << " " << (show v3)
+          | Call_e tail conv ret_attrs ty fnptrty fnptr args fnattrs =>
+            flag tail "tail " << "call " << option_show show conv << " " <<
+            sepBy " " (List.map show ret_attrs) << " " <<
+            show ty << " " << option_show show fnptrty << 
+            show fnptr << "(" <<
+            (sepBy ", " (List.map (fun x => match x with | (t,v,a) => 
+                                            (show t) << " " << (show v) << 
+                                            (sepBy " " (List.map show a))
+                                          end) args)) 
+            << ") " << sepBy " " (List.map show fnattrs)
+        end.
+
+    Global Instance Show_instr : Show instr :=
+      fun i => 
+        match i with 
+          | Comment_i s => "; " << s
+          | Ret_i vopt => 
+            "ret " << 
+            option_show (fun p => show (fst p) << " " << show (snd p)) vopt
+          | Br_cond_i v l1 l2 => 
+            "br i1 " << show v << ", label %" << l1 << ", label %" << l2
+          | Br_uncond_i l => 
+            "br label "<< l
+          | Switch_i t v def arms => 
+            "switch " << show t << " " << show v << ", label %" << def << " [" <<
+            sepBy " " (List.map (fun p : type * Z * label => 
+              let '(t,i,l) := p in
+              show t << " " << show i << ", label %" << l) arms) << " ]"
+          | Resume_i t v => 
+            "resume " << show t << " " << show v
+          | Unreachable_i => "unreachable"
+          | Assign_i (Some x) e => show x << " = " << show e
+          | Assign_i None e => show e
+          | Store_i atomic volatile ty v ptrty pointer align nontemporal singlethread => 
+            (* fix -- doesn't do nontemporal or ordering *)
+            "store " << flag atomic "atomic " << flag volatile "volatile " << show ty << " " <<
+            show v << ", " << show ptrty << " " << show pointer << " " <<
+            flag singlethread "singlethread " << 
+            option_show (fun n => ", align " << show n << " ") align
+        end.
+
+    Global Instance Show_block : Show block :=
+      fun b => 
+        option_show (fun l : label => "  " << l << ":" << chr_newline) (fst b) << 
+        iter_show (map show (snd b)).
+
+    Global Instance Show_topdecl : Show topdecl :=
+      fun t =>
+        match t return showM with 
+          | Global_d x a l u c t v s al => 
+            x << " = " <<
+            option_show (fun n => "addrspace(" << show n << ")") a <<
+            option_show show l <<
+            (if u then "unnamed_addr " else empty) <<
+            (if c then "constant " else empty) <<
+            show t << " " << 
+            show v << " " <<
+            option_show (fun s => ", section " << quoted s << " ") s <<
+            option_show (fun n => ", align " << show n << " ") al <<
+            chr_newline 
+          | Define_d fh bs => "define " <<
+            emit_fn_header false fh << " {" << chr_newline << iter_show (map show bs) << "}" << chr_newline
+          | Declare_d fh => "declare " << emit_fn_header true fh << chr_newline
+          | Alias_d x l v t e => 
+            x << " = alias " << 
+            show l <<
+            show v <<
+            show t << " " << 
+            show e << chr_newline
+          | Metadata_d x cs => 
+            x << " = metadata !{" << sepBy ", " (List.map show cs) << 
+            "}" << chr_newline
+        end.
+
+    Global Instance Show_module : Show module :=
+      fun m => iter_show (map show m).
+    
+    Definition string_of_module (m : module) : string := runShow (show m) "".
+    Definition string_of_topdecl (t : topdecl) : string := runShow (show t) "".
+    Definition string_of_fn_header (b : bool) (h : fn_header) : string := runShow (emit_fn_header b h) "".
 
   End Printing.
 End LLVM.
-
-(*
-  Definition emit_option {A} (f:A -> ST unit) (x:option A) : ST unit := 
-    match x with 
-      | None => ret tt
-      | Some v => f v 
-    end.
-  Definition emit_option_s {A} (f:A -> ST unit) (x:option A) : ST unit := 
-    match x with 
-      | None => ret tt
-      | Some v => f v ;; emit " "
-    end.
-
-  Definition emit_instr (i:instr) : state (list string) unit := 
-    spaces 4 ;; emit (string_of_instr i) ;; newline.
-
-
-
-  Definition emit_block (b:block) : state (list string) unit := 
-    emit_option (fun l => spaces 2 ;; emit l ;; emit ":" ;; newline) (fst b) ;; 
-    iter emit_instr (snd b).
-
-  Definition pipe {A B C} (f:B -> C) (g:A -> B) : A -> C := 
-    fun x => f (g x).
-
-  Infix "$" := pipe (at level 70, right associativity).
-
-
-  Definition emit_fn_header (drop_vars:bool) (fh:fn_header) : state (list string) unit := 
-    emit_option_s (emit $ string_of_linkage) (linkage_fh fh) ;; 
-    emit_option_s (emit $ string_of_visibility) (visibility_fh fh) ;; 
-    emit_option_s (emit $ string_of_cconv) (cconv_fh fh) ;;
-    (if (unnamed_addr_fh fh) then emit "unnamed_addr " else ret tt) ;; 
-    emit (string_of_type (return_type_fh fh)) ;; emit " " ;;
-    iter (fun x => emit (string_of_param_attr x) ;; emit " ") (return_type_attrs_fh fh) ;;
-    emit "@" ;; emit (name_fh fh) ;; emit "(" ;; 
-    sepby (fun p => match p with (t,x,attrs) => 
-                     emit (string_of_type t) ;; 
-                     (if drop_vars then ret tt else emit " %"%string ;; emit x) ;;
-                     iter (fun x => emit (string_of_param_attr x) ;; emit " ") attrs
-                   end) (emit ", ") (args_fh fh) ;;
-    emit ") " ;;
-    iter (fun x => emit (string_of_fn_attr x) ;; emit " ") (attrs_fh fh) ;;
-    emit_option_s (fun s => emit ", section " ;; emit (quoted s) ;; emit " ") (section_fh fh) ;;
-    emit_option_s (fun n => emit ", align " ;; emit (string_of_nat n) ;; emit " ") (align_fh fh) ;;
-    emit_option_s (fun s => emit "gc " ;; emit (quoted s) ;; emit " ") (gc_fh fh).
-
-
-
-  Definition emit_topdecl (t:topdecl) : ST unit := 
-    match t with 
-      | Global_d x a l u c t v s al => 
-        emit x ;; emit " = " ;;
-        emit_option_s (fun n => emit "addrspace(" ;; emit (string_of_nat n) ;; emit ")") a ;;
-        emit_option_s (emit $ string_of_linkage) l ;;
-        (if u then emit "unnamed_addr " else ret tt) ;;
-        (if c then emit "constant " else ret tt) ;;
-        emit (string_of_type t) ;; emit " " ;; 
-        emit (string_of_constant v) ;; emit " " ;;
-        emit_option_s (fun s => emit ", section " ;; emit (quoted s) ;; emit " ") s ;;
-        emit_option_s (fun n => emit ", align " ;; emit (string_of_nat n) ;; emit " ") al ;;
-        newline 
-      | Define_d fh bs => emit "define " ;;
-        emit_fn_header false fh ;; emit " {" ;; newline ;; iter emit_block bs ;; emit "}" ;; newline
-      | Declare_d fh => emit "declare " ;; emit_fn_header true fh ;; newline
-      | Alias_d x l v t e => 
-        emit x ;; emit " = alias " ;; 
-        emit_option_s (emit $ string_of_linkage) l ;;
-        emit_option_s (emit $ string_of_visibility) v ;;
-        emit (string_of_type t) ;; emit " " ;; 
-        emit (string_of_exp e) ;; newline
-      | Metadata_d x cs => 
-        emit x ;; emit " = metadata !{" ;; emit (sep ", " (List.map string_of_constant cs)) ;; 
-        emit "}" ;; newline
-    end.
-
-
-  Definition emit_module (m:module) : ST unit := iter emit_topdecl m.
-
-  Definition runST (c:ST unit) := 
-    List.fold_left (fun x y => y ++ x) (snd (runState c nil)).
-
-  Definition string_of_module := runST $ emit_module.
-  Definition string_of_topdecl := runST $ emit_topdecl.
-  Definition string_of_fn_header b := runST $ (emit_fn_header b).
-
-  (* 
-  Definition test_block : block := (None, Comment_i "Here is a comment." :: Ret_i None :: nil).
-  Definition test : topdecl :=
-    Define_d
-    {|
-      linkage_fh := None;
-      visibility_fh := None;
-      cconv_fh := None;
-      unnamed_addr_fh := false;
-      return_type_fh := I_t 3;
-      return_type_attrs_fh := nil;
-      name_fh := "test";
-      args_fh := nil;
-      attrs_fh := nil;
-      section_fh := None;
-      align_fh := None;
-      gc_fh := None |} 
-    (test_block :: nil).
-
-  Eval compute in (string_of_topdecl test "").
-  *)
-
-
-End LLVM.
-
-
-
-  Definition string_of_cconv (c:cconv) : string := 
-    (* quoted *)
-    match c with 
-      | X86_fastcallcc => "x86_fastcallcc" 
-      | C_cc => "ccc" | Fast_cc => "fastcc" | Cold_cc => "coldcc" | CC10_cc => "cc 10"
-      | Num_cc n => "cc " ++ (string_of_nat n)
-    end.
-
-  Definition string_of_linkage (l:linkage) : string := 
-    match l with 
-      | Private => "private"
-      | Linker_private => "linker_private"
-      | Linker_private_weak => "linker_private_weak"
-      | Linker_private_weak_def_auto => "linker_private_weak_def_auto"
-      | Internal => "internal"
-      | Available_externally => "available_externally"
-      | Linkonce => "linkonce"
-      | Weak => "weak"
-      | Common => "common"
-      | Appending => "appending"
-      | Extern_weak => "extern_weak"
-      | Linkonce_odr => "linkonce_odr"
-      | Weak_odr => "weak_odr"
-      | External => "external"
-      | Dllimport => "dllimport"
-      | Dllexport => "dllexport"
-    end.
-
-  Definition string_of_param_attr (p:param_attr) : string := 
-    match p with 
-      | Zeroext_pattr => "zeroext" | Signext_pattr => "signext" | Inreg_pattr => "inreg" 
-      | Byval_pattr => "byval" | Sret_pattr => "sret" | Noalias_pattr => "noalias"
-      | Nocapture_pattr => "nocapture" | Nest_pattr => "nest"
-    end.
-
-
-  Definition string_of_visibility (v:visibility) : string := 
-    quoted 
-    match v with 
-      | Default_v => "default" | Hidden_v => "hidden" | Protected_v => "protected"
-    end.
-
-  Definition string_of_fn_attr(f: fn_attr) : string := 
-    match f with 
-      | Address_safety => "address_safety" | Align_stack n => "alignstack(" ++ (string_of_nat n) ++ ")" 
-      | Alwaysinline => "alwaysinline" | Nonlazybind => "nonlazybind" | Inlinehint => "inlinehint"
-      | Naked => "naked" | Noimplicitfloat => "noimplicitfloat" | Noinline => "noinline" 
-      | Noredzone => "noredzone" | Noreturn => "noreturn" | Nounwind => "nounwind"
-      | Optsize => "optsize" | Readnone => "readnone" | Readonly => "readonly" 
-      | Returns_twice => "returns_twice" | Ssp => "ssp" | Sspreq => "sspreq" | Uwtable => "uwtable"
-    end.
-
-
-  Fixpoint string_of_type (t:type) : string := 
-    match t with 
-      | I_t n => "i" ++ (string_of_nat n)
-      | Half_t => "half" | Float_t => "float" | Double_t => "double" | X86_fp80_t => "x86_fp80"
-      | Fp128_t => "fp128" | Ppc_fp128_t => "ppc_fp128" | Void_t => "void" | Label_t => "label"
-      | X86mmx_t => "x86mmx" | Metadata_t => "metadata"
-      | Array_t ns t => 
-        List.fold_right (fun (i:nat) (t:string) => 
-                         "[" ++ (string_of_nat i) ++ " x " ++ t ++ "]") (string_of_type t) ns
-      | Fn_t t ts vararg => 
-        (string_of_type t) ++ "(" ++ (sep ", " (List.map string_of_type ts)) ++ 
-        (if vararg then ",...)" else ")")
-      | Struct_t packed elts => 
-        let s := "{" ++ (sep ", " (List.map string_of_type elts)) ++ "}" in 
-          if packed then "<" ++ s ++ ">" else s
-      | Named_t x => x
-      | Opaque_t => "opaque"
-      | Pointer_t 0 t => (string_of_type t) ++ " *"
-      | Pointer_t n t => (string_of_type t) ++ "addrspace(" ++ (string_of_nat n) ++ ") *"
-      | Vector_t n t => "<" ++ (string_of_nat n) ++ " x " ++ (string_of_type t) ++ ">"
-    end.
-
-  Fixpoint string_of_constant (c:constant) : string := 
-    match c with 
-      | True_c => "true" | False_c => "false" 
-      | Int_c i => string_of_Z i
-      | Float_c s => s | Null_c =>  "null" | Global_c v => v 
-      | Undef_c => "undef" | Zero_c => "zeroinitializer"
-      | Struct_c cs => "{" ++ (sep ", " (List.map string_of_constant cs)) ++ "}"
-      | Array_c cs => "[" ++ (sep ", " (List.map string_of_constant cs)) ++ "]"
-      | Vector_c cs => "<" ++ (sep ", " (List.map string_of_constant cs)) ++ ">"
-      | Metastring_c s => "!" ++ (quoted s)
-      | Metadata_c cs => "!{" ++ (sep ", " (List.map string_of_constant cs)) ++ "}"
-    end.
-
-  Definition string_of_value(v:value) : string := 
-    match v with 
-      | Local x => "%" ++ x
-      | Global x => "@" ++ x
-      | AnonLocal n => "%" ++ (string_of_nat n)
-      | AnonGlobal n => "@" ++ (string_of_nat n)
-      | Constant c => string_of_constant c
-    end.
-
-  Definition string_of_cond(c:cond) : string := 
-    match c with 
-      | Eq => "eq" | Ne => "ne" | Ugt => "ugt" | Uge => "uge" | Ult => "ult" | Ule => "ule" 
-      | Sgt => "sgt" | Sge => "sge" | Slt => "slt" | Sle => "sle"
-    end.
-
-  Definition string_of_fcond(f:fcond) : string := 
-    match f with 
-      | False_fc => "false" | Oeq_fc => "oeq" | Ogt_fc => "ogt" | Oge_fc => "oge" | Olt_fc => "olt"
-      | Ole_fc => "ole" | One_fc => "one" | Ord_fc => "ord" | Ueq_fc => "ueq" | Ugt_fc => "ugt"
-      | Uge_fc => "uge" | Ult_fc => "ult" | Ule_fc => "ule" | Une_fc => "une" | Uno_fc => "uno"
-      | True_fc => "true"
-    end.
-
-  Definition string_of_arith(opcode:string)(nuw nsw:bool)(ty:type)(op1 op2:value) : string := 
-    opcode ++ " " ++ (flag nuw "nuw ") ++ (flag nsw "nsw ") ++ (string_of_type ty) ++ " " ++ 
-    (string_of_value op1) ++ ", " ++ (string_of_value op2).
-
-  Definition string_of_binop(opcode:string)(ty:type)(op1 op2:value) := 
-    string_of_arith opcode false false ty op1 op2.
-
-  Definition string_of_logical(opcode:string)(ex:bool)(ty:type)(op1 op2:value) : string := 
-    opcode ++ " " ++ (flag ex "exact ") ++ (string_of_type ty) ++ " " ++ (string_of_value op1)
-    ++ ", " ++ (string_of_value op2).
-
-  Definition string_of_conv(opcode:string)(ty1:type)(op:value)(ty2:type) : string := 
-    opcode ++ " " ++ (string_of_type ty1) ++ " " ++ (string_of_value op) ++ " to " ++ (string_of_type ty2).
-
-  Definition string_of_option{A:Type}(f:A -> string)(x:option A):string := 
-    match x with 
-      | None => ""
-      | Some v => f v
-    end.
-
-  Definition string_of_exp(e:exp) : string := 
-    match e with 
-      | Add_e nuw nsw ty op1 op2 => string_of_arith "add" nuw nsw ty op1 op2
-      | Fadd_e ty op1 op2 => string_of_binop "fadd" ty op1 op2
-      | Sub_e nuw nsw ty op1 op2 => string_of_arith "sub" nuw nsw ty op1 op2
-      | Fsub_e ty op1 op2 => string_of_binop "fsub" ty op1 op2
-      | Mul_e nuw nsw ty op1 op2 => string_of_arith "mul" nuw nsw ty op1 op2
-      | Fmul_e ty op1 op2 => string_of_binop "fmul" ty op1 op2
-      | Udiv_e ex ty op1 op2 => string_of_logical "udiv" ex ty op1 op2
-      | Sdiv_e ex ty op1 op2 => string_of_logical "sdiv" ex ty op1 op2
-      | Fdiv_e ty op1 op2 => string_of_binop "fdiv" ty op1 op2
-      | Urem_e ty op1 op2 => string_of_binop "urem" ty op1 op2
-      | Srem_e ty op1 op2 => string_of_binop "srem" ty op1 op2
-      | Frem_e ty op1 op2 => string_of_binop "frem" ty op1 op2
-      | Shl_e nuw nsw ty op1 op2 => string_of_arith "shl" nuw nsw ty op1 op2
-      | Lshr_e ex ty op1 op2 => string_of_logical "lshr" ex ty op1 op2
-      | Ashr_e ex ty op1 op2 => string_of_logical "ashr" ex ty op1 op2
-      | And_e ty op1 op2 => string_of_binop "and" ty op1 op2
-      | Or_e ty op1 op2 => string_of_binop "or" ty op1 op2
-      | Xor_e ty op1 op2 => string_of_binop "xor" ty op1 op2
-      | Extractvalue_e ty op n ns => 
-        "extractvalue " ++ (string_of_type ty) ++ " " ++ (string_of_value op) ++ ", " ++
-        (sep ", " (List.map string_of_nat (n::ns)))
-      | Insertvalue_e ty1 op1 ty2 op2 n ns =>
-        "insertvalue " ++ (string_of_type ty1) ++ " " ++ (string_of_value op1) ++ ", " ++
-        (string_of_type ty2) ++ " " ++ (string_of_value op2) ++ ", " ++
-        (sep ", " (List.map string_of_nat (n::ns)))
-      | Alloca_e ty opttynum optalign => 
-        "alloca " ++ (string_of_type ty) ++ 
-        (match opttynum with None => "" 
-           | Some (ty,n) => ", " ++ (string_of_type ty) ++ " " ++ (string_of_nat n) end) ++
-        (match optalign with None => "" | Some n => ", align " ++ (string_of_nat n) end)
-      | Load_e atomic volatile ty pointer align nontemporal invariant singlethread => 
-        (* fixme: just doing the simple stuff here *)
-        "load " ++ (flag atomic "atomic ") ++ (flag volatile "volatile ") ++ 
-        (string_of_type ty) ++ " " ++ (string_of_value pointer) ++ " " ++ (flag singlethread "singlethread ")
-        ++ (match align with None => "" | Some n => ", align " ++ (string_of_nat n) end)
-      | Getelementptr_e inbounds ty v indexes =>
-        "getelementptr " ++ (flag inbounds "inbounds ") ++ (string_of_type ty) ++ " " ++ 
-        (sep ", " ((string_of_value v)::
-          (List.map (fun p => (string_of_type (fst p)) ++ " " ++ (string_of_value (snd p))) indexes)))
-      | Trunc_e ty1 v ty2 => string_of_conv "trunc" ty1 v ty2 
-      | Zext_e ty1 v ty2 => string_of_conv "zext" ty1 v ty2 
-      | Sext_e ty1 v ty2 => string_of_conv "sext" ty1 v ty2 
-      | Fptrunc_e ty1 v ty2 => string_of_conv "fptrunc" ty1 v ty2 
-      | Fpext_e ty1 v ty2 => string_of_conv "fpext" ty1 v ty2 
-      | Fptoui_e ty1 v ty2 => string_of_conv "fptoui" ty1 v ty2 
-      | Fptosi_e ty1 v ty2 => string_of_conv "fptosi" ty1 v ty2 
-      | Uitofp_e ty1 v ty2 => string_of_conv "uitofp" ty1 v ty2 
-      | Sitofp_e ty1 v ty2 => string_of_conv "sitofp" ty1 v ty2 
-      | Ptrtoint_e ty1 v ty2 => string_of_conv "ptrtoint" ty1 v ty2 
-      | Inttoptr_e ty1 v ty2 => string_of_conv "inttoptr" ty1 v ty2 
-      | Bitcast_e ty1 v ty2 => string_of_conv "bitcast" ty1 v ty2 
-      | Icmp_e cond ty v1 v2 => "icmp " ++ (string_of_cond cond) ++ " " ++ (string_of_type ty) ++
-        (string_of_value v1) ++ ", " ++ (string_of_value v2)
-      | Fcmp_e cond ty v1 v2 => "fcmp " ++ (string_of_fcond cond) ++ " " ++ (string_of_type ty) ++
-        (string_of_value v1) ++ ", " ++ (string_of_value v2)
-      | Phi_e ty vls => 
-        "phi " ++ (string_of_type ty) ++ " " ++ 
-        (sep ", " (List.map (fun p => "[ " ++ (string_of_value (fst p)) ++ ", " ++ (snd p) ++ " ]") vls))
-      | Select_e ty1 v1 ty2 v2 ty3 v3 => 
-        "select " ++ (string_of_type ty1) ++ " " ++ (string_of_value v1) ++ ", " ++ 
-        (string_of_type ty2) ++ " " ++ (string_of_value v2) ++ ", " ++ 
-        (string_of_type ty3) ++ " " ++ (string_of_value v3)
-      | Call_e tail conv ret_attrs ty fnptrty fnptr args fnattrs =>
-        (flag tail "tail ") ++ "call " ++ (string_of_option string_of_cconv conv) ++ " " ++
-        (sep " " (List.map string_of_param_attr ret_attrs)) ++ " " ++
-        (string_of_type ty) ++ " " ++ (string_of_option string_of_type fnptrty) ++ 
-        (string_of_value fnptr) ++ "(" ++
-        (sep ", " (List.map (fun x => match x with | (t,v,a) => 
-                                        (string_of_type t) ++ " " ++ (string_of_value v) ++ 
-                                        (sep " " (List.map string_of_param_attr a))
-                                      end) args)) 
-        ++ ") " ++ (sep " " (List.map string_of_fn_attr fnattrs))
-    end.
-
-  Definition string_of_instr(i:instr) : string := 
-    match i with 
-      | Comment_i s => "; " ++ s
-      | Ret_i vopt => 
-          "ret " ++ 
-          (string_of_option (fun p => (string_of_type (fst p) ++ " " ++ (string_of_value (snd p)))) vopt)
-      | Br_cond_i v l1 l2 => 
-          "br i1 " ++ (string_of_value v) ++ ", label %" ++ l1 ++ ", label %" ++ l2
-      | Br_uncond_i l => 
-          "br label "++l
-      | Switch_i t v def arms => 
-          "switch " ++ (string_of_type t) ++ " " ++ (string_of_value v) ++ ", label %" ++ def ++ " [" ++
-          (sep " " (List.map (fun p => match p with | (t,i,l) => 
-                                         (string_of_type t) ++ " " ++ (string_of_Z i) ++ ", label %" ++ l
-                                       end) arms)) ++ " ]"
-      | Resume_i t v => 
-          "resume " ++ (string_of_type t) ++ " " ++ (string_of_value v)
-      | Unreachable_i => "unreachable"
-      | Assign_i (Some x) e => (string_of_value x) ++ " = " ++ (string_of_exp e)
-      | Assign_i None e => (string_of_exp e)
-      | Store_i atomic volatile ty v ptrty pointer align nontemporal singlethread => 
-        (* fix -- doesn't do nontemporal or ordering *)
-        "store " ++ (flag atomic "atomic ") ++ (flag volatile "volatile ") ++ (string_of_type ty) ++ " " ++
-        (string_of_value v) ++ ", " ++ (string_of_type ptrty) ++ " " ++ (string_of_value pointer) ++ " " ++
-        (flag singlethread "singlethread ") ++ 
-        (string_of_option (fun n => ", align "++(string_of_nat n)++" ") align)
-    end.
-
-<<<<<<< HEAD
-  Definition ST := state (list string).
-  Definition emit : string -> ST unit := CPS.emit.
-  Definition spaces (n:nat) : ST unit := emit (CPS.spaces n).
-  Definition newline : ST unit := emit CPS.newline.
-
-  Section SEPBY.
-    Variable A : Type.
-    Variable f : A -> ST unit.
-    Variable sep : ST unit.
-
-    Fixpoint sepby (xs:list A) : ST unit :=
-      match xs with
-        | nil => ret tt
-        | h::nil => f h
-        | h::t => f h ;; sep ;; sepby t
-      end.
-  End SEPBY.
-
-  Definition iter := @CPS.iter.
-  Definition emit_option {A} (f:A -> ST unit) (x:option A) : ST unit := 
-    match x with 
-      | None => ret tt
-      | Some v => f v 
-    end.
-  Definition emit_option_s {A} (f:A -> ST unit) (x:option A) : ST unit := 
-    match x with 
-      | None => ret tt
-      | Some v => f v ;; emit " "
-    end.
-
-  Definition emit_instr (i:instr) : state (list string) unit := 
-    spaces 4 ;; emit (string_of_instr i) ;; newline.
-
-  Definition block := ((option label) * (list instr))%type.
-
-  Definition emit_block (b:block) : state (list string) unit := 
-    emit_option (fun l => spaces 2 ;; emit l ;; emit ":" ;; newline) (fst b) ;; 
-    iter emit_instr (snd b).
-
-  Definition pipe {A B C} (f:B -> C) (g:A -> B) : A -> C := 
-    fun x => f (g x).
-
-  Infix "$" := pipe (at level 70, right associativity).
-
-  Record fn_header : Type := {
-    linkage_fh : option linkage ; 
-    visibility_fh : option visibility ; 
-    cconv_fh : option cconv ; 
-    unnamed_addr_fh : bool ; 
-    return_type_fh : type ; 
-    return_type_attrs_fh : list param_attr ; 
-    name_fh : var ; 
-    args_fh : list (type * var * list (param_attr)) ; 
-    attrs_fh : list fn_attr ; 
-    section_fh : option string ; 
-    align_fh : option nat ; 
-    gc_fh : option string
-  }.
-
-  Definition emit_fn_header (drop_vars:bool) (fh:fn_header) : state (list string) unit := 
-    emit_option_s (emit $ string_of_linkage) (linkage_fh fh) ;; 
-    emit_option_s (emit $ string_of_visibility) (visibility_fh fh) ;; 
-    emit_option_s (emit $ string_of_cconv) (cconv_fh fh) ;;
-    (if (unnamed_addr_fh fh) then emit "unnamed_addr " else ret tt) ;; 
-    emit (string_of_type (return_type_fh fh)) ;; emit " " ;;
-    iter (fun x => emit (string_of_param_attr x) ;; emit " ") (return_type_attrs_fh fh) ;;
-    emit "@" ;; emit (name_fh fh) ;; emit "(" ;; 
-    sepby (fun p => match p with (t,x,attrs) => 
-                     emit (string_of_type t) ;; 
-                     (if drop_vars then ret tt else emit " %"%string ;; emit x) ;;
-                     iter (fun x => emit (string_of_param_attr x) ;; emit " ") attrs
-                   end) (emit ", ") (args_fh fh) ;;
-    emit ") " ;;
-    iter (fun x => emit (string_of_fn_attr x) ;; emit " ") (attrs_fh fh) ;;
-    emit_option_s (fun s => emit ", section " ;; emit (quoted s) ;; emit " ") (section_fh fh) ;;
-    emit_option_s (fun n => emit ", align " ;; emit (string_of_nat n) ;; emit " ") (align_fh fh) ;;
-    emit_option_s (fun s => emit "gc " ;; emit (quoted s) ;; emit " ") (gc_fh fh).
-    
-  Inductive topdecl : Type := 
-  | Global_d : forall (x:var) (addrspace:option nat) (l:option linkage) (unnamed_addr:bool) (const:bool) 
-                      (t:type) (c:constant) (section:option string) (align:option nat), topdecl
-  | Define_d : fn_header -> list block -> topdecl
-  | Declare_d : fn_header -> topdecl
-  | Alias_d : forall (x:var) (l:option linkage) (v:option visibility) (t:type) (e:exp), topdecl
-  | Metadata_d : forall (x:var), list constant -> topdecl.
-
-  Definition emit_topdecl (t:topdecl) : ST unit := 
-    match t with 
-      | Global_d x a l u c t v s al => 
-        emit x ;; emit " = " ;;
-        emit_option_s (fun n => emit "addrspace(" ;; emit (string_of_nat n) ;; emit ")") a ;;
-        emit_option_s (emit $ string_of_linkage) l ;;
-        (if u then emit "unnamed_addr " else ret tt) ;;
-        (if c then emit "constant " else ret tt) ;;
-        emit (string_of_type t) ;; emit " " ;; 
-        emit (string_of_constant v) ;; emit " " ;;
-        emit_option_s (fun s => emit ", section " ;; emit (quoted s) ;; emit " ") s ;;
-        emit_option_s (fun n => emit ", align " ;; emit (string_of_nat n) ;; emit " ") al ;;
-        newline 
-      | Define_d fh bs => emit "define " ;;
-        emit_fn_header false fh ;; emit " {" ;; newline ;; iter emit_block bs ;; emit "}" ;; newline
-      | Declare_d fh => emit "declare " ;; emit_fn_header true fh ;; newline
-      | Alias_d x l v t e => 
-        emit x ;; emit " = alias " ;; 
-        emit_option_s (emit $ string_of_linkage) l ;;
-        emit_option_s (emit $ string_of_visibility) v ;;
-        emit (string_of_type t) ;; emit " " ;; 
-        emit (string_of_exp e) ;; newline
-      | Metadata_d x cs => 
-        emit x ;; emit " = metadata !{" ;; emit (sep ", " (List.map string_of_constant cs)) ;; 
-        emit "}" ;; newline
-=======
-  Fixpoint sep (s:string) (ss:list string) : string := 
-    match ss with 
-      | nil => ""
-      | h::nil => h
-      | h::t => h ++ s ++ (sep s t)
->>>>>>> class-master
-    end.
-
-
-*)
