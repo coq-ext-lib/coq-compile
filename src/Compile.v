@@ -1,18 +1,21 @@
-Require Import Lambda Cps.
 Require Import ZArith String List Bool.
-Require Import ExtLib.Monad.Monad.
-Require Import ExtLib.Monad.OptionMonad ExtLib.Monad.StateMonad.
-Require Import ExtLib.Monad.Folds.
-Require Import ExtLib.Monad.EitherMonad.
+Require Import ExtLib.Structures.Monads.
+Require Import ExtLib.Structures.Reducible.
+Require Import ExtLib.Data.Monads.OptionMonad.
+Require Import ExtLib.Data.Monads.StateMonad.
+Require Import ExtLib.Data.Monads.EitherMonad.
 Require Import ExtLib.Data.Strings.
-Require Import ExtLib.Decidables.Decidable.
+Require Import ExtLib.ExtLib.
 Require Import ExtLib.Tactics.Consider.
-Require Import ExtLib.FMaps.FMaps.
-Require Import LLVM.
-Require Import CodeGen.
-Require Import CloConv.
-Require Import ExtractTypes.
-Require Import Parse.
+Require Import ExtLib.Structures.Maps.
+Require Import ExtLib.Programming.Show.
+Require Import CoqCompile.Lambda.
+Require Import CoqCompile.Cps.
+Require Import CoqCompile.LLVM.
+Require Import CoqCompile.CodeGen.
+Require Import CoqCompile.CloConv.
+Require Import CoqCompile.ExtractTypes.
+Require Import CoqCompile.Parse.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -20,7 +23,7 @@ Set Strict Implicit.
 Module Compile.
   Section maps.
     Variable map_ctor : Type -> Type.
-    Context {FM : Map CPS.var map_ctor}.
+    Context {FM : DMap Lambda.constructor map_ctor}.
 
     Import MonadNotation.
     Local Open Scope monad_scope.
@@ -28,21 +31,22 @@ Module Compile.
     Section monadic.
       Variable m : Type -> Type.
       Variable Monad_m : Monad m.
-      Context {State_fresh : State Z m}.
+      Context {State_fresh : MonadState Z m}.
       Context {Exc_error : MonadExc string m}.
       
       Definition next : m Z :=
-        l <- get (State := State_fresh) ;;
-        put (State := State_fresh) (l+1)%Z ;;
+        l <- get (MonadState := State_fresh) ;;
+        put (MonadState := State_fresh) (l+1)%Z ;;
         ret ((l*2)+1)%Z.
 
       Definition makeCtorMap' (e:Lambda.exp) : m (map_ctor Z) :=
-        match ExtractTypes.ExtractTypes.extract e with
+        match ExtractTypes.extract e with
           | inl str => raise str
           | inr (mtype, mctor) =>
-            fmap_foldM (fun k v acc =>
+            foldM (m := m) (fun k_v acc =>
+              let '(k,v) := k_v in
               foldM (fun ctor acc =>
-                match FMaps.lookup ctor mctor with
+                match Maps.lookup ctor mctor with
                   | None => raise "constructor not found"%string 
                   | Some (arity, _) =>
                     n <- (if string_dec "True" ctor
@@ -50,11 +54,11 @@ Module Compile.
                            else if string_dec "False" ctor
                                   then ret 3
                                   else next)%Z ;;
-                    let map' := FMaps.add ctor n acc in
+                    let map' := Maps.add ctor n acc in
                     ret map'
                 end
-              ) acc v
-            ) (FMaps.empty) mtype
+              ) (ret acc) v
+            ) (ret Maps.empty) mtype
         end.
       
     End monadic.
@@ -113,7 +117,7 @@ Module Compile.
 
     Definition topCompile (e:Lambda.exp) : string + LLVM.module :=
       let m := makeCtorMap e in
-      let cps_e := Cps.CPS.CPS e in
+      let cps_e := CpsConvert.CPS e in
       let clo_conv_e := CloConv.ClosureConvert.cloconv_exp cps_e in
       let opt_cc_e := cps_opt clo_conv_e in
       match m with
@@ -124,21 +128,21 @@ Module Compile.
     Definition topCompile_string (e : Lambda.exp) : string + string := 
       match topCompile e with
         | inl e => inl e
-        | inr mod' => inr (LLVM.string_of_module mod' ""%string)
+        | inr mod' => inr (runShow (show mod') ""%string)
       end.
     
     Definition stringToCPS (s : string) : string :=
       match Parse.parse_topdecls s with
         | None => "Failed to parse."%string
         | Some e =>
-          Cps.CPS.exp2string (Cps.CPS.CPS e)
+          Cps.CPS.exp2string (CpsConvert.CPS e)
       end.
 
     Definition stringToClos (s : string) : string :=
       match Parse.parse_topdecls s with
         | None => "Failed to parse."%string
         | Some e =>
-          Cps.CPS.exp2string (CloConv.ClosureConvert.cloconv_exp (Cps.CPS.CPS e))
+          Cps.CPS.exp2string (CloConv.ClosureConvert.cloconv_exp (CpsConvert.CPS e))
       end.
 
     Definition stringToAssembly (s: string) : string + string :=
@@ -147,7 +151,7 @@ Module Compile.
         | Some e =>
           match topCompile e with
             | inl s => inl s
-            | inr module => inr (LLVM.string_of_module module "")
+            | inr module => inr (runShow (show module) ""%string)
           end
       end.
 
@@ -160,14 +164,14 @@ Module CompileTest.
   Import LambdaNotation.
 
   Definition blah (e:Lambda.exp) :=
-      let cps_e := Cps.CPS.CPS e in
+      let cps_e := CpsConvert.CPS e in
       let clo_conv_e := CloConv.ClosureConvert.cloconv_exp cps_e in
       (cps_e, clo_conv_e).
 
   Definition e_ident : Lambda.exp :=
     Eval compute in 
       match Parse.parse_topdecls "(define ident (lambda (x) x))"%string with
-        | None => Lambda.Var_e ""%string
+        | None => Lambda.Var_e (Env.wrapVar ""%string)
         | Some o => o
       end.
 
@@ -176,7 +180,7 @@ Module CompileTest.
   Eval vm_compute in    
     match Compile.topCompile 8 Compile.Opt.O0 (gen e3) with
       | inl err => err
-      | inr mod' => (LLVM.string_of_module mod' ""%string)
+      | inr mod' => runShow (show mod') ""%string
     end.
 
 End CompileTest.

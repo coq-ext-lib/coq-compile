@@ -35,10 +35,6 @@ Module LLVM.
   Inductive cconv : Type := 
   | X86_fastcallcc | C_cc | Fast_cc | Cold_cc | CC10_cc | Num_cc : nat -> cconv.
 
-  Definition double_quote := Ascii.ascii_of_nat 34.
-  Definition quoted (s:string) := 
-    String double_quote (s ++ (String double_quote EmptyString)).
-
   Inductive linkage : Type := 
   | Private | Linker_private | Linker_private_weak | Linker_private_weak_def_auto 
   | Internal | Available_externally | Linkonce | Weak | Common | Appending | Extern_weak
@@ -227,6 +223,9 @@ Module LLVM.
           | Nocapture_pattr => "nocapture" | Nest_pattr => "nest"
         end.
 
+    Definition double_quote := Ascii.ascii_of_nat 34.
+    Definition quoted := wrap double_quote double_quote.
+
     Global Instance Show_visibility : Show visibility :=
       fun v => quoted 
         match v with 
@@ -300,7 +299,7 @@ Module LLVM.
           | Struct_c cs => "{" << sepBy ", " (List.map show_constant cs) << "}"
           | Array_c cs => "[" << sepBy ", " (List.map show_constant cs) << "]"
           | Vector_c cs => "<" << sepBy ", " (List.map show_constant cs) << ">"
-          | Metastring_c s => "!" << (quoted s)
+          | Metastring_c s => "!" << quoted s
           | Metadata_c cs => "!{" << sepBy ", " (List.map show_constant cs) << "}"
         end.
     
@@ -339,10 +338,10 @@ Module LLVM.
     Global Instance Show_option (T : Type) {S : Show T} : Show (option T) :=
       fun x => option_show show x.
 
-    Definition emit_fn_header (drop_vars:bool) (fh:fn_header) : showM :=
-      show (linkage_fh fh) <<
-      show (visibility_fh fh) <<
-      show (cconv_fh fh) <<
+    Definition show_fn_header (drop_vars:bool) (fh:fn_header) : showM :=
+      show (linkage_fh fh) << " " <<
+      show (visibility_fh fh) << " " <<
+      show (cconv_fh fh) << " " <<
       (if (unnamed_addr_fh fh) then "unnamed_addr " else empty) <<
       show (return_type_fh fh) << " " <<
       iter_show (map (fun x => show x << " ") (return_type_attrs_fh fh)) <<
@@ -356,9 +355,9 @@ Module LLVM.
               (args_fh fh)) <<
       ") " <<
       iter_show (map (fun x => show x << " ") (attrs_fh fh)) <<
-      option_show (fun s => ", section " << quoted s << " ") (section_fh fh) <<
+      option_show (fun s : string => ", section " << quoted s << " ") (section_fh fh) <<
       option_show (fun n => ", align " << show n << " ") (align_fh fh) <<
-      option_show (fun s => "gc " << quoted s << " ") (gc_fh fh).
+      option_show (fun s : string => "gc " << quoted s << " ") (gc_fh fh).
 
     Definition show_arith(opcode:string)(nuw nsw:bool)(ty:type)(op1 op2:value) : showM := 
       opcode << " " << flag nuw "nuw " << flag nsw "nsw " << show ty << " " <<
@@ -503,12 +502,12 @@ Module LLVM.
             (if c then "constant " else empty) <<
             show t << " " << 
             show v << " " <<
-            option_show (fun s => ", section " << quoted s << " ") s <<
+            option_show (fun s : string => ", section " << quoted s << " ") s <<
             option_show (fun n => ", align " << show n << " ") al <<
             chr_newline 
           | Define_d fh bs => "define " <<
-            emit_fn_header false fh << " {" << chr_newline << iter_show (map show bs) << "}" << chr_newline
-          | Declare_d fh => "declare " << emit_fn_header true fh << chr_newline
+            show_fn_header false fh << " {" << chr_newline << iter_show (map show bs) << "}" << chr_newline
+          | Declare_d fh => "declare " << show_fn_header true fh << chr_newline
           | Alias_d x l v t e => 
             x << " = alias " << 
             show l <<
@@ -525,7 +524,7 @@ Module LLVM.
     
     Definition string_of_module (m : module) : string := runShow (show m) "".
     Definition string_of_topdecl (t : topdecl) : string := runShow (show t) "".
-    Definition string_of_fn_header (b : bool) (h : fn_header) : string := runShow (emit_fn_header b h) "".
+    Definition string_of_fn_header (b : bool) (h : fn_header) : string := runShow (show_fn_header b h) "".
 
   End Printing.
 End LLVM.
