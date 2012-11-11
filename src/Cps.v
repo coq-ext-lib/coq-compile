@@ -58,12 +58,15 @@ Module CPS.
   | Proj_p.   (* Proj_p [Int_o i;v] projects the ith component of the tuple referenced
                  by v, using zero-based indexing. *)
 
+  Inductive mop : Type := .
+
   (** CPS are in general a sequence of let-bindings that either terminate with 
       a function application, or else fork using a switch into a tree of nested
       CPS expressions.  *)
   Inductive exp : Type := 
   | App_e : op -> list op -> exp
   | Let_e : decl -> exp -> exp
+  | Letrec_e : list decl -> exp -> exp
     (** Switch is only used on small integer values and unlike Match, doesn't do any
         pattern matching.  The optional expression at the end is a default in case
         none of the patterns matches the value. *)
@@ -76,12 +79,7 @@ Module CPS.
   | Prim_d : var -> primop -> list op -> decl
     (** let f := fun (x1,...,xn) => e *)
   | Fn_d : var -> list var -> exp -> decl
-    (** let rec [d1;d2;...;dn].  Note that this is more general than we really need.
-        What we need is letrec over both functions and over tuples (to support cyclic
-        construction of data structures needed for recursive closures.)  In general,
-        we will not have nested [Rec_d] declarations, and the nested declarations
-        will either be a [Fn_d] or else a [Prim_d _ MkTuple_p]. *)
-  | Rec_d : list decl -> decl.
+  | Bind_d : var -> var -> mop -> list op -> decl.
 
   Global Instance RelDec_primop_eq : RelDec (@eq primop) := 
   { rel_dec := fun x y =>
@@ -102,6 +100,15 @@ Module CPS.
   Global Instance RelDecCorrect_primop_eq : RelDec_Correct RelDec_primop_eq.
   Proof.
     constructor; destruct x; destruct y; simpl rel_dec; split; intros; subst; try congruence.
+  Qed.
+
+  Global Instance RelDec_mop_eq : RelDec (@eq mop) :=
+  { rel_dec l r := match l , r with
+                   end }.
+
+  Global Instance RelDecCorrect_mop_eq : RelDec_Correct RelDec_mop_eq.
+  Proof.
+    constructor. destruct x.
   Qed.
 
   Global Instance RelDec_op_eq : RelDec (@eq op) :=
@@ -153,6 +160,9 @@ Module CPS.
           | Zpos p => show p
           | Zneg p => "-"%char << show p
         end }.
+    Global Instance Show_mop : Show mop :=
+      { show m := match m with end }.
+    
     Global Instance Show_op : Show op :=
       { show o :=
         match o with 
@@ -193,7 +203,10 @@ Module CPS.
       match e with 
         | App_e v vs => show v << "(" << sepBy " " (map show vs) << ")"
         | Let_e d e =>
-          "let " << indent "  " (emitdecl false d) << "in " << indent "  " (emitexp e)
+          "let " << indent "  " (emitdecl d) << " in " << indent "  " (emitexp e)
+        | Letrec_e ds e => 
+          "let rec " << indent "    and " (sepBy chr_newline (map emitdecl ds)) <<
+          chr_newline << "in " << emitexp e 
         | Switch_e v arms def => 
           "switch " << empty (*show v*) << " with" << empty (*
           indent "  " (
@@ -206,24 +219,22 @@ Module CPS.
           << chr_newline << "end"
         | Halt_e o => "HALT " << show o
       end
-    with emitdecl (inrec:bool) (d:decl) : showM := 
-      let emit_sep : showM := if inrec then " and" else " in" in 
-        match d with 
-          | Op_d x v => 
-            show x << " = " << show v << emit_sep 
-          | Prim_d x p vs => 
-            show x << " = " << show p << "(" << sepBy " " (map show vs) << ")" << emit_sep 
-          | Fn_d f xs e => 
-            show f << "(" << sepBy (", " : showM) (map show xs) << ") = " << indent "  " (emitexp e) << emit_sep 
-          | Rec_d ds => 
-          "rec "<< sepBy chr_newline (map (emitdecl true) ds)
-        end.
+    with emitdecl (d:decl) : showM := 
+      match d with 
+        | Op_d x v => 
+          show x << " = " << show v
+        | Prim_d x p vs => 
+          show x << " = " << show p << "(" << sepBy " " (map show vs) << ")"
+        | Fn_d f xs e => 
+          show f << "(" << sepBy (", " : showM) (map show xs) << ") = " << indent "  " (emitexp e)
+        | Bind_d x w mop args =>
+          show x << "[" << show w << "] <- " << show mop << "(" << sepBy " " (map show args) << ")"
+      end.
 
     Global Instance Show_exp : Show exp := emitexp.
-    Global Instance Show_decl : Show decl := emitdecl false.
+    Global Instance Show_decl : Show decl := emitdecl.
 
-    Definition exp2string (e:exp) : string := 
-      @runShow (string -> string) _ (show e) "".
+    Definition exp2string (e:exp) : string := to_string e.
     
   End Printing.
 

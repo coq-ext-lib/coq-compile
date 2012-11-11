@@ -51,7 +51,7 @@ Section free.
       | Op_d v' _ => eq_dec v v'
       | Prim_d v' _ _ => eq_dec v v'
       | Fn_d v' _ _ => eq_dec v v'
-      | Rec_d ds => anyb defined_by ds
+      | Bind_d a b _ _ => eq_dec a v || eq_dec b v
     end.
 
   Definition free_in_op (o : op) : bool :=
@@ -67,7 +67,10 @@ Section free.
         if free_in_op f then true else allb free_in_op xs
       | Let_e ds e =>
         if defined_by ds then false
-          else if free_in_exp e then true else free_in_decl ds
+          else if free_in_decl ds then true else free_in_exp e
+      | Letrec_e ds e =>
+        if anyb defined_by ds then false
+        else if anyb free_in_decl ds then true else free_in_exp e
       | Switch_e o br def =>
         if free_in_op o then
           if allb (fun x => free_in_exp (snd x)) br
@@ -86,11 +89,10 @@ Section free.
     match d with
       | Op_d _ o => free_in_op o
       | Prim_d _ _ vs => anyb free_in_op vs
+      | Bind_d _ _ _ vs => anyb free_in_op vs
       | Fn_d _ vs e =>
         if anyb (eq_dec v) vs then false
           else free_in_exp e
-      | Rec_d ds =>
-        anyb free_in_decl ds
     end.
 End free.
   
@@ -99,6 +101,7 @@ Section free_vars.
   (** list is suboptimal here **)
   Require Import ExtLib.Structures.Monads.
   Require Import ExtLib.Structures.Folds.
+  Require Import ExtLib.Structures.Reducible.
   Require Import ExtLib.Structures.Monoid.
   Require Import ExtLib.Structures.Sets.
   Require Import ExtLib.Data.Monads.IdentityMonad.
@@ -131,6 +134,9 @@ Section free_vars.
         | Let_e ds e =>
           free_vars_decl' false ds ;;
           censor (filter (fun x => negb (defined_by x ds))) (free_vars_exp' e)
+        | Letrec_e ds e =>
+          iterM (free_vars_decl' true) ds ;;
+          censor (filter (fun x => negb (anyb (defined_by x) ds))) (free_vars_exp' e)
         | Switch_e o arms def =>
           free_vars_op o ;;
           mapM (fun x => free_vars_exp' (snd x)) arms ;;
@@ -141,9 +147,10 @@ Section free_vars.
       end
     with free_vars_decl' (rec : bool) (d : decl) : m unit :=
       match d with
-        | Rec_d ds => 
+(*        | Rec_d ds => 
           mapM (free_vars_decl' true) ds ;;
           ret tt
+*)
         | Op_d v o =>
           if rec then
             censor (filter (fun x => negb (eq_dec v x))) (free_vars_op o)
@@ -153,7 +160,9 @@ Section free_vars.
           if rec then 
             censor (filter (fun x => negb (eq_dec v x))) (mapM free_vars_op os) ;; ret tt
           else 
-            mapM free_vars_op os ;; ret tt
+            iterM free_vars_op os
+        | Bind_d x w m os =>
+          iterM free_vars_op os 
         | Fn_d v xs e =>
           if rec then
             censor (filter (fun x => negb (eq_dec v x || anyb (eq_dec x) xs))) (free_vars_exp' e)

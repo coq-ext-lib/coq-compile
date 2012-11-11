@@ -107,7 +107,7 @@ Section cps_convert.
               ret (Fn_d f (x::c::nil) e')
           end) fs ; 
         e0 <- cps e k ; 
-        ret (Let_e (Rec_d fs') e0)
+        ret (Letrec_e fs' e0)
       | Lambda.Match_e e arms => 
         cps e (fun v => 
           x <- freshVar (Some "x") ;; 
@@ -347,12 +347,13 @@ End cps_convert.
 
     Definition eval (n:nat) (e:exp) : option (list value) * heap := run (eval_exp n nil e) nil.
 
-    (*
+(*    
     Section TEST_EVAL.
       Import LambdaNotation. 
+      Require Import ExtLib.Programming.Show.
       Local Open Scope string_scope.
 
-      Eval compute in exp2string (CPS (gen ((\x => x) @ Z_c))).
+      Eval compute in to_string (CPS (gen ((\x => x) @ Z_c))).
       Eval compute in eval 100 (CPS (gen ((\x => x) @ Z_c))).
 
       Eval compute in exp2string (CPS (gen e1)).
@@ -369,7 +370,7 @@ End cps_convert.
 
       Eval compute in exp2string (CPS (gen e5)).
       Eval compute in eval 100 (CPS (gen e5)).  
-
+      
       Eval compute in exp2string (CPS (gen e6)).
       Eval compute in eval 100 (CPS (gen e6)).
 
