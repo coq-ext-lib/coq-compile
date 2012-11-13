@@ -375,6 +375,14 @@ Module Parse.
         end
     end.
 
+  Fixpoint lastDecl (ds : list (var * exp)) : option var :=
+    match ds with
+      | nil => None
+      | (v,_) :: nil => Some v
+      | _ :: ds => lastDecl ds
+    end.
+    
+
   (** Parse a set of top-level declarations and return a bit "let", binding
       those declarations, terminated by a call to "main tt".  Of course, this
       is only meaningful if one of the declarations binds a function that takes
@@ -385,7 +393,13 @@ Module Parse.
       | Some ts => match parse ts (List.length ts) with
                      | None => None
                      | Some ds =>
-                       Some (collapse_decls ds nil (App_e (Var_e (Env.wrapVar "main")) (Con_e "Tt" nil)))
+                       let body := 
+                         match lastDecl ds with
+                           | None => Con_e "Tt" nil
+                           | Some v => Var_e v 
+                           end
+                       in
+                       Some (collapse_decls ds nil body)
                    end
     end.
 
