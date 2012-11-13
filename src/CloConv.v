@@ -28,8 +28,7 @@ Module ClosureConvert.
     Context {State_m : MonadState positive m}.
     Context {Writer_m : MonadWriter (@Monoid_list_app decl) m}.
     Context {Reader_m : MonadReader (env_v var) m}.
-    Context {Reader_mV : MonadReader (env_v (op * op)) m}.
-
+    Context {Reader_custom_call : MonadReader (env_v (var * var)) m}.
     (** I need some way to encapsulate when calls should use a specified environment
      **)
 
@@ -78,7 +77,7 @@ Module ClosureConvert.
           ret (Let_e (Prim_d l' Proj_p (Int_o (PreOmega.Z_of_nat' from) :: o :: nil)) e)
       end.
     
-    Fixpoint usingEnvForAll (env : op) (ls : list (var * op)) {T} : m T -> m T :=
+    Fixpoint usingEnvForAll (env : var) (ls : list (var * var)) {T} : m T -> m T :=
       local (fold_left (fun acc v => Maps.add (fst v) (snd v, env) acc) ls).
 
     Fixpoint alist_lookup {K V} (R : RelDec (@eq K)) (k : K) (ls : list (K * V)) : option V :=
@@ -87,7 +86,7 @@ Module ClosureConvert.
         | l :: ls => if eq_dec k (fst l) then Some (snd l) else alist_lookup _ k ls
       end.
 
-    Definition getCustomCall (o : op) : m (option (op * op)) :=
+    Definition getCustomCall (o : op) : m (option (var * var)) :=
       match o with
         | Var_o v =>
           x <- ask ;;
@@ -102,7 +101,8 @@ Module ClosureConvert.
           match custom with
             | Some (f, e) =>
               args <- mapM cloconv_op args ;;
-              ret (App_e f (e :: args))
+              e <- cloconv_op (Var_o e) ;;
+              ret (App_e (Var_o f) (e :: args))
             | None =>
               f <- cloconv_op f ;;
               args <- mapM cloconv_op args ;;
@@ -134,13 +134,20 @@ Module ClosureConvert.
           ret (Let_e (Prim_d v p os) e) 
         | Let_e (Fn_d v vs e') e =>
           let fvars := free_vars_decl false (Fn_d v vs e') in
+          fvars <- mapM (fun v =>
+            x <- getCustomCall (Var_o v) ;;
+            match x with
+              | None => ret v
+              | Some (_, e) => ret e
+            end) fvars ;;
           (** fvars does not contain duplicates **)
           envV <- fresh "env"%string ;;
           v_code <- freshFor v ;;
           e' <- underBinders (Var_o envV) fvars 1 (cloconv_exp' e') ;;
           e <- cloconv_exp' e ;;
           liftDecl (Fn_d v_code (envV :: vs) e') ;;
-          ret (Let_e (Prim_d v MkTuple_p (Var_o v_code :: map Var_o fvars))
+          fvars' <- mapM cloconv_op (map Var_o fvars) ;;
+          ret (Let_e (Prim_d v MkTuple_p (Var_o v_code :: fvars'))
                      e)
         | Let_e (Rec_d ds) e =>
           let ds := gather_decls (Rec_d ds) in
@@ -164,13 +171,13 @@ Module ClosureConvert.
             v <- freshFor n ;; 
             vw <- freshFor n ;; 
             ret (n, (v, vw))) func_names ;;
-          let funcCodeOps := map (fun x => let '(a,(b,_)) := x in (a, Var_o b)) funcCodeNames in
+          let funcCodeOps := map (fun x => let '(a,(b,_)) := x in (a, b)) funcCodeNames in
           (** Lift the functions & wrappers out **)
           iterM (fun d =>
             match d with
               | Fn_d v vs e =>
                 envV <- fresh "env" ;;
-                e <- usingEnvForAll (Var_o envV) funcCodeOps (underBinders (Var_o envV) env 0 (cloconv_exp' e)) ;;
+                e <- usingEnvForAll envV funcCodeOps (underBinders (Var_o envV) env 0 (cloconv_exp' e)) ;;
                 match alist_lookup _ v funcCodeNames with
                   | None => ret tt (** Dead Code **)
                   | Some (cptr, cptr_wrap) =>
@@ -221,7 +228,7 @@ Module ClosureConvert.
 
   Definition cloconv_exp (e : exp) : exp :=
     let env_v := alist var in
-    let c := cloconv_exp' (env_v := alist var) (m := readerT (env_v var) (readerT (env_v (op * op)%type) (writerT (@Monoid_list_app decl) (state positive)))) e in
+    let c := cloconv_exp' (env_v := env_v) (m := readerT (env_v var) (readerT (env_v (var * var)%type) (writerT (@Monoid_list_app decl) (state positive)))) e in
     let '(e', ds', _) := runState (runWriterT (runReaderT (runReaderT c empty) empty)) 1%positive in
     Let_e (Rec_d ds') e'.
 

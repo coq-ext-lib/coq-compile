@@ -181,12 +181,6 @@ Module CPS.
           | MkTuple_p => "mkTuple"
         end }.
 
-    Fixpoint sepBy (sep : showM) (ls : list showM) : showM :=
-      match ls with
-        | nil => empty
-        | l :: nil => l
-        | l :: ls => l << sep << sepBy sep ls
-      end.
     Require Import ExtLib.Data.Char.
     
     Fixpoint emitexp (e:exp) : showM :=

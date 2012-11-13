@@ -1,7 +1,8 @@
-CORE       := Env Lambda Parse Cps CpsUtil CpsConvert Optimize LLVM AlphaCvtCps CloConv SimpleAnalysis
-OPT        := AlphaCps CseCps ReduceCps
+CORE       := Env Lambda Parse Cps CpsUtil CpsConvert Optimize LLVM CloConv SimpleAnalysis
+OPT        := AlphaCps CseCps ReduceCps AlphaCvtCps
 ANALYSIS   := OccurCps
-MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) 
+COMPILE    := ExtractTypes CodeGen
+MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE)
 TESTS      :=
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
@@ -12,6 +13,12 @@ ARGS :=-R . CoqCompile -R ../coq-ext-lib/theories ExtLib
 
 coq: Makefile.coq
 	$(MAKE) -f Makefile.coq
+
+extraction: coq
+	coqc $(ARGS) extraction.v	
+
+compiler: extraction
+	cd extraction/; ocamlbuild -lib unix Wrapper.byte
 
 Makefile.coq: Makefile $(VS)
 	coq_makefile $(ARGS) $(VS) -o Makefile.coq
