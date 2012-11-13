@@ -1,6 +1,7 @@
 CORE       := Env Lambda Parse Cps CpsUtil CpsConvert Optimize LLVM AlphaCvtCps CloConv SimpleAnalysis
-OPT        := AlphaCps CseCps
-MODULES    := $(CORE) $(OPT:%=Opt/%)
+OPT        := AlphaCps CseCps ReduceCps
+ANALYSIS   := OccurCps
+MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) 
 TESTS      :=
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
