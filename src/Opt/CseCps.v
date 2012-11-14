@@ -1,6 +1,6 @@
 Require Import CoqCompile.Env.
 Require Import CoqCompile.Cps CoqCompile.Lambda.
-Require Import CoqCompile.Opt.AlphaCps.
+Require Import CoqCompile.AlphaEquivCps.
 Require Import String List.
 Require Import ExtLib.ExtLib.
 Require Import ExtLib.Structures.Maps.
@@ -74,15 +74,16 @@ Module Cse.
               | None => local (fun x => (fst x, add (Prim_s p os) (Var_o v) (snd x))) (cc (Prim_d v p os))
               | Some o => cc (Op_d v o)
             end
+          | Bind_d v w m os =>
+            os <- mapM cse_op os ;;
+            cc (Bind_d v w m os)
           | Fn_d v vs e =>
+            e <- cse_exp e ;;
             x <- ask ;;
             match Maps.lookup (Fn_s vs e) (snd x) with
               | None => local (fun x => (fst x, add (Fn_s vs e) (Var_o v) (snd x))) (cc (Fn_d v vs e))
               | Some o => cc (Op_d v o)
             end
-          | Rec_d ds =>
-            ds <- mapM (fun x => cse_decl x ret) ds ;;
-            cc (Rec_d ds)
         end
       with cse_exp (e : exp) : m exp :=
         match e with
@@ -94,6 +95,16 @@ Module Cse.
             cse_decl ds (fun ds =>
               e <- cse_exp e ;;
               ret (Let_e ds e))
+          | Letrec_e ds e =>
+            (fix go ds acc k :=
+              match ds with
+                | nil => k ds
+                | d :: ds => 
+                  cse_decl d (fun d =>
+                    go ds (d :: acc) k)
+              end) ds nil (fun ds =>
+                e <- cse_exp e ;;
+                ret (Letrec_e ds e))
           | Switch_e o br def =>
             o <- cse_op o ;;
             br <- mapM (fun p_e => 

@@ -12,8 +12,6 @@ Set Strict Implicit.
 Module Occurs.
   Import CPS.
 
-
-
   Section with_maps.
     Variable map_v : Type -> Type.
     Context {DMap_map_v : DMap var map_v}.
@@ -46,6 +44,7 @@ Module Occurs.
         match e with
           | App_e f xs => use_op f ;; iterM use_op xs
           | Let_e d e => use_decl d ;; use_exp e
+          | Letrec_e ds e => iterM use_decl ds ;; use_exp e 
           | Switch_e x ls d => 
             use_op x ;;
             iterM (fun pe => use_exp (snd pe)) ls ;;
@@ -57,7 +56,7 @@ Module Occurs.
           | Op_d _ o => use_op o
           | Prim_d _ _ ls => iterM use_op ls
           | Fn_d _ _ e => use_exp e
-          | Rec_d ds => iterM use_decl ds
+          | Bind_d _ _ _ ls => iterM use_op ls
         end.
       
     End monadic.

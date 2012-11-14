@@ -129,6 +129,25 @@ Module Reduce.
                 | None => reduce_exp e
                 | Some d' => liftM (Let_e d') (reduce_exp e)
               end)
+          | Letrec_e ds e =>
+            (fix go ds (acc : list decl) : m exp :=
+              match ds with
+                | nil => match acc with
+                           | nil => reduce_exp e
+                           | _ =>
+                             e <- reduce_exp e ;;
+                             ret (Letrec_e acc e)
+                         end
+                | d :: ds =>
+                  reduce_decl d (fun od => 
+                    go ds match od with
+                            | None => acc
+                            | Some x => x :: acc
+                          end)
+              end
+            ) ds nil
+
+
           | Switch_e v arms def =>
             v' <- reduce_op v ;; 
             arms' <- mapM (fun p_e => 
@@ -161,27 +180,15 @@ Module Reduce.
               | Some v => 
                 local (add x (Op_d x v)) (k None)
             end
+          | Bind_d x w m vs =>
+            vs' <- mapM reduce_op vs ;;
+            k (Some (Bind_d x w m vs))
           | Fn_d f xs e =>
             e' <- reduce_exp e ;;
               match match_etas xs e with
                 | None => k (Some (Fn_d f xs e))
                 | Some v => local (add f (Op_d f v)) (k None)
               end
-          | Rec_d ds =>
-            (fix go ds (acc : list decl) : m a :=
-              match ds with
-                | nil => k match acc with
-                             | nil => None
-                             | _ => Some (Rec_d acc)
-                           end
-                | d :: ds =>
-                  reduce_decl d (fun od => 
-                    go ds match od with
-                            | None => acc
-                            | Some x => x :: acc
-                          end)
-              end
-            ) ds nil
         end.
     End monadic.
 

@@ -95,6 +95,10 @@ Module Alpha.
             assert (eq_dec p1 p2) ;;
             all2 alpha_op args1 args2 ;;
             local (add v1 v2) k
+          | Bind_d v1 w1 p1 args1 , Bind_d v2 w2 p2 args2 =>
+            assert (eq_dec p1 p2) ;;
+            all2 alpha_op args1 args2 ;;
+            local (fun x => add v1 v2 (add w1 w2 x)) k
           | Fn_d v1 a1 e1 , Fn_d v2 a2 e2 =>
             (fix map_multi (x y : list var) (k : m unit) : m unit :=
               match x , y with
@@ -104,14 +108,6 @@ Module Alpha.
                 | _ , _ => assert false
               end) a1 a2 (alpha_exp' e1 e2) ;;
             local (add v1 v2) k 
-          | Rec_d ds1, Rec_d ds2  =>
-            (fix rec ds1 ds2 k : m unit :=
-              match ds1 , ds2 with
-                | nil , nil => k
-                | d1 :: ds1 , d2 :: ds2 =>
-                  alpha_dec d1 d2 (rec ds1 ds2 k)
-                | _ , _ => assert false
-              end) ds1 ds2 k
           | _ , _ => assert false
         end.
     End monadic.

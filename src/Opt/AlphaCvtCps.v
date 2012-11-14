@@ -72,43 +72,50 @@ Module AlphaCvt.
           end
         else freshFor x.
 
-      Fixpoint alpha_rec_decl (d:decl) : M (env_v var) := 
+      Definition alpha_rec_decl (d:decl) : M (env_v var) := 
         match d with 
           | Fn_d f _ _ => f' <- freshFor f ;; ret (singleton f f')
           | Op_d x _ => x' <- freshFor x ;; ret (singleton x x')
           | Prim_d x _ _ => x' <- freshFor x ;; ret (singleton x x')
-          | Rec_d ds => 
-            (fix alpha_rec_decls (ds:list decl) : M (env_v var) := 
-              match ds with 
-                | nil => ret empty
-                | d::ds => env1 <- alpha_rec_decl d ; 
-                  env2 <- alpha_rec_decls ds ; 
-                  ret (overlay env2 env1)
-              end) ds
+          | Bind_d x w _ _ => x' <- freshFor x ;; w' <- freshFor w ;; ret (union (singleton x x') (singleton w w'))
+          (* | Rec_d ds =>  *)
+          (*   (fix alpha_rec_decls (ds:list decl) : M (env_v var) :=  *)
+          (*     match ds with  *)
+          (*       | nil => ret empty *)
+          (*       | d::ds => env1 <- alpha_rec_decl d ;  *)
+          (*         env2 <- alpha_rec_decls ds ;  *)
+          (*         ret (overlay env2 env1) *)
+          (*     end) ds *)
         end.
-      Definition alpha_rec_decls ds := alpha_rec_decl (Rec_d ds).
 
       Fixpoint alpha_exp (e:exp) : M exp := 
-        match e with 
+        match e return M exp with 
           | Halt_e v => v' <- alpha_op v ; ret (Halt_e v')
           | App_e v vs => 
-            v' <- alpha_op v ; 
-            vs' <- mapM alpha_op vs ; 
+            v' <- alpha_op v ;;
+            vs' <- mapM alpha_op vs ;;
             ret (App_e v' vs')
           | Switch_e v arms def => 
-            v' <- alpha_op v ; 
+            v' <- alpha_op v ;;
             arms' <- 
               mapM (fun p => e' <- alpha_exp (snd p) ; ret (fst p, e')) arms ; 
             def' <- match def return M (option exp) with 
                       | None => ret None 
                       | Some e => e' <- alpha_exp e ; ret (Some e') 
-                    end ; 
+                    end ;;
             ret (Switch_e v' arms' def')
           | Let_e d e => 
-            p <- alpha_decl false d ; 
+            p <- alpha_decl false d ;;
             let (d', env) := p in 
-              e' <- local (overlay env) (alpha_exp e) ; 
+              e' <- local (overlay env) (alpha_exp e) ;;
               ret (Let_e d' e')
+          | Letrec_e ds e =>
+            defs <- reduceM (ret empty) (alpha_rec_decl) (fun x y => ret (union x y)) ds ;;
+            let _ : env_v var := defs in
+            local (overlay defs) 
+              (ds' <- mapM (fun d => p <- alpha_decl true d ;; ret (fst p)) ds ;;
+               e' <- alpha_exp e ;;
+               ret (Letrec_e ds' e'))
         end
       with alpha_decl (recursive:bool) (d:decl) : M (decl * env_v var) := 
         match d with 
@@ -120,16 +127,16 @@ Module AlphaCvt.
             x' <- fresh_or_rec recursive x ;;
             vs' <- mapM alpha_op vs ;;
             ret (Prim_d x' p vs', singleton x x')
+          | Bind_d x w m vs => 
+            x' <- fresh_or_rec recursive x ;;
+            w' <- fresh_or_rec recursive w ;;
+            vs' <- mapM alpha_op vs ;;
+            ret (Bind_d x' w' m vs', singleton x x')
           | Fn_d f xs e => 
             f' <- fresh_or_rec recursive f ;;
             xs' <- mapM freshFor xs ;; 
             e' <- local (overlay_list xs xs') (alpha_exp e) ;;
             ret (Fn_d f' xs' e', singleton f f')
-          | Rec_d ds => 
-            env <- alpha_rec_decls ds ;;
-            ds' <- mapM (fun d => p <- local (overlay env) (alpha_decl true d) ;;
-                                  ret (fst p)) ds ; 
-            ret (Rec_d ds', env)
         end.
     End monadic.
   End maps.
