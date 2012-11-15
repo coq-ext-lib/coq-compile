@@ -37,10 +37,15 @@ Section cps_convert.
     Local Open Scope monad_scope.
     Local Open Scope string_scope.
     
-  (** Generate a fresh variable -- assumes no user-level variables start with "$". *)
+  (** Generate a fresh variable **)
   Definition freshVar (s:option string) : m var := 
     n <- modify Psucc ;;
     ret (Env.mkVar s n).
+
+  (** Generate a fresh variable **)
+  Definition freshCont (s:string) : m cont := 
+    n <- modify Psucc ;;
+    ret (K s n).
   
 
   (** Convert a [Lambda.exp] into a CPS [exp].  The meta-level continuation [k] is used
@@ -63,7 +68,7 @@ Section cps_convert.
       case.  The cases then extract the other values from the tuple and bind them to
       the appropriate pattern variables.  
   *)
-  Fixpoint cps(e:Lambda.exp)(k:op -> m exp) : m exp := 
+  Fixpoint cps (e:Lambda.exp) (k:op -> m exp) : m exp := 
     match e with 
       | Lambda.Var_e x => k (Var_o x)
       | Lambda.Con_e c nil => k (Con_o c)
@@ -72,12 +77,17 @@ Section cps_convert.
           cps e2 (fun v2 => 
             a <- freshVar (Some "a") ;; 
             e <- k (Var_o a) ;;
+(*
             match match_eta a e with
               | None => 
-                f <- freshVar (Some "f") ;; 
-                ret (Let_e (Fn_d f (a::nil) e) (App_e v1 (v2::(Var_o f)::nil)))
+*)
+                f <- freshCont "f" ;; 
+                ret (LetK_e ((f, a::nil, e) :: nil) (App_e v1 f (v2::nil)))
+(*
               | Some c => ret (App_e v1 (v2::c::nil))
-            end))
+            end
+            *)
+          ))
       | Lambda.Con_e c es => 
         (fix cps_es (es:list Lambda.exp) (vs:list op)(k:list op -> m exp) : m exp := 
           match es with 
@@ -94,17 +104,17 @@ Section cps_convert.
           ret (Let_e (Op_d x v1) e2'))
       | Lambda.Lam_e x e => 
         f <- freshVar (Some "f") ;; 
-        c <- freshVar (Some "c") ;; 
-        e' <- cps e (fun v => ret (App_e (Var_o c) (v::nil))) ; 
+        c <- freshCont "K" ;; 
+        e' <- cps e (fun v => ret (AppK_e c (v::nil))) ; 
         e0 <- k (Var_o f) ; 
-        ret (Let_e (Fn_d f (x::c::nil) e') e0)
+        ret (Let_e (Fn_d f c (x::nil) e') e0)
       | Lambda.Letrec_e fs e => 
         fs' <- mapM (fun fn => 
           match fn with 
             | (f,(x,e)) => 
-              c <- freshVar (Some "c") ;; 
-              e' <- cps e (fun v => ret (App_e (Var_o c) (v::nil))) ;;
-              ret (Fn_d f (x::c::nil) e')
+              c <- freshCont "c" ;; 
+              e' <- cps e (fun v => ret (AppK_e c (v::nil))) ;;
+              ret (Fn_d f c (x::nil) e')
           end) fs ; 
         e0 <- cps e k ; 
         ret (Letrec_e fs' e0)
@@ -112,12 +122,13 @@ Section cps_convert.
         cps e (fun v => 
           x <- freshVar (Some "x") ;; 
           e0 <- k (Var_o x) ; 
-          c <- freshVar (Some "c") ;; 
-          cont <- match match_eta x e0 with
+          c <- freshCont "c" ;; 
+(*          cont <- match match_eta x e0 with
                     | None => ret (Var_o c)
                     | Some v' => ret v'
                   end ;
-          arms' <- mapM (fun p_e => e' <- cps (snd (p_e)) (fun v => ret (App_e cont (v::nil))) ;
+*)
+          arms' <- mapM (fun p_e => e' <- cps (snd (p_e)) (fun v => ret (AppK_e c (v::nil))) ;
             ret (fst p_e, e')) arms ; 
           is_ptr <- freshVar (Some "isptr") ;;
           tag <- freshVar (Some "tag") ;; 
@@ -130,10 +141,7 @@ Section cps_convert.
                            (Let_e (Prim_d tag Proj_p ((Int_o 0)::v::nil))
                              (switch_e (Var_o tag) pointer_arms def)))::nil) None))
                end ;;
-          match match_eta x e0 with 
-            | None => ret (Let_e (Fn_d c (x::nil) e0) m)
-            | Some _ => ret m
-          end)
+          ret (LetK_e ((c, (x::nil), e0) :: nil) m))
     end.
   End monadic.
 

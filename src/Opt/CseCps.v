@@ -15,14 +15,14 @@ Module Cse.
 
   Inductive CseValue : Type :=
   | Prim_s : primop -> list op -> CseValue
-  | Fn_s   : list var -> exp -> CseValue.
+  | Fn_s   : cont -> list var -> exp -> CseValue.
 
   Definition CseValue_equiv (a b : CseValue) : Prop :=
     match a , b with
       | Prim_s p os , Prim_s p' os' =>
         p = p' /\ os = os'
-      | Fn_s vs e , Fn_s vs' e' =>
-        Alpha.alpha_lam e e' vs vs' = true
+      | Fn_s k vs e , Fn_s k' vs' e' =>
+        Alpha.alpha_lam e e' k k' vs vs' = true
       | _ , _ => False
     end.
 
@@ -31,8 +31,8 @@ Module Cse.
     match a , b with
       | Prim_s p os , Prim_s p' os' =>
         if eq_dec p p' then eq_dec os os' else false
-      | Fn_s vs e , Fn_s vs' e' =>
-        Alpha.alpha_lam e e' vs vs'
+      | Fn_s k vs e , Fn_s k' vs' e' =>
+        Alpha.alpha_lam e e' k k' vs vs'
       | _ , _ => false
     end }.
 
@@ -77,24 +77,30 @@ Module Cse.
           | Bind_d v w m os =>
             os <- mapM cse_op os ;;
             cc (Bind_d v w m os)
-          | Fn_d v vs e =>
+          | Fn_d v k vs e =>
             e <- cse_exp e ;;
             x <- ask ;;
-            match Maps.lookup (Fn_s vs e) (snd x) with
-              | None => local (fun x => (fst x, add (Fn_s vs e) (Var_o v) (snd x))) (cc (Fn_d v vs e))
+            match Maps.lookup (Fn_s k vs e) (snd x) with
+              | None => local (fun x => (fst x, add (Fn_s k vs e) (Var_o v) (snd x))) (cc (Fn_d v k vs e))
               | Some o => cc (Op_d v o)
             end
         end
       with cse_exp (e : exp) : m exp :=
         match e with
-          | App_e f xs =>
+          | App_e f k xs =>
             f <- cse_op f ;;
             xs <- mapM cse_op xs ;;
-            ret (App_e f xs)
+            ret (App_e f k xs)
+          | AppK_e k xs => 
+            liftM (AppK_e k) (mapM cse_op xs)
           | Let_e ds e =>
             cse_decl ds (fun ds =>
               e <- cse_exp e ;;
               ret (Let_e ds e))
+          | LetK_e ks e =>
+            liftM2 LetK_e (mapM (fun x => let '(k,xs,e) := x in 
+              e <- cse_exp e ;;
+              ret (k, xs, e)) ks) (cse_exp e)
           | Letrec_e ds e =>
             (fix go ds acc k :=
               match ds with

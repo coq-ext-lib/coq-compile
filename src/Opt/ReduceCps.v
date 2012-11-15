@@ -119,16 +119,26 @@ Module Reduce.
           | Int_p i => Int_o i
         end.
 
+      Parameter admit : forall {A}, A.
+
       Fixpoint reduce_exp (e:exp) : m exp :=
         match e with
-          | App_e v vs => 
-            liftM2 App_e (reduce_op v) (mapM reduce_op vs)
+          | App_e v k vs => 
+            liftM2 (fun x y => App_e x k y) (reduce_op v) (mapM reduce_op vs)
+          | AppK_e k vs => 
+            liftM (AppK_e k) (mapM reduce_op vs)
           | Let_e d e =>
             reduce_decl d (fun d => 
               match d with
                 | None => reduce_exp e
                 | Some d' => liftM (Let_e d') (reduce_exp e)
               end)
+          | LetK_e ks e =>
+            ks <- mapM (fun x => let '(k,xs,e) := x in 
+              e <- reduce_exp e ;;
+              ret (k,xs,e)) ks ;;
+            e <- reduce_exp e ;;
+            ret (LetK_e ks e)            
           | Letrec_e ds e =>
             (fix go ds (acc : list decl) : m exp :=
               match ds with
@@ -183,10 +193,10 @@ Module Reduce.
           | Bind_d x w m vs =>
             vs' <- mapM reduce_op vs ;;
             k (Some (Bind_d x w m vs))
-          | Fn_d f xs e =>
+          | Fn_d f k' xs e =>
             e' <- reduce_exp e ;;
               match match_etas xs e with
-                | None => k (Some (Fn_d f xs e))
+                | None => k (Some (Fn_d f k' xs e))
                 | Some v => local (add f (Op_d f v)) (k None)
               end
         end.
