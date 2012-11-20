@@ -117,9 +117,10 @@ Module ClosureConvert.
                    | Some def => def <- cloconv_exp' def ;; ret (Some def)
                  end ;;
           ret (Switch_e o arms def)
-        | Halt_e o =>
-          o <- cloconv_op o ;;
-          ret (Halt_e o)
+        | Halt_e o1 o2 =>
+          o1 <- cloconv_op o1 ;;
+          o2 <- cloconv_op o2 ;;
+          ret (Halt_e o1 o2)
         | Let_e (Op_d v o) e =>
           o <- cloconv_op o ;;
           e <- cloconv_exp' e ;;

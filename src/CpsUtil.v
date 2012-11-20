@@ -82,8 +82,8 @@ Section free.
               false
           else
             false
-      | Halt_e o =>
-        free_in_op o
+      | Halt_e o1 o2 =>
+        andb (free_in_op o1) (free_in_op o2)
     end
   with free_in_decl (d : decl) : bool :=
     match d with
@@ -129,8 +129,9 @@ Section free_vars.
           free_vars_op f ;;
           mapM free_vars_op xs ;;
           ret tt
-        | Halt_e o =>
-          free_vars_op o
+        | Halt_e o1 o2 =>
+          free_vars_op o1 ;;
+          free_vars_op o2
         | Let_e ds e =>
           free_vars_decl' false ds ;;
           censor (filter (fun x => negb (defined_by x ds))) (free_vars_exp' e)

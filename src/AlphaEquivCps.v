@@ -82,8 +82,9 @@ Module Alpha.
                   alpha_exp' e1 e2
                 | _ , _ => assert false
               end) br1 br2             
-          | Halt_e o1 , Halt_e o2 =>
-            alpha_op o1 o2
+          | Halt_e o1 o1', Halt_e o2 o2'=>
+            alpha_op o1 o2 ;;
+            alpha_op o1' o2'
           | _ , _ => assert false
         end
       with alpha_dec (d1 d2 : decl) (k : m unit) {struct d1} : m unit :=
@@ -137,8 +138,9 @@ Module Alpha.
   Module TEST.
     Require Import String.
 
+
     (** Test cases needed **)
-    Definition f (v : var) : exp := Halt_e (Var_o v).
+    Definition f (v : var) : exp := Halt_e (Var_o v) (Var_o (wrapVar "world"%string)).
 
     Goal (alpha_exp (f (wrapVar "0")) (f (wrapVar "2")) = false)%string.
     Proof. vm_compute; reflexivity. Abort.

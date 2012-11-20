@@ -49,7 +49,7 @@ Module Occurs.
             use_op x ;;
             iterM (fun pe => use_exp (snd pe)) ls ;;
             iterM use_exp d
-          | Halt_e o => use_op o
+          | Halt_e o1 o2 => use_op o1 ;; use_op o2
         end
       with use_decl (d : decl) : m unit :=
         match d with

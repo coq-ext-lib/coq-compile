@@ -71,7 +71,7 @@ Module CPS.
         pattern matching.  The optional expression at the end is a default in case
         none of the patterns matches the value. *)
   | Switch_e : op -> list (pattern * exp) -> option exp -> exp
-  | Halt_e : op -> exp
+  | Halt_e : op -> op -> exp
   with decl : Type := 
     (** let x := v *)
   | Op_d : var -> op -> decl
@@ -211,7 +211,7 @@ Module CPS.
                  | Some e => chr_newline << "| _ => " << emitexp e
                end) *)
           << chr_newline << "end"
-        | Halt_e o => "HALT " << show o
+        | Halt_e o1 o2 => "HALT " << show o1 << show o2
       end
     with emitdecl (d:decl) : showM := 
       match d with 
