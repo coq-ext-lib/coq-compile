@@ -119,6 +119,8 @@ Module Reduce.
           | Int_p i => Int_o i
         end.
 
+      Parameter admit : forall {A}, A.
+
       Fixpoint reduce_exp (e:exp) : m exp :=
         match e with
           | App_e v k vs => 
