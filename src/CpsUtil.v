@@ -13,7 +13,7 @@ Import CPS.
      [fun x => f x]. *)
   Definition match_eta (x:var) (e:exp) : option op := 
     match e with 
-      | App_e op1 _ ((Var_o y)::nil) => 
+      | App_e op1 ((Var_o y)::nil) => 
         if eq_dec y x then Some op1 else None
       | _ => None
     end.
@@ -29,7 +29,7 @@ Import CPS.
      eta-expansion of [fun (x1,...,xn) => f(x1,...,xn)]. *)
   Definition match_etas (xs:list var) (e:exp) : option op := 
     match e with 
-      | App_e op1 k ys =>
+      | App_e op1 ys =>
         if eq_vars_ops xs ys then Some op1 else None
       | _ => None
     end.
@@ -44,56 +44,30 @@ Import CPS.
 
 
 Section free.
-  Variable v : var + cont.
+  Variable v : var.
 
-  Definition free_in_var (o : var) : bool :=
-    match v with
-      | inl v => eq_dec v o
-      | _ => false
-    end.
-
-  Definition defined_by (d : decl) : bool :=
-    match v with
-      | inl v =>
-        match d with
-          | Op_d v' _ => eq_dec v v'
-          | Prim_d v' _ _ => eq_dec v v'
-          | Fn_d v' _ _ _ => eq_dec v v'
-          | Bind_d a b _ _ => eq_dec a v || eq_dec b v
-        end
-      | inr _ => false
+  Fixpoint defined_by (d : decl) : bool :=
+    match d with
+      | Op_d v' _ => eq_dec v v'
+      | Prim_d v' _ _ => eq_dec v v'
+      | Fn_d v' _ _ => eq_dec v v'
+      | Bind_d a b _ _ => eq_dec a v || eq_dec b v
     end.
 
   Definition free_in_op (o : op) : bool :=
-    match v with
-      | inl v =>
-        match o with
-          | Var_o v' => eq_dec v v'
-          | Int_o _ => false
-          | Con_o _ => false
-        end
-      | _ => false
-    end.
-
-  Definition free_in_k (c : cont) : bool :=
-    match v with 
-      | inl _ => false
-      | inr x => eq_dec x c
+    match o with
+      | Var_o v' => eq_dec v v'
+      | Int_o _ => false
+      | Con_o _ => false
     end.
 
   Fixpoint free_in_exp (e : exp) : bool :=
     match e with
-      | App_e f k xs =>
-        free_in_op f || free_in_k k || allb free_in_op xs
-      | AppK_e k xs =>
-        free_in_k k || allb free_in_op xs
+      | App_e f xs =>
+        if free_in_op f then true else allb free_in_op xs
       | Let_e ds e =>
         if defined_by ds then false
           else if free_in_decl ds then true else free_in_exp e
-      | LetK_e ks e =>
-        if anyb (fun x => let '(k,_,_) := x in free_in_k k) ks then false
-        else free_in_exp e || anyb (fun x => let '(_, vs, e) := x in
-          (if anyb free_in_var vs then false else free_in_exp e)) ks
       | Letrec_e ds e =>
         if anyb defined_by ds then false
         else if anyb free_in_decl ds then true else free_in_exp e
@@ -116,8 +90,8 @@ Section free.
       | Op_d _ o => free_in_op o
       | Prim_d _ _ vs => anyb free_in_op vs
       | Bind_d _ _ _ vs => anyb free_in_op vs
-      | Fn_d _ k vs e =>
-        if free_in_k k || anyb free_in_var vs then false
+      | Fn_d _ vs e =>
+        if anyb (eq_dec v) vs then false
           else free_in_exp e
     end.
 End free.
@@ -134,54 +108,35 @@ Section free_vars.
   Require Import ExtLib.Data.Monads.WriterMonad.
   Section with_sets.
     Variable s : Type.
-    Context {DSet_s : DSet s (@eq (var + cont))}.
+    Context {DSet_s : DSet s (@eq var)}.
 
   Section monadic.
     Variable m : Type -> Type.
     Context {Monad_m : Monad m}.
-    Context {Writer_m : MonadWriter (Monoid_set_union (R := @eq (var + cont))) m}.
+    Context {Writer_m : MonadWriter (Monoid_set_union (R := @eq var)) m}.
 
     Definition free_vars_op (o : op) : m unit :=
       match o with
-        | Var_o v => tell (singleton (inl v))
+        | Var_o v => tell (singleton v)
         | _ => ret tt
       end.
-
-    Definition free_vars_k (k : cont) : m unit :=
-      tell (singleton (inr k)).
-
     Import MonadNotation.
     Local Open Scope monad_scope.
 
-    (** remove elements of v **)
-    Definition filter_vars (v : list var) : s -> s :=
-      filter (fun x => negb (anyb (fun y => eq_dec x (inl y)) v)).
-
-    Definition filter_conts (v : list cont) : s -> s :=
-      filter (fun x => negb (anyb (fun y => eq_dec x (inr y)) v)).
-
     Fixpoint free_vars_exp' (e : exp) : m unit :=
       match e with
-        | App_e f k xs => 
+        | App_e f xs => 
           free_vars_op f ;;
-          free_vars_k k ;;
-          iterM free_vars_op xs
-        | AppK_e k xs =>
-          free_vars_k k ;;
-          iterM free_vars_op xs
-        | LetK_e ks e =>
-          censor (filter_conts (map (fun x => let '(k,_,_) := x in k) ks))
-            (iterM (fun x => let '(k,xs,e) := x in 
-              censor (filter_vars xs) (free_vars_exp' e)) ks ;;
-             free_vars_exp' e)
+          mapM free_vars_op xs ;;
+          ret tt
         | Halt_e o =>
           free_vars_op o
         | Let_e ds e =>
           free_vars_decl' false ds ;;
           censor (filter (fun x => negb (defined_by x ds))) (free_vars_exp' e)
         | Letrec_e ds e =>
-          censor (filter (fun x => negb (anyb (defined_by x) ds)))
-                 (iterM (free_vars_decl' true) ds ;; free_vars_exp' e)
+          iterM (free_vars_decl' true) ds ;;
+          censor (filter (fun x => negb (anyb (defined_by x) ds))) (free_vars_exp' e)
         | Switch_e o arms def =>
           free_vars_op o ;;
           mapM (fun x => free_vars_exp' (snd x)) arms ;;
@@ -192,23 +147,27 @@ Section free_vars.
       end
     with free_vars_decl' (rec : bool) (d : decl) : m unit :=
       match d with
+(*        | Rec_d ds => 
+          mapM (free_vars_decl' true) ds ;;
+          ret tt
+*)
         | Op_d v o =>
           if rec then
-            censor (filter (fun x => negb (eq_dec (inl v) x))) (free_vars_op o)
+            censor (filter (fun x => negb (eq_dec v x))) (free_vars_op o)
           else
             free_vars_op o
         | Prim_d v p os =>
           if rec then 
-            censor (filter (fun x => negb (eq_dec (inl v) x))) (mapM free_vars_op os) ;; ret tt
+            censor (filter (fun x => negb (eq_dec v x))) (mapM free_vars_op os) ;; ret tt
           else 
             iterM free_vars_op os
         | Bind_d x w m os =>
           iterM free_vars_op os 
-        | Fn_d v _ xs e =>
+        | Fn_d v xs e =>
           if rec then
-            censor (filter (fun x => negb (eq_dec (inl v) x || anyb (fun v => eq_dec x (inl v)) xs))) (free_vars_exp' e)
+            censor (filter (fun x => negb (eq_dec v x || anyb (eq_dec x) xs))) (free_vars_exp' e)
           else 
-            censor (filter (fun x => negb (anyb (fun v => eq_dec x (inl v)) xs))) (free_vars_exp' e)
+            censor (filter (fun x => negb (anyb (eq_dec x) xs))) (free_vars_exp' e)
       end.
   End monadic.
 

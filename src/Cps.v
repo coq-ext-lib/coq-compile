@@ -58,15 +58,13 @@ Module CPS.
   | Proj_p.   (* Proj_p [Int_o i;v] projects the ith component of the tuple referenced
                  by v, using zero-based indexing. *)
 
-  Inductive cont : Type := K : string -> positive -> cont.
-
   Inductive mop : Type := .
 
   (** CPS are in general a sequence of let-bindings that either terminate with 
       a function application, or else fork using a switch into a tree of nested
       CPS expressions.  *)
   Inductive exp : Type := 
-  | App_e : op -> cont -> list op -> exp
+  | App_e : op -> list op -> exp
   | Let_e : decl -> exp -> exp
   | Letrec_e : list decl -> exp -> exp
     (** Switch is only used on small integer values and unlike Match, doesn't do any
@@ -74,16 +72,13 @@ Module CPS.
         none of the patterns matches the value. *)
   | Switch_e : op -> list (pattern * exp) -> option exp -> exp
   | Halt_e : op -> exp
-
-  | AppK_e : cont -> list op -> exp
-  | LetK_e : list (cont * list var * exp) -> exp -> exp
   with decl : Type := 
     (** let x := v *)
   | Op_d : var -> op -> decl
     (** let x := p(v1,...,vn) *)
   | Prim_d : var -> primop -> list op -> decl
     (** let f := fun (x1,...,xn) => e *)
-  | Fn_d : var -> cont -> list var -> exp -> decl
+  | Fn_d : var -> list var -> exp -> decl
   | Bind_d : var -> var -> mop -> list op -> decl.
 
   Global Instance RelDec_primop_eq : RelDec (@eq primop) := 
@@ -114,19 +109,6 @@ Module CPS.
   Global Instance RelDecCorrect_mop_eq : RelDec_Correct RelDec_mop_eq.
   Proof.
     constructor. destruct x.
-  Qed.
-
-  Global Instance RelDec_cont_eq : RelDec (@eq cont) :=
-  { rel_dec l r := match l , r with
-                     | K s1 i1 , K s2 i2 => eq_dec s1 s2 && eq_dec i1 i2
-                   end }.
-
-  Global Instance RelDecCorrect_cont_eq : RelDec_Correct RelDec_cont_eq.
-  Proof.
-    constructor. destruct x; destruct y; simpl.
-    change (p =? p0)%positive with (rel_dec (equ := eq) p p0).
-    consider (string_dec s s0 && rel_dec (equ := eq) p p0); intuition; subst; auto;
-    inversion H; auto.
   Qed.
 
   Global Instance RelDec_op_eq : RelDec (@eq op) :=
@@ -209,39 +191,25 @@ Module CPS.
           | MkTuple_p => "mkTuple"
         end }.
 
-    Global Instance Show_cont : Show cont :=
-      { show c :=
-        match c with
-          | K x i => "%" << x << show i 
-        end }.
-
     Require Import ExtLib.Data.Char.
     
     Fixpoint emitexp (e:exp) : showM :=
       match e with 
-        | AppK_e k vs => "return " << show k << "(" << sepBy ", " (map show vs) << ")"
-        | LetK_e ks e =>
-          let emitKd (kd : cont * list var * exp) : showM :=
-            let '(k, xs, b) := kd in 
-            show k << "(" << sepBy ", " (map show xs) << ") := " << emitexp b
-          in
-          "letK " << indent "and  " (sepBy chr_newline (map emitKd ks)) << chr_newline
-          << "in " << emitexp e
-        | App_e v k vs => show v << "(" << show k << "; " << sepBy ", " (map show vs) << ")"
+        | App_e v vs => show v << "(" << sepBy " " (map show vs) << ")"
         | Let_e d e =>
           "let " << indent "  " (emitdecl d) << " in " << indent "  " (emitexp e)
         | Letrec_e ds e => 
           "let rec " << indent "    and " (sepBy chr_newline (map emitdecl ds)) <<
           chr_newline << "in " << emitexp e 
         | Switch_e v arms def => 
-          "switch " << empty (*show v*) << " with" << 
+          "switch " << empty (*show v*) << " with" << empty (*
           indent "  " (
-            sepBy empty (map (fun (p: pattern * exp) => 
-              chr_newline << "| " << show (fst p) << " => " << emitexp (snd p)) arms)
+            iterM (fun (p: pattern * exp) => 
+              chr_newline << "| " << show (fst p) << " => " << emitexp (snd p)) arms
             << match def with 
                  | None => empty
                  | Some e => chr_newline << "| _ => " << emitexp e
-               end)
+               end) *)
           << chr_newline << "end"
         | Halt_e o => "HALT " << show o
       end
@@ -251,8 +219,8 @@ Module CPS.
           show x << " = " << show v
         | Prim_d x p vs => 
           show x << " = " << show p << "(" << sepBy " " (map show vs) << ")"
-        | Fn_d f k xs e => 
-          show f << "(" << show k << "; " << sepBy (", " : showM) (map show xs) << ") = " << indent "  " (emitexp e)
+        | Fn_d f xs e => 
+          show f << "(" << sepBy (", " : showM) (map show xs) << ") = " << indent "  " (emitexp e)
         | Bind_d x w mop args =>
           show x << "[" << show w << "] <- " << show mop << "(" << sepBy " " (map show args) << ")"
       end.
