@@ -13,8 +13,12 @@ Import Cps.CPS.
 Section AbstractDomain.
   
   Class AbsTime (C : Type) : Type :=
-  { (** What does this have? **) }.
-
+  { (** What does this have? 
+     ** - there should be a way to refine a context to include some pure fact, e.g.
+     **   "assume this equality"
+     **)
+  }.
+  
   Class AbsDomain (Domain Value Context ProgramPoint : Type) : Type :=
   { lookup  : Context -> ProgramPoint -> Domain -> Value
   ; update  : Context -> ProgramPoint -> Value -> Domain -> Domain
@@ -39,9 +43,9 @@ Section AbstractDomain.
   ; orA : V -> V -> V
   }.
 
-  Class FnValue (V C : Type) (exp : Type) : Type :=
+  Class FnValue (V C D : Type) (exp : Type) : Type :=
   { injFn  : C -> list var -> exp -> V 
-  ; applyA : forall {m} {_ : Monad m}, (C -> exp -> m V) -> V -> list V -> m V (** this is more complex **)
+  ; applyA : forall {m} {_ : Monad m}, (C -> D -> exp -> m (V * D)%type) -> V -> list V -> m (V * D)%type
   }.
 
   Class TplValue (V : Type) : Type :=
@@ -58,7 +62,7 @@ Section AI.
   Context {AbsValue_V : AbsDomain D V C var}.
   Context {IntValue_V : IntValue V}.
   Context {BoolValue_V : BoolValue V}.
-  Context {FnValue_V  : FnValue V C exp}.
+  Context {FnValue_V  : FnValue V C D exp}.
   Context {TplValue_V : TplValue V}.
 
   Import MonadNotation.
@@ -116,8 +120,8 @@ Section AI.
           raise ("Ill-formed declaration " ++ runShow (show d))%string.
 
         
-        Definition deval (aeval : exp -> m V) (d : decl) : m' V :=
-          match d return m' V with
+        Definition eval_decl (d : decl) : m' unit :=
+          match d return m' unit with
             | Op_d v o =>
               oA <- eval_op o ;;
               admit (* update v oA *)
@@ -161,22 +165,25 @@ Section AI.
               end
 *)
           end.
-        
-        Definition aeval : C -> D -> exp -> m V.
-        refine (
-          mfix3 (fun aeval => fix recur (ctx : C) (d : D) (e : exp) : m V :=
-            match e with
+
+        Definition aeval : C -> D -> exp -> m (V * D) :=
+          mfix3 _ (fun aeval => fix recur (ctx : C) (dom : D) (e : exp) : m (V * D) :=
+            match e return m (V * D) with
               | App_e o os =>
-                fA <- eval_op o ;;
-                argsA <- mapM eval_op os ;;
-                applyA _ fA argsA
+                fA_argsA_d <- runM' (fA <- eval_op o ;;
+                                     argsA <- mapM eval_op os ;;
+                                     ret (fA, argsA)) ctx dom ;;
+                let '((fA, argsA), dom) := fA_argsA_d in
+                applyA aeval fA argsA 
               | Let_e d e =>
-                deval aeval d ;;
-                aeval e
+                v_dom <- runM' (eval_decl d) ctx dom ;;
+                let '(v, dom) := v_dom in
+                recur ctx dom e
               | Letrec_e ds e =>
-                mapM (deval aeval) ds ;;
-                recur e
+                dom' <- runM' (iterM eval_decl ds) ctx dom ;;
+                recur ctx (snd dom') e
               | Switch_e o arms e =>
+                admit (*
                 s <- eval_op o ;;
                 armsR <- mapM (fun x => aeval (snd x)) arms ;;
                 let armsA := reduce bottomA (fun x => x) joinA armsR in
@@ -187,12 +194,14 @@ Section AI.
                   | None =>
                     ret armsA
                 end
+*)
               | Halt_e o1 o2 =>
-                eval_op o1
-            end)).
+                admit (* eval_op o1 *)
+            end).
 
       End Transfer.
 
+(*
       Definition D := ((list decl) * bool)%type. (* fns, escapes *)
       Definition bottomD : D := (nil,false).
       Definition joinD (a b : D) : D :=
@@ -200,7 +209,7 @@ Section AI.
           | (afs,ab),(bfs,bb) => (afs++bfs,orb ab bb)
         end.
 
-      (* structure mostly right... &#$@%@$ monads and sections *)
+      (* structure mostly right...*)
       Definition contApplyA (aeval : exp -> m D) (fn : D) (args : list D) : m D :=
         match fn with
           | (fns,b) =>
@@ -220,7 +229,7 @@ Section AI.
         Parameter primA : (exp -> m A) -> primop -> list A -> m A.
         Parameter fnA : (exp -> m A) -> decl -> m A.
         Parameter bindA : (exp -> m A) -> mop -> list A -> m (A * A).
+*)
     End Monadic.
-  End Maps.
 End AI.
 
