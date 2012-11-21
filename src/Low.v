@@ -39,7 +39,7 @@ Inductive instr :=
    passed as arguments (referred to by the index of the formal) or that 
    were bound locally (referred to by the label of the generated code block
    and a list of arguments, which may include the return value). *)
-Definition cont : Type := (nat + (label * list op))%type.
+Definition cont : Type := (nat + label)%type.
 
 Inductive term :=
 | Halt_tm : op -> term
