@@ -12,7 +12,7 @@ Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Core.ZDecidables.
 Require Import ExtLib.Core.PosDecidables.
 Require Import ExtLib.Structures.Maps.
-Require Import Cps.
+Require Import CoqCompile.CpsK.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -30,8 +30,8 @@ Inductive primtyp :=
 | Ptr_t : primtyp -> primtyp
 | Struct_t : list primtyp -> primtyp.
 
-Definition op := Cps.CPS.op.
-Definition pattern := Cps.CPS.pattern.
+Definition op := CpsK.CPS.op.
+Definition pattern := CpsK.CPS.pattern.
 
 Inductive primop :=
 | Eq_p
@@ -50,12 +50,18 @@ Inductive instr :=
 | Alloca_i : list (var * primtyp) -> instr
 | Malloc_i : list (var * primtyp) -> instr
 | Load_i : primtyp -> var -> instr
-| Store_i : primtyp -> op -> var -> instr
-| Call_i : var -> op -> list op -> instr.
+| Store_i : primtyp -> op -> var -> instr.
+
+(* A function can be called with a list of continuations that were either 
+   passed as arguments (referred to by the index of the formal) or that 
+   were bound locally (referred to by the label of the generated code block
+   and a list of arguments, which may include the return value). *)
+Definition cont : Type := (nat + (label * list op))%type.
 
 Inductive term :=
-| Tailcall_tm : fname -> list op -> term
-(* | Jump_tm : label -> list op -> term *)
+| Call_tm : var -> fname -> list op -> list cont -> term
+(* Return to a passed-in continuation *)
+| Cont_tm : nat -> list op -> term
 | Switch_tm : op -> list (pattern * label * list op) -> option (label * list op) -> term.
 
 Record block := mk_block {
