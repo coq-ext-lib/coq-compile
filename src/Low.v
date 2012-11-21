@@ -39,13 +39,13 @@ Inductive instr :=
    passed as arguments (referred to by the index of the formal) or that 
    were bound locally (referred to by the label of the generated code block
    and a list of arguments, which may include the return value). *)
-Definition cont : Type := (nat + (label * list op))%type.
+Definition cont : Type := (nat + label)%type.
 
 Inductive term :=
 | Halt_tm : op -> term
-| Call_tm : var -> fname -> list op -> list cont -> term
+| Call_tm : var -> op -> list op -> list cont -> term
 (* Return to a passed-in continuation *)
-| Cont_tm : nat -> list op -> term
+| Cont_tm : cont -> list op -> term
 | Switch_tm : op -> list (pattern * label * list op) -> option (label * list op) -> term.
 
 Record block := mk_block {
