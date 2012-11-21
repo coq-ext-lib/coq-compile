@@ -29,8 +29,6 @@ Inductive primop :=
 
 Inductive instr :=
 | Primop_i : var -> primop -> list op -> instr
-| Push_i : primtyp -> instr
-| Pop_i : var -> primtyp -> instr
 | Alloca_i : list (var * primtyp) -> instr
 | Malloc_i : list (var * primtyp) -> instr
 | Load_i : primtyp -> var -> instr
