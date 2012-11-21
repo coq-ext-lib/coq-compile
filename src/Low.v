@@ -1,4 +1,4 @@
-Require Import String.
+Require Import ZArith String.
 Require Import CoqCompile.Lambda CoqCompile.Env.
 Require Import ExtLib.Data.Map.FMapAList.
 Require Import CoqCompile.CpsK.
