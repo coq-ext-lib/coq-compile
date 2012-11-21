@@ -4,12 +4,16 @@ Require Import ZArith String List Bool.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Structures.Reducible.
 Require Import ExtLib.Structures.Folds.
+Require Import ExtLib.Structures.Maps.
+Require Import ExtLib.Structures.Sets.
 Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Data.Strings.
 Require Import ExtLib.Data.Monads.EitherMonad.
+Require Import ExtLib.Data.Map.FMapTwoThreeK.
+Require Import ExtLib.Data.Map.FMapAList.
+Require Import ExtLib.Data.Set.ListSet.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Tactics.Consider.
-Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Programming.Show.
 
 Set Implicit Arguments.
@@ -203,10 +207,10 @@ Section monadic.
   Definition generateMalloc T (allocs : list (var * primtyp)) (k : m T) : m T.
   Admitted.
 
-  Definition generateLoad T (dest : var) (t : primtyp) (ptr : var) (k : m T) : m T.
+  Definition generateLoad T (dest : var) (t : primtyp) (index : Z) (ptr : var) (k : m T) : m T.
   Admitted.
 
-  Definition generateStore T (t : primtyp) (v : op) (ptr : var) (k : m T) : m T.
+  Definition generateStore T (t : primtyp) (v : op) (index : Z) (ptr : var) (k : m T) : m T.
   Admitted.
 
   Definition generateInstr T (i : Low.instr) (k : m T) : m T :=
@@ -217,16 +221,27 @@ Section monadic.
         generateAlloca allocs k
       | Malloc_i allocs =>
         generateMalloc allocs k
-      | Load_i d t s =>
-        generateLoad d t s k
-      | Store_i t v d =>
-        generateStore t v d k
+      | Load_i d t i s =>
+        generateLoad d t i s k
+      | Store_i t v i d =>
+        generateStore t v i d k
     end.
 
   Definition generateTerm (t : Low.term) : m unit.
+  refine (
+    match t with
+      | Halt_tm arg => _
+      | Call_tm retVal fptr args conts => _
+      | Cont_tm cont args => _
+      | Switch_tm op arms default => _
+    end).
   Admitted.
 
-  Definition generateBlock (b : Low.block) : m LLVM.label :=
+  Definition CFG := twothree label (lset (@eq label)).
+  Context {CFG_FM : DMap label (twothree label)}.
+  Context {CFG_set : DSet (lset (@eq label)) (@eq label)}.
+
+  Definition generateBlock (cfg : CFG) (b : Low.block) : m LLVM.label :=
     let block := (* TODO: emit phi nodes *)
       (fix recur instrs :=
         match instrs with
@@ -234,9 +249,40 @@ Section monadic.
           | i::rest => generateInstr i (recur rest)
         end) (b_insns b) in
       inFreshLabel block.
-  
-  Definition generateFunction (f : Low.function) : string + LLVM.topdecl :=
-    inl "Unimplemented"%string.
+
+  Definition addEdge (l : label) (k : cont) (cfg : CFG) : CFG.
+(*    match k with
+      | inl _ => cfg
+      | inr d =>
+        match lookup (map:=twothree label) l cfg with
+          | None => add l (singleton d) cfg
+          | Some s => add l (add d s) cfg (* &$#%# type classes *)
+        end
+    end.*)
+  Admitted.
+
+  Definition controlFlowGraph (f : Low.function) : CFG :=
+    let processBlock block cfg :=
+      let '(l,b) := block in
+      match b_term b with
+        | Halt_tm _ => cfg
+        | Call_tm _ _ _ ks =>
+          fold (addEdge l) cfg ks
+        | Cont_tm k _ => addEdge l k cfg
+        | Switch_tm _ arms default =>
+          let cfg' := fold (fun e => let '(_,k,_) := e in addEdge l (inr k)) cfg arms
+          in match default with
+               | None => cfg'
+               | Some (k,_) => addEdge l (inr k) cfg'
+             end
+      end in
+    fold processBlock (Maps.empty : CFG) (f_body f).
+
+  Definition generateFunction (f : Low.function) : m LLVM.topdecl.
+  refine (
+    let cfg := controlFlowGraph f
+    in _).
+  Admitted.
 
   Definition coq_alloc_decl :=
     let header := LLVM.Build_fn_header None None CALLING_CONV false PTR_TYPE nil "coq_alloc"%string ((UNIVERSAL, "size", nil)::nil)%string nil None None None in
@@ -250,7 +296,7 @@ Section monadic.
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string ((UNIVERSAL, "o", nil)::nil)%string nil None None None in
       LLVM.Declare_d header.
   
-  Definition generateProgram (p : Low.program) : string + LLVM.module :=
+  Definition generateProgram (p : Low.program) : m LLVM.module :=
     decls <- mapM generateFunction (p_topdecl p) ;;
     ret (coq_error_decl :: coq_done_decl :: coq_alloc_decl :: decls).
 
