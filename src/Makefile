@@ -1,5 +1,5 @@
 CORE       := Env Lambda Parse CpsCommon Cps CpsK Low LLVM \
-	      CpsUtil AlphaEquivCps CpsIO CpsConvert Optimize
+	      CpsUtil CpsKUtil AlphaEquivCps CpsIO CpsConvert Optimize
 OPT        := CseCps ReduceCps AlphaCvtCps
 ANALYSIS   := OccurCps AbstractInterpCps # SimpleAnalysis
 COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGenCPS CloConv 
