@@ -43,9 +43,9 @@ Definition cont : Type := (nat + (label * list op))%type.
 
 Inductive term :=
 | Halt_tm : op -> term
-| Call_tm : var -> fname -> list op -> list cont -> term
+| Call_tm : var -> op -> list op -> list cont -> term
 (* Return to a passed-in continuation *)
-| Cont_tm : nat -> list op -> term
+| Cont_tm : cont -> list op -> term
 | Switch_tm : op -> list (pattern * label * list op) -> option (label * list op) -> term.
 
 Record block := mk_block {
