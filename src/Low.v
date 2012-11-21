@@ -11,7 +11,6 @@ Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Core.ZDecidables.
 Require Import ExtLib.Core.PosDecidables.
-Require Import ExtLib.Tactics.Consider.
 Require Import ExtLib.Structures.Maps.
 Require Import Cps.
 
@@ -109,6 +108,7 @@ Section monadic.
       | Proj_p => None
     end.
   
+(*
   Fixpoint cps2low (e:Cps.CPS.exp) : m _ .
   refine (
     match e with
@@ -118,30 +118,8 @@ Section monadic.
       | Letrec_e ds e => _
       | Switch_e o arms e => _
       | Halt_e o => _
-      | AppK_e k os => _
-      | LetK_e args e => _
     end).
+*)
 
-
-
-
-  Inductive exp : Type := 
-  | App_e : op -> cont -> list op -> exp
-  | Let_e : decl -> exp -> exp
-  | Letrec_e : list decl -> exp -> exp
-    (** Switch is only used on small integer values and unlike Match, doesn't do any
-        pattern matching.  The optional expression at the end is a default in case
-        none of the patterns matches the value. *)
-  | Switch_e : op -> list (pattern * exp) -> option exp -> exp
-  | Halt_e : op -> exp
-
-  | AppK_e : cont -> list op -> exp
-  | LetK_e : list (cont * list var * exp) -> exp -> exp
-  with decl : Type := 
-    (** let x := v *)
-  | Op_d : var -> op -> decl
-    (** let x := p(v1,...,vn) *)
-  | Prim_d : var -> primop -> list op -> decl
-    (** let f := fun (x1,...,xn) => e *)
-  | Fn_d : var -> cont -> list var -> exp -> decl
-  | Bind_d : var -> var -> mop -> list op -> decl.
+End monadic.
+End maps.

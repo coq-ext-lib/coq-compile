@@ -87,7 +87,7 @@ Module ClosureConvert.
       end.
 
     Parameter admit : forall {X}, X.
-    Print decl.
+
     
     Fixpoint cloconv_exp' (e : exp) : m exp.
     refine (
