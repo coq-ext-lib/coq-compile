@@ -17,13 +17,13 @@ Section cps_convert.
      nullary constructors, (2) those matching on nary constructors for n > 0, (3) a default
      pattern that matches anything.  Used in match compilation below. *)
   Fixpoint partition' v (arms:list (Lambda.pattern * exp)) 
-                        (constants:list (pattern * exp))
-                        (pointers:list (pattern * exp)) :=
+                        (constants:list (CpsCommon.pattern * exp))
+                        (pointers:list (CpsCommon.pattern * exp)) :=
      match arms with 
        | nil => (rev constants, rev pointers, None)
-       | (Lambda.Con_p c nil, e)::rest => partition' v rest ((Con_p c,e)::constants) pointers
+       | (Lambda.Con_p c nil, e)::rest => partition' v rest ((CpsCommon.Con_p c,e)::constants) pointers
        | (Lambda.Con_p c xs, e)::rest => 
-         partition' v rest constants ((Con_p c,bind_proj v xs 1 e)::pointers)
+         partition' v rest constants ((CpsCommon.Con_p c,bind_proj v xs 1 e)::pointers)
        | (Lambda.Var_p x,e)::rest => (rev constants, rev pointers, Some (Let_e (Op_d x v) e))
      end.
 
@@ -125,8 +125,8 @@ Section cps_convert.
                  | (constant_arms, pointer_arms, def) => 
                    ret (Let_e (Prim_d is_ptr Ptr_p (v::nil))
                      (Switch_e (Var_o is_ptr)
-                       ((Con_p "false"%string, switch_e v constant_arms def)::
-                         (Con_p "true"%string, 
+                       ((CpsCommon.Con_p "false"%string, switch_e v constant_arms def)::
+                         (CpsCommon.Con_p "true"%string, 
                            (Let_e (Prim_d tag Proj_p ((Int_o 0)::v::nil))
                              (switch_e (Var_o tag) pointer_arms def)))::nil) None))
                end ;;

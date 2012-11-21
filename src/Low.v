@@ -30,8 +30,11 @@ Inductive primtyp :=
 | Ptr_t : primtyp -> primtyp
 | Struct_t : list primtyp -> primtyp.
 
+
+(*
 Definition op := CpsK.CPS.op.
 Definition pattern := CpsK.CPS.pattern.
+*)
 
 Inductive primop :=
 | Eq_p
@@ -98,20 +101,18 @@ Section monadic.
   Variable State_isExit : MonadState (option LLVM.label) m.
   *)
 
-  Import CPS.
-
-  Definition prim2low (p:CPS.primop) : option primop :=
+  Definition prim2low (p:CpsCommon.primop) : option primop :=
     match p with
-      | Eq_p => Some Eq_p
-      | Neq_p => Some Neq_p
-      | Lt_p => Some Lt_p
-      | Lte_p => Some Lte_p
-      | Ptr_p => Some Ptr_p
-      | Plus_p => Some Plus_p
-      | Minus_p => Some Minus_p
-      | Times_p => Some Times_p
-      | MkTuple_p => None
-      | Proj_p => None
+      | CpsCommon.Eq_p => Some Eq_p
+      | CpsCommon.Neq_p => Some Neq_p
+      | CpsCommon.Lt_p => Some Lt_p
+      | CpsCommon.Lte_p => Some Lte_p
+      | CpsCommon.Ptr_p => Some Ptr_p
+      | CpsCommon.Plus_p => Some Plus_p
+      | CpsCommon.Minus_p => Some Minus_p
+      | CpsCommon.Times_p => Some Times_p
+      | CpsCommon.MkTuple_p => None
+      | CpsCommon.Proj_p => None
     end.
   
 (*

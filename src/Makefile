@@ -1,7 +1,8 @@
-CORE       := Env Lambda Parse Cps CpsUtil AlphaEquivCps CpsIO CpsConvert Optimize LLVM Low
+CORE       := Env Lambda Parse CpsCommon Cps CpsK Low LLVM \
+	      CpsUtil AlphaEquivCps CpsIO CpsConvert Optimize
 OPT        := CseCps ReduceCps AlphaCvtCps
 ANALYSIS   := OccurCps AbstractInterpCps # SimpleAnalysis
-COMPILE    := ExtractTypes CodeGen CloConv
+COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGenCPS CloConv 
 MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE)
 TESTS      :=
 VS         := $(MODULES:%=%.v)

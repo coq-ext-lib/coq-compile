@@ -9,39 +9,41 @@ Set Strict Implicit.
 
 Import CPS.
 
-  (** returns the function name f if [fun x => e] is a simple eta expansion of the form
-     [fun x => f x]. *)
-  Definition match_eta (x:var) (e:exp) : option op := 
-    match e with 
-      | App_e op1 ((Var_o y)::nil) => 
-        if eq_dec y x then Some op1 else None
-      | _ => None
-    end.
-  
-  Fixpoint eq_vars_ops (xs:list var) (vs:list op) : bool := 
-    match xs, vs with 
-      | nil, nil => true
-      | x::xs, (Var_o y)::vs => eq_dec x y && eq_vars_ops xs vs
-      | _, _ => false
-    end.
-  
-  (** similar to the above, but for the general case of [fun (x1,...,xn) => e] being an
-     eta-expansion of [fun (x1,...,xn) => f(x1,...,xn)]. *)
-  Definition match_etas (xs:list var) (e:exp) : option op := 
-    match e with 
-      | App_e op1 ys =>
-        if eq_vars_ops xs ys then Some op1 else None
-      | _ => None
-    end.
-  
-  (** Let-bind [xi] to [#i v] for the expression [e].  This is used in the compilation
-      of pattern matching below. *)
-  Fixpoint bind_proj(v:op)(xs:list var)(offset:Z)(e:exp) : exp := 
-    match xs with 
-      | nil => e
-      | x::xs => Let_e (Prim_d x Proj_p ((Int_o offset)::v::nil)) (bind_proj v xs (1+offset) e)
-    end.
+(** returns the function name f if [fun x => e] is a simple eta expansion 
+ ** of the form [fun x => f x]. 
+ **)
+Definition match_eta (x:var) (e:exp) : option op := 
+  match e with 
+    | App_e op1 ((Var_o y)::nil) => 
+      if eq_dec y x then Some op1 else None
+    | _ => None
+  end.
 
+Fixpoint eq_vars_ops (xs:list var) (vs:list op) : bool := 
+  match xs, vs with 
+    | nil, nil => true
+    | x::xs, (Var_o y)::vs => eq_dec x y && eq_vars_ops xs vs
+    | _, _ => false
+  end.
+
+(** similar to the above, but for the general case of [fun (x1,...,xn) => e] 
+ ** being an eta-expansion of [fun (x1,...,xn) => f(x1,...,xn)]. 
+ **)
+Definition match_etas (xs:list var) (e:exp) : option op := 
+  match e with 
+    | App_e op1 ys =>
+      if eq_vars_ops xs ys then Some op1 else None
+    | _ => None
+  end.
+
+(** Let-bind [xi] to [#i v] for the expression [e].  This is used in the 
+ ** compilation of pattern matching below. 
+ **)
+Fixpoint bind_proj(v:op)(xs:list var)(offset:Z)(e:exp) : exp := 
+  match xs with 
+    | nil => e
+    | x::xs => Let_e (Prim_d x Proj_p ((Int_o offset)::v::nil)) (bind_proj v xs (1+offset) e)
+  end.
 
 Section free.
   Variable v : var.
@@ -95,7 +97,7 @@ Section free.
           else free_in_exp e
     end.
 End free.
-  
+
 
 Section free_vars.
   (** list is suboptimal here **)
