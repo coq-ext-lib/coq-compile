@@ -40,6 +40,8 @@ Module CPSK.
 
   Inductive cont : Type := K : string -> positive -> cont.
 
+  Definition wrapCont (s : string) : cont := K s 1%positive.
+
   (** CPS are in general a sequence of let-bindings that either terminate with 
       a function application, or else fork using a switch into a tree of nested
       CPS expressions.  *)
