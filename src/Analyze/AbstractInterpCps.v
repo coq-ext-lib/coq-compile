@@ -108,23 +108,17 @@ Section AI.
 **)
 
       Section Transfer.
-(*
-        Parameter applyA : (exp -> m A) -> A -> list A -> m A.
-        Parameter primA : (exp -> m A) -> primop -> list A -> m A.
-        Parameter fnA : (exp -> m A) -> decl -> m A.
-        Parameter bindA : (exp -> m A) -> mop -> list A -> m (A * A).
-*)
         Parameter admit : forall {A}, A.
 
         Definition illFormed_decl {A} (d : decl) : m A :=
           raise ("Ill-formed declaration " ++ runShow (show d))%string.
-
         
         Definition eval_decl (d : decl) : m' unit :=
-          match d return m' unit with
+          v_vA <- 
+          match d return m' (var * V) with
             | Op_d v o =>
               oA <- eval_op o ;;
-              admit (* update v oA *)
+              ret (v, oA)
 
             | Prim_d v p os => 
               argsA <- mapM eval_op os ;;
@@ -147,11 +141,11 @@ Section AI.
                   | _ , _ => lift (lift (illFormed_decl (Prim_d v p os)))
                 end
               ;;
-              admit (* update v vA *)
+              ret (v, vA)
 
             | Fn_d v args body =>
               ctx <- ask ;;
-              admit (* update v (injFn ctx args body) *)
+              ret (v, injFn ctx args body)
 
             | Bind_d v1 v2 m os =>
               argsA <- mapM eval_op os ;;
@@ -164,7 +158,11 @@ Section AI.
                   insert v2 a2
               end
 *)
-          end.
+          end ;;
+          let '(v, vA) := v_vA in
+          ctx <- ask (T := C) ;;
+          modify (update ctx v vA) ;;
+          ret tt.
 
         Definition aeval : C -> D -> exp -> m (V * D) :=
           mfix3 _ (fun aeval => fix recur (ctx : C) (dom : D) (e : exp) : m (V * D) :=
