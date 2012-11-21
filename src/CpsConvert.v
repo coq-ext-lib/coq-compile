@@ -137,8 +137,21 @@ Section cps_convert.
     end.
   End monadic.
 
-  Definition CPS(e:Lambda.exp) : exp := 
-    evalState (cps e (fun x => ret (Halt_e x))) 1%positive.
+  Import MonadNotation.
+  Local Open Scope monad_scope.
+
+  Require Import CoqCompile.CpsIO.
+
+  Definition CPS_pure (e:Lambda.exp) : exp := 
+    evalState (w <- freshVar (Some "w"%string) ;;
+               cps e (fun x => ret (Halt_e x (Var_o w)))) 1%positive.
+
+  Definition CPS_io (e:Lambda.exp) : exp :=
+    let result := 
+      evalState (w <- freshVar (Some "w"%string) ;;
+                 cps e (fun x => ret (IO.runIO (Var_o w) x))) 1%positive
+    in IO.wrapIO (wrapVar "$__IO_bind__") (wrapVar "$__IO_return__") result.
+
 End cps_convert.
 
 (*

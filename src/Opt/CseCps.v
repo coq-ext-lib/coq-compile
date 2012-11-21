@@ -115,9 +115,10 @@ Module Cse.
                      | Some def => def <- cse_exp def ;; ret (Some def)
                    end ;;
             ret (Switch_e o br def)
-          | Halt_e o =>
+          | Halt_e o o' =>
             o <- cse_op o ;;
-            ret (Halt_e o)
+            o' <- cse_op o' ;;
+            ret (Halt_e o o')
         end.
 
     End monadic.
@@ -136,13 +137,13 @@ Module Cse.
 
     Definition cse1 := def y := S_c Z_c in def z := S_c Z_c in S_c y.
     
-    Eval compute in (exp2string (CPS (gen cse1))).
-    Eval compute in (exp2string (cse (CPS (gen cse1)))).
+    Eval compute in (exp2string (CPS_pure (gen cse1))).
+    Eval compute in (exp2string (cse (CPS_pure (gen cse1)))).
 
     Definition cse2 := def y := \ x => x in def z := \ y => y in z.
     
-    Eval compute in (exp2string (CPS (gen cse2))).
-    Eval compute in (exp2string (cse (CPS (gen cse2)))).
+    Eval compute in (exp2string (CPS_pure (gen cse2))).
+    Eval compute in (exp2string (cse (CPS_pure (gen cse2)))).
   End Tests.
 
 End Cse.

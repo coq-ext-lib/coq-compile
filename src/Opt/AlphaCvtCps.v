@@ -90,7 +90,7 @@ Module AlphaCvt.
 
       Fixpoint alpha_exp (e:exp) : M exp := 
         match e return M exp with 
-          | Halt_e v => v' <- alpha_op v ; ret (Halt_e v')
+          | Halt_e v v' => liftM2 Halt_e (alpha_op v) (alpha_op v')
           | App_e v vs => 
             v' <- alpha_op v ;;
             vs' <- mapM alpha_op vs ;;

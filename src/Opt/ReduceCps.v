@@ -164,7 +164,7 @@ Module Reduce.
               | None => ret (switch_e v' arms' def')
               | Some e => ret e
             end 
-          | Halt_e o => liftM Halt_e (reduce_op o)
+          | Halt_e o o' => liftM2 Halt_e (reduce_op o) (reduce_op o')
         end
       with reduce_decl {a} (d:decl) (k : option decl -> m a) : m a :=
         match d with
