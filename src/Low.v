@@ -43,6 +43,7 @@ Inductive instr :=
 Definition cont : Type := (nat + (label * list op))%type.
 
 Inductive term :=
+| Halt_tm : op -> term
 | Call_tm : var -> fname -> list op -> list cont -> term
 (* Return to a passed-in continuation *)
 | Cont_tm : nat -> list op -> term
