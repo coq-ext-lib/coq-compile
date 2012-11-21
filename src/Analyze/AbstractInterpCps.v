@@ -1,104 +1,195 @@
+Require Import String.
 Require Import CoqCompile.Cps.
 Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Structures.Reducible.
+Require Import ExtLib.Data.Monads.ReaderMonad.
+Require Import ExtLib.Data.Monads.StateMonad.
+Require Import ExtLib.Data.Option.
+Require Import ExtLib.Programming.Show.
 
 Import Cps.CPS.
 
+Section AbstractDomain.
+  
+  Class AbsTime (C : Type) : Type :=
+  { (** What does this have? **) }.
+
+  Class AbsDomain (Domain Value Context ProgramPoint : Type) : Type :=
+  { lookup  : Context -> ProgramPoint -> Domain -> Value
+  ; update  : Context -> ProgramPoint -> Value -> Domain -> Domain
+  ; joinA   : Value -> Value -> Value
+  ; bottomA : Value (** this means nothing **)
+  ; topA    : Value (** this means anything of any type **)
+  }.
+
+  Class IntValue (V : Type) : Type :=
+  { injInt : option BinNums.Z -> V
+  ; plusA  : V -> V -> V
+  ; minusA : V -> V -> V
+  ; timesA : V -> V -> V
+  ; eqA    : V -> V -> option bool
+  ; ltA    : V -> V -> option bool
+  }.
+
+  Class BoolValue (V : Type) : Type :=
+  { injBool : option bool -> V
+  ; may : V -> bool -> bool
+  ; must : V -> bool -> bool
+  ; orA : V -> V -> V
+  }.
+
+  Class FnValue (V C : Type) (exp : Type) : Type :=
+  { injFn  : C -> list var -> exp -> V 
+  ; applyA : forall {m} {_ : Monad m}, (C -> exp -> m V) -> V -> list V -> m V (** this is more complex **)
+  }.
+
+  Class TplValue (V : Type) : Type :=
+  { injTuple : list V -> V
+  ; projA    : V -> V -> V
+  }.
+
+End AbstractDomain.
+
+
 Section AI.
+  Variables D C V : Type.
+  Context {AbsTime_C  : AbsTime C}.
+  Context {AbsValue_V : AbsDomain D V C var}.
+  Context {IntValue_V : IntValue V}.
+  Context {BoolValue_V : BoolValue V}.
+  Context {FnValue_V  : FnValue V C exp}.
+  Context {TplValue_V : TplValue V}.
+
   Import MonadNotation.
   Local Open Scope monad_scope.
   Local Open Scope list_scope.
   
-  Parameter A : Type.
-  Parameter join : A -> A -> A.
-  Parameter bottom : A.
 
+(*
   Section Maps.
     Variable map_var : Type -> Type.
     Context {FM : DMap Env.var map_var}.
+*)
     
     Section Monadic.
       Variable m : Type -> Type.
       Context {Monad_m : Monad m}.
-      Context {State_m : MonadState (map_var A) m}.
+      Context {Exc_m : MonadExc string m}.
       Context {Fix_m : MonadFix m}.
-      
-      Definition inj (o : op) : m A :=
+
+      Definition m' : Type -> Type := 
+        readerT C (stateT D m).
+
+      Definition runM' {A} (cmd : m' A) (c : C) (d : D) : m (A * D) :=
+        runStateT (runReaderT cmd c) d.
+
+      Definition eval_op (o : op) : m' V :=
         match o with
           | Var_o v =>
-            inMap <- gets (lookup v) ;;
-            match inMap with
-              | None => ret bottom
-              | Some a => ret a
-            end
-          | _ => ret bottom
+            domain <- get ;;
+            ctx <- ask ;;
+            ret (lookup ctx v domain)
+          | Con_o c => ret bottomA (** TODO: Not done **)
+          | Int_o i => ret (injInt (Some i))
         end.
-      
-      Definition insert (v : var) (a : A) : m A :=
-        map <- get ;;
-        let new := match lookup (map:=map_var) v map with
-                     | Some o => join o a
-                     | None => a
-                   end
-        in put (add v new map) ;;
+
+(**
+      Definition insert (v : var) (a : V) : m V :=
+        ctx    <- ask ;;
+        domain <- get ;;
+        let new := joinA (lookup ctx v domain) a in
+        put (add v new mp) ;;
         ret new.
+**)
 
       Section Transfer.
+(*
         Parameter applyA : (exp -> m A) -> A -> list A -> m A.
         Parameter primA : (exp -> m A) -> primop -> list A -> m A.
         Parameter fnA : (exp -> m A) -> decl -> m A.
         Parameter bindA : (exp -> m A) -> mop -> list A -> m (A * A).
+*)
+        Parameter admit : forall {A}, A.
+
+        Definition illFormed_decl {A} (d : decl) : m A :=
+          raise ("Ill-formed declaration " ++ runShow (show d))%string.
+
         
-        Definition deval (aeval : exp -> m A) (d : decl) : m A :=
-          match d with
+        Definition deval (aeval : exp -> m V) (d : decl) : m' V :=
+          match d return m' V with
             | Op_d v o =>
-              a <- inj o ;;
-              insert v a
+              oA <- eval_op o ;;
+              admit (* update v oA *)
+
             | Prim_d v p os => 
-              argsA <- mapM inj os ;;
-              a <- primA aeval p argsA ;;
-              insert v a
-            | Fn_d v _ _ =>
-              a <- fnA aeval d ;;
-              insert v a
+              argsA <- mapM eval_op os ;;
+              vA <-
+                match p , argsA return m' V with
+                  | Eq_p , l :: r :: nil =>
+                    ret (injBool (eqA l r))
+                  | Neq_p , l :: r :: nil =>
+                    ret (injBool (map negb (eqA l r)))
+                  | Lt_p , l :: r :: nil =>
+                    ret (injBool (ltA l r))
+                  | Lte_p , l :: r :: nil =>
+                    ret (orA (injBool (ltA l r)) (injBool (eqA l r)))
+                  | Ptr_p , l :: nil => ret (injBool None) (** ?? **)
+                  | Plus_p , l :: r :: nil => ret (plusA l r)
+                  | Minus_p , l :: r :: nil => ret (minusA l r)
+                  | Times_p , l :: r :: nil => ret (timesA l r)
+                  | MkTuple_p , argsA => ret (injTuple argsA)
+                  | Proj_p , l :: r :: nil => admit
+                  | _ , _ => lift (lift (illFormed_decl (Prim_d v p os)))
+                end
+              ;;
+              admit (* update v vA *)
+
+            | Fn_d v args body =>
+              ctx <- ask ;;
+              admit (* update v (injFn ctx args body) *)
+
             | Bind_d v1 v2 m os =>
-              argsA <- mapM inj os ;;
+              argsA <- mapM eval_op os ;;
+              admit
+(*
               r <- bindA aeval m argsA ;;
               match r with
                 | (a1,a2) =>
                   insert v1 a1 ;;
                   insert v2 a2
               end
+*)
           end.
         
-        Definition aeval : exp -> m A :=
-          mfix (fun aeval => fix recur (e : exp) : m A := 
+        Definition aeval : C -> D -> exp -> m V.
+        refine (
+          mfix3 (fun aeval => fix recur (ctx : C) (d : D) (e : exp) : m V :=
             match e with
               | App_e o os =>
-                fA <- inj o ;
-                argsA <- mapM inj os ;;
-                applyA aeval fA argsA
+                fA <- eval_op o ;;
+                argsA <- mapM eval_op os ;;
+                applyA _ fA argsA
               | Let_e d e =>
                 deval aeval d ;;
                 aeval e
               | Letrec_e ds e =>
                 mapM (deval aeval) ds ;;
-                aeval e
+                recur e
               | Switch_e o arms e =>
-                s <- inj o ;;
+                s <- eval_op o ;;
                 armsR <- mapM (fun x => aeval (snd x)) arms ;;
-                armsA <- foldM (fun a b => ret (join a b)) (ret bottom) armsR ;;
+                let armsA := reduce bottomA (fun x => x) joinA armsR in
                 match e with
                   | Some e =>
-                    default <- aeval e ;;
-                    ret (join armsA default)
+                    default <- recur e ;;
+                    ret (joinA armsA default)
                   | None =>
                     ret armsA
                 end
               | Halt_e o1 o2 =>
-                inj o1
-            end).
+                eval_op o1
+            end)).
 
       End Transfer.
 
