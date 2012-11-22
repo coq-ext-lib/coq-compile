@@ -31,7 +31,6 @@ Section monadic.
   Variable State_blks : MonadState (list block) m.
   Variable Exc_m : MonadExc string m.
   (*
-  Variable Mon_m : Monad m.
   Variable State_m : MonadState (nat * nat) m.
   Variable Reader_varmap : MonadReader (map_var lvar) m.
   Context {Reader_ctor_map : MonadReader (map_ctor Z) m}.
@@ -74,7 +73,7 @@ Section monadic.
                                end) vs in
     mapM (fun x => match x with
                      | inl x => ret x
-                     | inr _ => raise "shouldn't happen"%string
+                     | inr _ => raise "found continuation after filter"%string
                    end) vs.
 
   Fixpoint list_repeat {A} (n:nat) (a:A) : list A :=
@@ -131,8 +130,7 @@ Section monadic.
       | Bind_d _ _ m _ => match m with end
     end.
   
-  Fixpoint cpsk2low (e:exp) : m unit.
-  refine(
+  Fixpoint cpsk2low (e:exp) : m unit :=
     match e with
       | App_e o ks os => 
         v <- opgen o ;;
@@ -158,7 +156,7 @@ Section monadic.
                       lbl <- inFreshLbl nil (cpsk2low e) ;;
                       ret (Some (lbl, nil))
                   end ;;
-        emit_tm (Switch_tm v arms None)
+        emit_tm (Switch_tm v arms defLbl)
       | Halt_e o _ => 
         v <- opgen o ;;
         emit_tm (Halt_tm v)
@@ -167,16 +165,20 @@ Section monadic.
         vs <- mapM opgen os ;;
         emit_tm (Cont_tm k vs)
       | LetK_e cves e => 
-        wlbls <- mapM (fun x => let '(k, vs, e) := x in 
+        lbls <- mapM (fun x => let '(k, vs, e) := x in 
           l <- freshLbl ;;
-          ret (k, vs, e, l)) cves ;;
+          ret (k, l)) cves ;;
         withNewCont 
-          (map (fun x => let '(k, vs, e, l) := x in (k, l)) wlbls)
-          ((mapM (fun x => let '(k, vs, e, l) := x in newBlock l vs (cpsk2low e)) wlbls) ;;
+          (map (fun x => let '(k, l) := x in (k, l)) lbls)
+          ((iterM (fun x => let '(k, vs, e) := x in 
+            l <- tolowcont k ;;
+            match l with
+              | inr l =>
+                newBlock l vs (cpsk2low e) ;; ret tt
+              | inl _ => raise "local cont references cont parameter"%string
+            end) cves) ;;
             cpsk2low e)
-    end).
-  Grab Existential Variables.
-  (* wtf? *)
+    end.
 
 End monadic.
 End maps.
