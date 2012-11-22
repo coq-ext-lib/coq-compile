@@ -86,9 +86,6 @@ Module ClosureConvert.
         | _ => ret None
       end.
 
-    Parameter admit : forall {X}, X.
-
-    
     Fixpoint cloconv_exp' (e : exp) : m exp.
     refine (
       match e with
