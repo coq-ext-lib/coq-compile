@@ -38,15 +38,19 @@ Section monadic.
   Context {State_blks : MonadState (list block) m}.
   Context {Exc_m : MonadExc string m}.
   Context {Fresh_m : MonadState positive m}.
+  Context {Freshl_m : MonadState positive m}.
   Context {Block_m : MonadState (list (label * list var * list instr)) m}.
   Context {Blocks_m : MonadState (alist label block) m}.
   Context {VarMap_m : MonadReader (map_var var) m}.
   Context {ContMap_m : MonadReader (map_cont Low.cont) m}.
 
   Definition freshVar : m var :=
-    x <- modify (fun x => Psucc x) ;;
+    x <- modify (MR := Fresh_m) (fun x => Psucc x) ;;
     ret (Env.Anon_v x).
-  Parameter freshLbl : m label.
+
+  Definition freshLbl : m label :=
+    l <- modify (MR := Freshl_m) (fun x => Psucc x) ;;
+    ret ("l"++nat2string10 (nat_of_P l))%string.
 
   Definition emit_tm (tm : term) : m unit :=
     block_stack <- get (MonadState := Block_m) ;;
@@ -58,6 +62,7 @@ Section monadic.
         modify (MR := Blocks_m) (Maps.add l blk) ;;
         ret tt
     end.
+
   Definition emit_instr (i : instr) : m unit :=
     block_stack <- get (MonadState := Block_m) ;;
     match block_stack with
@@ -87,23 +92,17 @@ Section monadic.
     @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (inr (snd x)) acc) ks)).
   Defined.
   
-  Parameter inFreshLbl : list var -> m unit -> m label.
-
-
-
-
-  Definition prim2low (p:CpsCommon.primop) : option primop :=
-    match p with
-      | CpsCommon.Eq_p => Some Eq_p
-      | CpsCommon.Neq_p => Some Neq_p
-      | CpsCommon.Lt_p => Some Lt_p
-      | CpsCommon.Lte_p => Some Lte_p
-      | CpsCommon.Ptr_p => Some Ptr_p
-      | CpsCommon.Plus_p => Some Plus_p
-      | CpsCommon.Minus_p => Some Minus_p
-      | CpsCommon.Times_p => Some Times_p
-      | CpsCommon.MkTuple_p => None
-      | CpsCommon.Proj_p => None
+  Definition inFreshLbl (vs:list var) (k:m unit) : m label :=
+    l <- freshLbl ;;
+    block_stack <- get (MonadState := Block_m) ;;
+    match block_stack with
+      | nil => raise "ERROR: No current block"%string
+      | (l2, vs2, is2) :: blks =>
+        put ((l, vs, nil) :: blks) ;;
+        k ;;
+        block_stack <- get (MonadState := Block_m) ;;
+        put ((l2, vs2, is2) :: blks) ;;
+        ret l
     end.
 
   Definition opgen (o:op) : m op := ret o.
@@ -225,5 +224,6 @@ Section monadic.
 
 End monadic.
 End maps.
+
 
 
