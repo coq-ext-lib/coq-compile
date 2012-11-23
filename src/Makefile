@@ -4,7 +4,7 @@ CORE       := Env Lambda Parse CpsCommon Cps CpsK Low LLVM \
 	      Optimize
 OPT        := CseCps ReduceCps AlphaCvtCps
 ANALYSIS   := OccurCps AbstractInterpCps # SimpleAnalysis
-COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGen CloConv 
+COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGen CloConv CpsK2Low
 MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE)
 TESTS      :=
 VS         := $(MODULES:%=%.v)
@@ -37,7 +37,7 @@ clean:: Makefile.coq
 	rm -f Makefile.coq .depend
 
 admit:
-	@ grep -n -e 'admit' -e 'Admitted' ${VS}
+	@ grep -n -e 'admit' -e 'Admitted' -e 'Parameter' ${VS}
 
 depgraph: Makefile.coq
 	@ echo Generating dependency graph to ../deps.pdf

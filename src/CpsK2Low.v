@@ -17,29 +17,80 @@ Require Import ExtLib.Structures.Sets.
 Require Import CoqCompile.CpsK.
 Require Import CoqCompile.Low.
 Require Import CoqCompile.CpsKUtil.
+Require Import ExtLib.Data.Map.FMapAList.
 
 Section maps.
+  Import CPSK.
+
   Variable map_var : Type -> Type.
-  Context {FM : DMap Env.var map_var}.
+  Context {FM_var : DMap Env.var map_var}.
+  Variable map_cont : Type -> Type.
+  Context {FM_cont : DMap CPSK.cont map_cont}.
 
 Section monadic.
   Import MonadNotation.
   Local Open Scope monad_scope.
 
-  Variable m : Type -> Type.
-  Variable Monad_m : Monad m.
-  Variable State_blks : MonadState (list block) m.
-  Variable Exc_m : MonadExc string m.
-  (*
-  Variable State_m : MonadState (nat * nat) m.
-  Variable Reader_varmap : MonadReader (map_var lvar) m.
-  Context {Reader_ctor_map : MonadReader (map_ctor Z) m}.
-  Variable State_instrs : MonadState (LLVM.block) m.
-  Variable State_blks : MonadState (list LLVM.block) m.
-  Variable State_isExit : MonadState (option LLVM.label) m.
-  *)
 
-  Import CPSK.
+
+  Variable m : Type -> Type.
+  Context {Monad_m : Monad m}.
+  Context {State_blks : MonadState (list block) m}.
+  Context {Exc_m : MonadExc string m}.
+  Context {Fresh_m : MonadState positive m}.
+  Context {Block_m : MonadState (list (label * list var * list instr)) m}.
+  Context {Blocks_m : MonadState (alist label block) m}.
+  Context {VarMap_m : MonadReader (map_var var) m}.
+  Context {ContMap_m : MonadReader (map_cont Low.cont) m}.
+
+  Definition freshVar : m var :=
+    x <- modify (fun x => Psucc x) ;;
+    ret (Env.Anon_v x).
+  Parameter freshLbl : m label.
+
+  Definition emit_tm (tm : term) : m unit :=
+    block_stack <- get (MonadState := Block_m) ;;
+    match block_stack with
+      | nil => raise "ERROR: No current block"%string
+      | (l, vs, is) :: blks =>
+        put blks ;;
+        let blk := {| b_args := vs ; b_insns := rev is ; b_term := tm |} in
+        modify (MR := Blocks_m) (Maps.add l blk) ;;
+        ret tt
+    end.
+  Definition emit_instr (i : instr) : m unit :=
+    block_stack <- get (MonadState := Block_m) ;;
+    match block_stack with
+      | nil => raise "ERROR: No current block"%string
+      | (l, vs, is) :: blks =>
+        put ((l, vs, i :: is) :: blks)
+    end.
+
+  Definition newBlock {T} (l : label) (vs : list var) (c : m T) : m T.
+  refine (
+    modify (fun blks => (l, vs, nil) :: blks) ;;
+    c 
+    ).
+  Defined.
+
+  Definition cont2low (c : CPSK.cont) : m Low.cont.
+  refine (
+    r <- asks (MR := ContMap_m) (Maps.lookup c) ;;
+    match r with
+      | Some r => ret r
+      | None => raise "ERROR: Unknown continuation"%string
+    end).
+  Defined.
+
+  Definition withNewCont (ks : list (CPSK.cont * label)) : forall {T}, m T -> m T.
+  refine (
+    @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (inr (snd x)) acc) ks)).
+  Defined.
+  
+  Parameter inFreshLbl : list var -> m unit -> m label.
+
+
+
 
   Definition prim2low (p:CpsCommon.primop) : option primop :=
     match p with
@@ -55,15 +106,7 @@ Section monadic.
       | CpsCommon.Proj_p => None
     end.
 
-  Parameter freshVar : m var.
-  Parameter freshLbl : m label.
   Definition opgen (o:op) : m op := ret o.
-  Parameter emit_tm : term -> m unit.
-  Parameter emit_instr : instr -> m unit.
-  Parameter withNewCont : forall {T}, list (cont * label) -> m T -> m T.
-  Parameter newBlock : label -> list var -> m unit -> m unit.
-  Parameter inFreshLbl : list var -> m unit -> m label.
-  Parameter tolowcont : cont -> m Low.cont.
 
   Definition gen_lbl_args (e:exp) : m (list var) :=
     let vs := free_vars_exp (s := list (var + cont)) e in
@@ -136,7 +179,7 @@ Section monadic.
         v <- opgen o ;;
         vs <- mapM opgen os ;;
         x <- freshVar ;;
-        ks <- mapM tolowcont ks ;;
+        ks <- mapM cont2low ks ;;
         emit_tm (Call_tm x v vs ks)
       | Let_e d e => 
         decl2low d ;;
@@ -161,7 +204,7 @@ Section monadic.
         v <- opgen o ;;
         emit_tm (Halt_tm v)
       | AppK_e k os => 
-        k <- tolowcont k ;;
+        k <- cont2low k ;;
         vs <- mapM opgen os ;;
         emit_tm (Cont_tm k vs)
       | LetK_e cves e => 
@@ -171,7 +214,7 @@ Section monadic.
         withNewCont 
           (map (fun x => let '(k, l) := x in (k, l)) lbls)
           ((iterM (fun x => let '(k, vs, e) := x in 
-            l <- tolowcont k ;;
+            l <- cont2low k ;;
             match l with
               | inr l =>
                 newBlock l vs (cpsk2low e) ;; ret tt
