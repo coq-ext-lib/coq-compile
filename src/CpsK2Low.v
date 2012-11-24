@@ -95,17 +95,21 @@ Section monadic.
   Definition inFreshLbl (vs:list var) (k:m unit) : m label :=
     l <- freshLbl ;;
     block_stack <- get (MonadState := Block_m) ;;
-    match block_stack with
-      | nil => raise "ERROR: No current block"%string
-      | (l2, vs2, is2) :: blks =>
-        put ((l, vs, nil) :: blks) ;;
-        k ;;
-        block_stack <- get (MonadState := Block_m) ;;
-        put ((l2, vs2, is2) :: blks) ;;
-        ret l
-    end.
+    put ((l, vs, nil) :: block_stack) ;;
+    k ;;
+    ret l.
 
-  Definition opgen (o:op) : m op := ret o.
+  Definition opgen (o:op) : m op :=
+    match o with 
+      | Var_o v => 
+        x <- asks (Maps.lookup v) ;;
+        match x with
+          | None => raise "ERROR: Unknown variable"%string
+          | Some v => ret (Var_o v)
+        end
+      | Con_o c => ret (Con_o c)
+      | Int_o z => ret (Int_o z)
+    end.
 
   Definition gen_lbl_args (e:exp) : m (list var) :=
     let vs := free_vars_exp (s := list (var + cont)) e in
