@@ -92,6 +92,8 @@ Section monadic.
     @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (inr (snd x)) acc) ks)).
   Defined.
   
+  (* Doesn't this definition of inFreshLbl cause the terminating switch in cpsk2low
+   * to be emitted in the default label block!? *)
   Definition inFreshLbl (vs:list var) (k:m unit) : m label :=
     l <- freshLbl ;;
     block_stack <- get (MonadState := Block_m) ;;
