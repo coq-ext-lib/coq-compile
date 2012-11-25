@@ -75,10 +75,9 @@ Section monadic.
     st <- get (MonadState := State_instrs) ;;
     let '(blbl, binstrs) := st in
       put (blbl, binstrs ++ i :: nil).
-  
-  Definition inFreshLabel (c : m unit) : m LLVM.label :=
+
+  Definition inLabel (lbl : LLVM.label) (c : m unit) : m LLVM.label :=
     st <- get (MonadState := State_instrs) ;;
-    lbl <- freshLabel ;;
     put (Some lbl, nil) ;;
     c ;;
     blk' <- get (MonadState := State_instrs) ;;
@@ -86,6 +85,13 @@ Section monadic.
     put (blk' :: blks) ;;
     put st ;;
     ret lbl.
+  
+  Definition inFreshLabel (c : m unit) : m LLVM.label :=
+    lbl <- freshLabel ;;
+    inLabel lbl c.
+
+  Definition withLabel (lbl : label) (c : m unit) : m LLVM.label :=
+    inLabel lbl c.
 
   Definition tagForConstructor (c : constructor) : m Z :=
     x <- ask (MonadReader := Reader_ctormap) ;;
@@ -241,25 +247,33 @@ Section monadic.
   Context {CFG_FM : DMap label (twothree label)}.
   Context {CFG_set : DSet (lset (@eq label)) (@eq label)}.
 
-  Definition generateBlock (cfg : CFG) (b : Low.block) : m LLVM.label :=
+  Definition generateBlock (cfg : CFG) (l : label) (b : Low.block) : m LLVM.label :=
     let block := (* TODO: emit phi nodes *)
       (fix recur instrs :=
         match instrs with
           | nil => generateTerm (b_term b)
           | i::rest => generateInstr i (recur rest)
         end) (b_insns b) in
-      inFreshLabel block.
+      withLabel l block.
 
+  Definition addCaller (l : label) (s : option (lset (@eq label))) :=
+    match s with
+      | None => singleton l
+      | Some s => add l s
+    end.
+
+  (* XXX Should be able to do this without a separate addCaller and
+     refine/generalize/defined... *)
   Definition addEdge (l : label) (k : cont) (cfg : CFG) : CFG.
-(*    match k with
+    refine(
+    match k with
       | inl _ => cfg
       | inr d =>
-        match lookup (map:=twothree label) l cfg with
-          | None => add l (singleton d) cfg
-          | Some s => add l (add d s) cfg (* &$#%# type classes *)
-        end
-    end.*)
-  Admitted.
+        let newSet := addCaller l (lookup (map:=twothree label) d cfg)
+         in _ d newSet cfg
+    end).
+    generalize add ; intros ; auto.
+  Defined.
 
   Definition controlFlowGraph (f : Low.function) : CFG :=
     let processBlock block cfg :=
@@ -280,8 +294,10 @@ Section monadic.
 
   Definition generateFunction (f : Low.function) : m LLVM.topdecl.
   refine (
-    let cfg := controlFlowGraph f
-    in _).
+    let cfg := controlFlowGraph f in 
+      blocks <- mapM (fun block => let '(l,b) := block in generateBlock cfg l b) (f_body f) ;;
+      _
+  ).
   Admitted.
 
   Definition coq_alloc_decl :=
