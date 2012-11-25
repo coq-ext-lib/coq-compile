@@ -352,6 +352,9 @@ Section monadic.
                     (PTR_TYPE, % limit, nil) ::
                     map (fun x => (UNIVERSAL, x, nil)) args in
         f <- opgen fptr ;;
+        (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
+        let arity := 1 in
+        let RET_TYPE := LLVM.Struct_t false (PTR_TYPE::PTR_TYPE::(Low.count_to (fun _ => UNIVERSAL) arity)) in
         match conts with
           | nil =>    
             let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None f args (LLVM.Noreturn :: nil) in
@@ -360,19 +363,12 @@ Section monadic.
             emitInstr LLVM.Unreachable_i
           | (inl 0)::nil =>
             (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
-            let types := LLVM.Struct_t false (PTR_TYPE::PTR_TYPE::nil) in
-            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil types None (f) args (LLVM.Noreturn :: nil) in
-            let instr := LLVM.Assign_i None call in
-            emitInstr instr ;;
-            emitInstr LLVM.Unreachable_i
+            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil RET_TYPE None f args nil in
+            result <- emitExp call ;;
+            emitInstr (LLVM.Ret_i RET_TYPE result)
           | (inr lbl)::nil =>
-            (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
-            arity <- ret 1 ;;
-            let types arity :=
-              LLVM.Struct_t false (PTR_TYPE::PTR_TYPE::(Low.count_to (fun _ => UNIVERSAL) arity)) in
-            let RET_TYPE := types arity
-            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil RET_TYPE None (f) args (LLVM.Noreturn :: nil) in
-            result <- emitExp call
+            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil RET_TYPE None f args nil in
+            result <- emitExp call ;;
             let extractResult type index :=
               let index := opgen (Int_o index) in
               let gep := LLVM.Getelementptr_e false RET_TYPE result ((type,index)::nil) in
@@ -380,8 +376,10 @@ Section monadic.
               value <- emitExp (LLVM.Load_e false false type (%elem) None None None false) in
             newBase <- extractResult PTR_TYPE 0 ;;
             newLimit <- extractResult PTR_TYPE 1 ;;
+            result <- extractResult UNIVERSAL 2 ;;
             (* Call the next continuation here *)
-            _ 
+            (* what to do with result here? also need to 'withBaseLimit newBase newLimit' *)
+            _ => raise "Need to finish implementing"%string
           | _ => raise "Multiple continuations not supported yet"%string
         end ;;
         label <- getLabel ;;
@@ -391,6 +389,7 @@ Section monadic.
     end).
   Admitted.
 
+  (* this should probably compute some sort of argument map as well? *)
   Definition CFG := twothree label (lset (@eq label)).
   Context {CFG_FM : DMap label (twothree label)}.
   Context {CFG_set : DSet (lset (@eq label)) (@eq label)}.
