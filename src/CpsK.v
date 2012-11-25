@@ -8,6 +8,7 @@ Require Import ExtLib.Structures.Reducible.
 Require Import ExtLib.Structures.Folds.
 Require Import ExtLib.Data.Strings.
 Require Import ExtLib.Data.Lists.
+Require Import ExtLib.Data.Option.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Core.ZDecidables.
 Require Import ExtLib.Core.PosDecidables.
@@ -86,6 +87,99 @@ Module CPSK.
       | _, _ => Switch_e v arms def
     end.
 
+  Section sanity.
+    Require Import ExtLib.Data.Monads.ReaderMonad.
+    Require Import ExtLib.Data.Monads.OptionMonad.
+    Require Import ExtLib.Data.Set.ListSet.
+
+    Definition m : Type -> Type := 
+      readerT (lset (@eq var) * lset (@eq cont)) (@option).
+
+    Definition insane {T} : m T := mzero.
+
+    Definition op_sane (o : op) : m unit :=
+      match o with
+        | Var_o v =>
+          s <- asks (fun x => Sets.contains v (fst x)) ;;
+          if s then ret tt else insane
+        | _ => ret tt
+      end.
+
+    Definition k_sane (o : cont) : m unit :=
+      s <- asks (fun x => Sets.contains o (snd x)) ;;
+      if s then ret tt else insane.
+
+    Definition allowKs (ls : list cont) {T} (c : m T) : m T := 
+      local (fun x : lset (@eq var) * lset (@eq cont) =>
+        (fst x, fold_left (fun x y => Sets.add y x) ls (snd x))) c.
+
+    Definition allows (ls : list var) {T} (c : m T) : m T := 
+      local (fun x : lset (@eq var) * lset (@eq cont) =>
+        (fold_left (fun x y => Sets.add y x) ls (fst x), snd x)) c.
+
+    Definition allow (v : var) : forall {T}, m T -> m T := 
+      @allows (v :: nil).
+
+    Fixpoint exp_sane' (e : exp) : m unit :=
+      match e with
+        | App_e o ks xs => op_sane o ;; iterM op_sane xs
+        | Let_e (Op_d x o) e => 
+          op_sane o ;;
+          allow x (exp_sane' e)
+        | Let_e (Prim_d x p xs) e =>
+          if primop_sane p xs then 
+            allow x (exp_sane' e)
+          else
+            insane
+        | Let_e (Bind_d x w m xs) e =>
+          if mop_sane m xs then
+            allow x (allow w (exp_sane' e))
+          else
+            insane
+        | Let_e (Fn_d x ks xs e) e' =>
+          allowKs ks (allows xs (exp_sane' e))
+        | Letrec_e ds e =>
+          fnames <- mapM (fun x => 
+            match x with
+              | Fn_d x _ _ _ => ret x
+              | Prim_d x MkTuple_p _ => ret x
+              | Op_d _ _ => insane
+              | Bind_d _ _ _ _ => insane
+              | Prim_d _ _ _ => insane
+            end) ds ;;
+          let _ : list var := fnames in
+          allows fnames
+            (iterM (fun dl => 
+              match dl with
+                | Fn_d _ ks xs e =>
+                  allows xs (allowKs ks (exp_sane' e))
+                | Prim_d _ MkTuple_p os =>
+                  iterM op_sane os
+                | _ => ret tt
+              end) ds ;;
+             exp_sane' e)          
+        | Switch_e o ps d =>
+          op_sane o ;;
+          iterM (fun p_e => exp_sane' (snd p_e)) ps ;;
+          iterM (fun e => exp_sane' e) d
+        | Halt_e x w => op_sane x ;; op_sane w
+        | AppK_e k os => k_sane k ;; iterM op_sane os
+        | LetK_e ks e =>
+          let knames : list cont := map (fun x => let '(x,_,_) := x in x) ks in
+          allowKs knames
+            (iterM (fun k_xs => let '(_,xs,e) := k_xs in
+                      allows xs (exp_sane' e)) ks ;;
+             exp_sane' e)          
+      end.
+
+    Definition exp_sane (e : exp) : bool :=
+      match runReaderT (exp_sane' e) (Sets.empty, Sets.empty) with
+        | None => false
+        | Some _ => true
+      end.
+    
+  End sanity.
+
   Section Printing.
   (** Pretty printing CPS expressions *)
     Require Import ExtLib.Programming.Show.
@@ -121,24 +215,28 @@ Module CPSK.
     
     Fixpoint emitexp (e:exp) : showM :=
       match e with 
-        | AppK_e k vs => "return " << show k << "(" << sepBy ", " (map show vs) << ")"
+        | AppK_e k vs => 
+          "return " << show k << "(" << sepBy ", " (List.map show vs) << ")"
         | LetK_e ks e =>
           let emitKd (kd : cont * list var * exp) : showM :=
             let '(k, xs, b) := kd in 
-            show k << "(" << sepBy ", " (map show xs) << ") := " << emitexp b
+            show k << "(" << sepBy ", " (List.map show xs) << ") := " << emitexp b
           in
-          "letK " << indent "and  " (sepBy chr_newline (map emitKd ks)) << chr_newline
+          "letK " << indent "and  " (sepBy chr_newline (List.map emitKd ks)) << chr_newline
           << "in " << emitexp e
-        | App_e v ks vs => show v << "(" << sepBy "," (map show ks) << "; " << sepBy ", " (map show vs) << ")"
+        | App_e v ks vs =>
+          show v << "(" << sepBy "," (List.map show ks) << "; " 
+          << sepBy ", " (List.map show vs) << ")"
         | Let_e d e =>
-          "let " << indent "  " (emitdecl d) << " in " << indent "  " (emitexp e)
-        | Letrec_e ds e => 
-          "let rec " << indent "    and " (sepBy chr_newline (map emitdecl ds)) <<
-          chr_newline << "in " << emitexp e 
-        | Switch_e v arms def => 
-          "switch " << empty (*show v*) << " with" << 
+          "let " << indent "  " (emitdecl d) << " in " 
+          << indent "  " (emitexp e)
+        | Letrec_e ds e =>
+          "let rec " << indent "    and " (sepBy chr_newline (List.map emitdecl ds)) <<
+          chr_newline << "in " << emitexp e
+        | Switch_e v arms def =>
+          "switch " << show v << " with" << 
           indent "  " (
-            sepBy empty (map (fun (p: pattern * exp) => 
+            iter_show (List.map (fun (p: pattern * exp) => 
               chr_newline << "| " << show (fst p) << " => " << emitexp (snd p)) arms)
             << match def with 
                  | None => empty
@@ -152,11 +250,11 @@ Module CPSK.
         | Op_d x v => 
           show x << " = " << show v
         | Prim_d x p vs => 
-          show x << " = " << show p << "(" << sepBy " " (map show vs) << ")"
+          show x << " = " << show p << "(" << sepBy "," (List.map show vs) << ")"
         | Fn_d f k xs e => 
-          show f << "(" << sepBy "," (map show k) << "; " << sepBy (", " : showM) (map show xs) << ") = " << indent "  " (emitexp e)
+          show f << "(" << sepBy "," (List.map show k) << "; " << sepBy (", " : showM) (List.map show xs) << ") = " << indent "  " (emitexp e)
         | Bind_d x w mop args =>
-          show x << "[" << show w << "] <- " << show mop << "(" << sepBy " " (map show args) << ")"
+          show x << "[" << show w << "] <- " << show mop << "(" << sepBy " " (List.map show args) << ")"
       end.
 
     Global Instance Show_exp : Show exp := emitexp.

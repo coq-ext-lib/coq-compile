@@ -1,5 +1,5 @@
 Require Import CoqCompile.Env CoqCompile.Lambda.
-Require Import BinNums.
+Require Import BinNums List.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -38,6 +38,27 @@ Inductive primop : Type :=
 
 (** Monadic operations **)
 Inductive mop : Type := .
+
+Section sanity.
+  Definition primop_sane (p : primop) (ls : list op) : bool :=
+    match p with
+      | Eq_p | Neq_p | Lt_p | Lte_p
+      | Plus_p | Minus_p | Times_p
+      | Proj_p => match ls with
+                    | _ :: _ :: nil => true
+                    | _ => false
+                  end
+      | Ptr_p => match ls with
+                   | _ :: nil => true
+                   | _ => false
+                 end
+      | MkTuple_p => true
+    end.
+  Definition mop_sane (m : mop) (ls : list op) : bool :=
+    match m with end.      
+
+End sanity.
+
 
 Section decidables.
   Require Import ExtLib.Core.RelDec.

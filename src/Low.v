@@ -2,6 +2,7 @@ Require Import ZArith String.
 Require Import CoqCompile.Lambda CoqCompile.Env.
 Require Import ExtLib.Data.Map.FMapAList.
 Require Import CoqCompile.CpsK.
+Require Import List.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -57,7 +58,7 @@ Record block := mk_block {
 Record function := mk_function {
   f_name  : fname ;
   f_args  : list var ;
-  f_conts : list nat ;
+  f_conts : nat ;
   f_body  : alist label block ; 
   f_entry : label
 }.
@@ -113,6 +114,13 @@ Section Printing.
         "store " << show o << "@" << show t << " into " << show v << " + " << show d
     end }.
 
+  Global Instance Show_cont : Show cont :=
+  { show := fun c =>
+    match c with
+      | inl c => "$" << show c
+      | inr v => "$" << show v
+    end }.
+
   Global Instance Show_term : Show term :=
   { show := fun t =>
     match t with
@@ -139,9 +147,21 @@ Section Printing.
   Global Instance Show_block : Show block :=
   { show := fun b => showBlock "_" b }.
 
+  Fixpoint count_to {T} (f : nat -> T) (n : nat) : list T :=
+    match n with
+      | 0 => nil
+      | S n => f n :: count_to f n 
+    end.
+
   Global Instance Show_function : Show function :=
   { show := fun f =>
-    show f.(f_name) << "(" << sepBy "," nil << ";" << sepBy "," (map show f.(f_args)) << "):"
+    let ks := 
+      count_to (fun x => let c : cont := inl x in show c) f.(f_conts)
+    in
+    show f.(f_name) << "(" << match ks with
+                                | nil => empty
+                                | _ :: _ => sepBy "," nil << ";" 
+                              end << sepBy "," (map show f.(f_args)) << "):"
     << indent "  " match Maps.lookup f.(f_entry) f.(f_body) with
                      | None => "<ERROR: couldn't find entry block>"
                      | Some b => showBlock f.(f_entry) b
