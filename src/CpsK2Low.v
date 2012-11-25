@@ -31,15 +31,13 @@ Section monadic.
   Import MonadNotation.
   Local Open Scope monad_scope.
 
-
-
   Variable m : Type -> Type.
   Context {Monad_m : Monad m}.
   Context {State_blks : MonadState (list block) m}.
   Context {Exc_m : MonadExc string m}.
   Context {Fresh_m : MonadState positive m}.
   Context {Freshl_m : MonadState positive m}.
-  Context {Block_m : MonadState (list (label * list var * list instr)) m}.
+  Context {Block_m : MonadState (option (label * list var * list instr)) m}.
   Context {Blocks_m : MonadState (alist label block) m}.
   Context {VarMap_m : MonadReader (map_var var) m}.
   Context {ContMap_m : MonadReader (map_cont Low.cont) m}.
@@ -47,59 +45,55 @@ Section monadic.
   Definition freshVar : m var :=
     x <- modify (MR := Fresh_m) (fun x => Psucc x) ;;
     ret (Env.Anon_v x).
-
   Definition freshLbl : m label :=
     l <- modify (MR := Freshl_m) (fun x => Psucc x) ;;
     ret ("l"++nat2string10 (nat_of_P l))%string.
 
-  Definition emit_tm (tm : term) : m unit :=
+  Definition emit_tm (tm : term) : m block :=
     block_stack <- get (MonadState := Block_m) ;;
     match block_stack with
-      | nil => raise "ERROR: No current block"%string
-      | (l, vs, is) :: blks =>
-        put blks ;;
+      | None => raise "ERROR: No current block"%string
+      | Some (l, vs, is) =>
+        put None ;;
         let blk := {| b_args := vs ; b_insns := rev is ; b_term := tm |} in
-        modify (MR := Blocks_m) (Maps.add l blk) ;;
-        ret tt
+        ret blk
     end.
 
   Definition emit_instr (i : instr) : m unit :=
     block_stack <- get (MonadState := Block_m) ;;
     match block_stack with
-      | nil => raise "ERROR: No current block"%string
-      | (l, vs, is) :: blks =>
-        put ((l, vs, i :: is) :: blks)
+      | None => raise "ERROR: No current block"%string
+      | Some (l, vs, is) =>
+        put (Some (l, vs, i :: is))
     end.
 
-  Definition newBlock {T} (l : label) (vs : list var) (c : m T) : m T.
-  refine (
-    modify (fun blks => (l, vs, nil) :: blks) ;;
-    c 
-    ).
-  Defined.
+  Definition add_block (l : label) (blk : block) : m unit :=
+    modify (MR := Blocks_m) (Maps.add l blk) ;;
+    ret tt.
 
-  Definition cont2low (c : CPSK.cont) : m Low.cont.
-  refine (
+  Definition newBlock {T} (l : label) (vs : list var) (c : m T) : m T :=
+    old_blk <- get (MonadState := Block_m) ;;
+    put (Some (l, vs, nil)) ;;
+    result <- c ;;
+    put old_blk ;;
+    ret result.
+
+  Definition cont2low (c : CPSK.cont) : m Low.cont :=
     r <- asks (MR := ContMap_m) (Maps.lookup c) ;;
     match r with
       | Some r => ret r
       | None => raise "ERROR: Unknown continuation"%string
-    end).
-  Defined.
+    end.
 
-  Definition withNewCont (ks : list (CPSK.cont * label)) : forall {T}, m T -> m T.
-  refine (
-    @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (inr (snd x)) acc) ks)).
-  Defined.
+  Definition withNewCont (ks : list (CPSK.cont * label)) : forall {T}, m T -> m T :=
+    @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (inr (snd x)) acc) ks).
   
   (* Doesn't this definition of inFreshLbl cause the terminating switch in cpsk2low
    * to be emitted in the default label block!? *)
-  Definition inFreshLbl (vs:list var) (k:m unit) : m label :=
+  Definition inFreshLbl {T} (vs:list var) (k:m T) : m (label * T) :=
     l <- freshLbl ;;
-    block_stack <- get (MonadState := Block_m) ;;
-    put ((l, vs, nil) :: block_stack) ;;
-    k ;;
-    ret l.
+    result <- newBlock l vs k ;;
+    ret (l, result).
 
   Definition opgen (o:op) : m op :=
     match o with 
@@ -178,7 +172,7 @@ Section monadic.
       | Bind_d _ _ m _ => match m with end
     end.
   
-  Fixpoint cpsk2low (e:exp) : m unit :=
+  Fixpoint cpsk2low (e:exp) : m block :=
     match e with
       | App_e o ks os => 
         v <- opgen o ;;
@@ -196,13 +190,15 @@ Section monadic.
         v <- opgen o ;;
         arms <- mapM (fun pat =>
           let '(p,e) := pat in
-            lbl <- inFreshLbl nil (cpsk2low e) ;;
-            ret (p, lbl, map (fun x => Var_o x) nil)) arms ;;
+            lbl_blk <- inFreshLbl nil (cpsk2low e) ;;
+            add_block (fst lbl_blk) (snd lbl_blk) ;;
+            ret (p, fst lbl_blk, map (fun x => Var_o x) nil)) arms ;;
         defLbl <- match e with
                     | None => ret None
                     | Some e => 
-                      lbl <- inFreshLbl nil (cpsk2low e) ;;
-                      ret (Some (lbl, nil))
+                      lbl_blk <- inFreshLbl nil (cpsk2low e) ;;
+                      add_block (fst lbl_blk) (snd lbl_blk) ;;
+                      ret (Some (fst lbl_blk, nil))
                   end ;;
         emit_tm (Switch_tm v arms defLbl)
       | Halt_e o _ => 
@@ -222,7 +218,8 @@ Section monadic.
             l <- cont2low k ;;
             match l with
               | inr l =>
-                newBlock l vs (cpsk2low e) ;; ret tt
+                blk <- newBlock l vs (cpsk2low e) ;;
+                add_block l blk
               | inl _ => raise "local cont references cont parameter"%string
             end) cves) ;;
             cpsk2low e)
@@ -230,6 +227,3 @@ Section monadic.
 
 End monadic.
 End maps.
-
-
-

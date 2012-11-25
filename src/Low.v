@@ -55,12 +55,106 @@ Record block := mk_block {
 }.
 
 Record function := mk_function {
-  f_name : fname;
-  f_args : list var;
-  f_body : alist label block
+  f_name  : fname ;
+  f_args  : list var ;
+  f_conts : nat ;
+  f_body  : alist label block ; 
+  f_entry : label
 }.
 
 Record program := mk_program {
-  p_topdecl : list function;
+  p_topdecl : list function ;
   p_entry : fname
 }.
+
+Section Printing.
+  Require Import ExtLib.Programming.Show.
+  Require Import ExtLib.Core.RelDec.
+  Require Import ExtLib.Structures.Reducible.
+  Require Import ExtLib.Data.Char.
+  Import ShowNotation.
+  Local Open Scope string_scope.
+  Local Open Scope show_scope.
+
+  Global Instance Show_primtyp : Show primtyp :=
+  { show := fix show_primtyp p : showM :=
+    match p return showM with
+      | Int_t => "int"
+      | Ptr_t t => "ptr(" << show_primtyp t << ")"
+      | Struct_t ls => "<" << sepBy "," (map show_primtyp ls) << ">"
+    end }.
+
+  Global Instance Show_fname : Show fname :=
+  { show := fun fn => show fn }.
+
+  Global Instance Show_primop : Show primop :=
+  { show := fun p =>
+    match p with
+      | Eq_p    => "eq?"
+      | Neq_p   => "neq?"
+      | Lt_p    => "lt?"
+      | Lte_p   => "lte?"
+      | Ptr_p   => "ptr?"
+      | Plus_p  => "plus"
+      | Minus_p => "sub"
+      | Times_p => "mult"
+    end }.
+
+  Global Instance Show_instr : Show instr :=
+  { show := fun i =>
+    match i with
+      | Primop_i v p os => show v << " = " << show p << "(" << sepBy ", " (map show os)
+      | Alloca_i vs => "[" << sepBy "," (map (fun x => show (fst x)) vs) <<
+        "] = alloc(" << sepBy "," (map (fun x => show (snd x)) vs) << ")"
+      | Malloc_i vs => "[" << sepBy "," (map (fun x => show (fst x)) vs) <<
+        "] = malloc(" << sepBy "," (map (fun x => show (snd x)) vs) << ")"
+      | Load_i x t d v => show x << " = load " << show t << " from " << show v << " + " << show d
+      | Store_i t o d v => 
+        "store " << show o << "@" << show t << " into " << show v << " + " << show d
+    end }.
+
+  Global Instance Show_term : Show term :=
+  { show := fun t =>
+    match t with
+      | Halt_tm o => "halt " << show o
+      | Call_tm v fn args ks => 
+        show v << " = " << show fn << "(" << sepBy "," (map show args) << ") return ["
+        << sepBy "," (map show ks) << "]"
+      | Cont_tm k args => "return " << show k << "(" << sepBy "," (map show args) << ")"
+      | Switch_tm o ps def =>
+        "switch " << show o 
+        << indent "  " (sepBy chr_newline (map (fun plos => let '(p,l,os) := plos in
+          "| " << show p << " => " << show l << "(" << sepBy "," (map show os) << ")") ps))
+        << match def with 
+             | None => empty
+             | Some def => indent "  " ("| _ => " << show (fst def) <<  "(" << sepBy "," (map show (snd def)))
+           end
+    end }.
+  
+  Definition showBlock (l : label) (b : block) : showM :=
+    show l << "(" << sepBy "," (map show b.(b_args)) << "):"
+    << indent "  " (sepBy chr_newline (map show b.(b_insns)))
+    << indent "  " (chr_newline << show b.(b_term)).
+    
+  Global Instance Show_block : Show block :=
+  { show := fun b => showBlock "_" b }.
+
+  Global Instance Show_function : Show function :=
+  { show := fun f =>
+    show f.(f_name) << "(" << sepBy "," nil << ";" << sepBy "," (map show f.(f_args)) << "):"
+    << indent "  " match Maps.lookup f.(f_entry) f.(f_body) with
+                     | None => "<ERROR: couldn't find entry block>"
+                     | Some b => showBlock f.(f_entry) b
+                   end 
+    << indent "  " (let ls : list showM := map (fun x => let '(l,b) := x in
+      if eq_dec l f.(f_entry) then empty
+      else
+        chr_newline << showBlock l b) f.(f_body) in
+    iter_show ls) }.
+
+  Global Instance Show_program : Show program :=
+  { show := fun p =>
+    iter_show (map (fun x => show x) p.(p_topdecl))
+    << chr_newline << "main = " << show p.(p_entry) }.
+
+End Printing.
