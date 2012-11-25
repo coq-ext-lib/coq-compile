@@ -249,12 +249,9 @@ Section monadic2.
         match res with
           | inl ex => raise ex
           | inr blk =>
-            let ks := map (fun k => match k with 
-                                      | K name pos => Pos.to_nat pos 
-                                    end) ks in
             let f := {| f_name := name; 
               f_args := args ; 
-              f_conts := ks ; 
+              f_conts := length ks; 
               f_body := body ; 
               f_entry := "blah"%string |} in
             ret f
