@@ -52,6 +52,7 @@ Section monadic.
   Context {State_fresh : MonadState (nat * nat) m}.
   Context {Reader_varmap : MonadReader (map_var lvar) m}.
   Context {Reader_ctormap : MonadReader (map_ctor Z) m}.
+  Context {Reader_baselimit : MonadReader (LLVM.var * LLVM.var) m}.
   Context {State_instrs : MonadState (LLVM.block) m}.
   Context {State_blks : MonadState (list LLVM.block) m}.
   Context {State_isExit : MonadState (option LLVM.label) m}.
@@ -76,22 +77,30 @@ Section monadic.
     let '(blbl, binstrs) := st in
       put (blbl, binstrs ++ i :: nil).
 
-  Definition inLabel (lbl : LLVM.label) (c : m unit) : m LLVM.label :=
+  Definition inLabel {T} (lbl : LLVM.label) (c : m T) : m T :=
     st <- get (MonadState := State_instrs) ;;
     put (Some lbl, nil) ;;
-    c ;;
+    t <- c ;;
     blk' <- get (MonadState := State_instrs) ;;
     blks <- get (MonadState := State_blks) ;;
     put (blk' :: blks) ;;
     put st ;;
-    ret lbl.
+    ret t.
   
-  Definition inFreshLabel (c : m unit) : m LLVM.label :=
+  Definition inFreshLabel {T} (c : m T) : m (LLVM.label * T) :=
     lbl <- freshLabel ;;
+    t <- inLabel lbl c ;;
+    ret (lbl,t).
+
+  Definition withLabel {T} (lbl : label) (c : m T) : m T :=
     inLabel lbl c.
 
-  Definition withLabel (lbl : label) (c : m unit) : m LLVM.label :=
-    inLabel lbl c.
+  Definition getLabel : m LLVM.label :=
+    block <- get (MonadState := State_instrs) ;;
+    match fst block with
+      | None => raise "Expected label for basic block"%string
+      | Some lbl => ret lbl
+    end.
 
   Definition tagForConstructor (c : constructor) : m Z :=
     x <- ask (MonadReader := Reader_ctormap) ;;
@@ -207,23 +216,103 @@ Section monadic.
         withNewVar x y k
     end.
 
-  Definition generateAlloca T (allocs : list (var * primtyp)) (k : m T) : m T.
-  Admitted.
+  Definition getBase : m LLVM.var :=
+    x <- ask (MonadReader := Reader_baselimit) ;;
+    ret (fst x).
 
-  Definition generateMalloc T (allocs : list (var * primtyp)) (k : m T) : m T.
-  Admitted.
+  Definition getLimit : m LLVM.var :=
+    x <- ask (MonadReader := Reader_baselimit) ;;
+    ret (snd x).
 
+  Definition withBaseLimit {T} (base limit : LLVM.var) : m T -> m T :=                                                              
+    local (MonadReader := Reader_baselimit) (fun _ => (base,limit)). 
+
+  Fixpoint sizeof (t : primtyp) : nat :=
+    match t with
+      | Struct_t ts =>
+        fold (fun t a => a + sizeof t) 0 ts
+      | _ => WORD_SIZE
+    end.
+
+  Definition generateAlloca T (allocs : list (var * primtyp)) (k : m T) : m T :=
+    let doAlloc alloc k :=
+      let '(v,t) := alloc in
+      let size := WORD_SIZE + sizeof t in
+      addr <- emitExp (LLVM.Alloca_e UNIVERSAL (Some (UNIVERSAL, size)) None) ;;
+      withNewVar v addr k
+    in (fix recur allocs :=
+        match allocs with
+          | nil => k
+          | a::rest => doAlloc a (recur rest)
+        end) allocs.
+
+  Definition doMalloc {T} (size:nat) (succ:LLVM.var -> m (LLVM.label * T)) (fail:m LLVM.label) : m T :=
+    base <- getBase ;;
+    limit <- getLimit ;;
+    baseCasted <- emitExp (LLVM.Ptrtoint_e PTR_TYPE (% base) UNIVERSAL) ;;
+    limitCasted <- emitExp (LLVM.Ptrtoint_e PTR_TYPE (% limit) UNIVERSAL) ;;
+    newBase <- emitExp (LLVM.Add_e true false UNIVERSAL (% baseCasted) (LLVM.Constant (LLVM.Int_c (Z_of_nat size)))) ;;
+    newBaseCasted <- castTo PTR_TYPE (% newBase) ;;
+    test <- emitExp (LLVM.Icmp_e LLVM.Ult UNIVERSAL (% newBase) (% limitCasted)) ;;
+    labelSucc <- withBaseLimit newBaseCasted limit (succ base) ;;
+    labelFail <- fail ;;
+    emitInstr (LLVM.Br_cond_i (% test) (fst labelSucc) labelFail) ;;
+    ret (snd labelSucc).
+
+  Definition ERROR_LABEL : LLVM.var := "coq_error"%string.
+  
+  Definition exitLabel : m LLVM.label :=
+    build <- get (MonadState := State_isExit) ;;
+    match build with
+      | None =>
+        let m :=
+          let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (LLVM.Global ERROR_LABEL) nil (LLVM.Noreturn :: nil) in
+          let instr := LLVM.Assign_i None call in
+            emitInstr instr ;;
+            emitInstr LLVM.Unreachable_i
+            in
+            l <- inFreshLabel m ;;
+            put (Some (fst l)) ;;
+            ret (fst l)
+      | Some lbl => ret lbl
+    end.
+
+  Definition generateMalloc {T} (allocs : list (var * primtyp)) (k : m T) : m T :=
+    let size := fold (fun alloc acc => let '(_,t) := alloc in acc + WORD_SIZE + sizeof t) 0 allocs in
+    let doGeps base allocs k :=
+      let doGep alloc k offset :=
+        let '(v,t) := alloc in
+        let size := WORD_SIZE + sizeof t in
+        index <- opgen (Int_o (Z.of_nat (offset + 1))) ;;
+        addr <- emitExp (LLVM.Getelementptr_e false PTR_TYPE base ((UNIVERSAL,index)::nil)) ;;
+        withNewVar v addr (k (offset + size))
+      in inFreshLabel ((fix recur allocs :=
+        match allocs with
+          | nil => (fun _ => k)
+          | a::rest => doGep a (recur rest)
+        end) allocs 0)
+    in doMalloc size (fun base => doGeps (%base) allocs k) exitLabel.
+
+  (* Should use primtyp at least as a check *)
   Definition generateLoad T (dest : var) (t : primtyp) (index : Z) (ptr : var) (k : m T) : m T :=
-    let idx := (UNIVERSAL,index) in
-    let gep := LLVM.Getelementptr_e false PTR_TYPE (% ptr) (idx::nil) in
+    ptr <- opgen (Var_o ptr) ;;
+    index <- opgen (Int_o index) ;;
+    let gep := LLVM.Getelementptr_e false PTR_TYPE ptr ((UNIVERSAL,index)::nil) in
     elem <- emitExp gep ;;
     load <- emitExp (LLVM.Load_e false false PTR_TYPE (%elem) None None None false) ;;
     withNewVar dest load k.
 
-  Definition generateStore T (t : primtyp) (v : op) (index : Z) (ptr : var) (k : m T) : m T.
-  Admitted.
+  (* Should use primtyp at least as a check *)
+  Definition generateStore T (t : primtyp) (v : op) (index : Z) (ptr : var) (k : m T) : m T :=
+    ptr <- opgen (Var_o ptr) ;;
+    index <- opgen (Int_o index) ;;
+    value <- opgen v ;;
+    let gep := LLVM.Getelementptr_e false PTR_TYPE ptr ((UNIVERSAL,index)::nil) in
+    elem <- emitExp gep ;;
+    emitInstr (LLVM.Store_i false false UNIVERSAL value PTR_TYPE (%elem) None None false) ;;
+    k.
 
-  Definition generateInstr T (i : Low.instr) (k : m T) : m T :=
+  Definition generateInstr {T} (i : Low.instr) (k : m T) : m T :=
     match i with
       | Primop_i v p os =>
         generatePrim v p os k
@@ -237,10 +326,24 @@ Section monadic.
         generateStore t v i d k
     end.
 
-  Definition generateTerm (t : Low.term) : m unit.
+  Definition HALT_LABEL : LLVM.var := "coq_done"%string.
+
+  Definition generateTerm (t : Low.term) : m LLVM.label.
   refine (
     match t with
-      | Halt_tm arg => _
+      | Halt_tm arg =>
+        base <- getBase ;;
+        limit <- getLimit ;;
+        o <- opgen arg ;;
+        let args := (PTR_TYPE, % base, nil) ::
+                    (PTR_TYPE, % limit, nil) ::
+                    (UNIVERSAL, o, nil) :: nil in
+        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (LLVM.Global HALT_LABEL) args (LLVM.Noreturn :: nil) in
+        let instr := LLVM.Assign_i None call in
+        emitInstr instr ;;
+        emitInstr LLVM.Unreachable_i ;;
+        label <- getLabel ;;
+        ret label
       | Call_tm retVal fptr args conts => _
       | Cont_tm cont args => _
       | Switch_tm op arms default => _
@@ -251,8 +354,8 @@ Section monadic.
   Context {CFG_FM : DMap label (twothree label)}.
   Context {CFG_set : DSet (lset (@eq label)) (@eq label)}.
 
-  Definition generateBlock (cfg : CFG) (l : label) (b : Low.block) : m LLVM.label :=
-    let block := (* TODO: emit phi nodes *)
+  Definition generateBlock (l : label) (b : Low.block) : m LLVM.label :=
+    let block :=
       (fix recur instrs :=
         match instrs with
           | nil => generateTerm (b_term b)
@@ -299,14 +402,10 @@ Section monadic.
   Definition generateFunction (f : Low.function) : m LLVM.topdecl.
   refine (
     let cfg := controlFlowGraph f in 
-      blocks <- mapM (fun block => let '(l,b) := block in generateBlock cfg l b) (f_body f) ;;
+      blocks <- mapM (fun block => let '(l,b) := block in generateBlock l b) (f_body f) ;;
       _
   ).
   Admitted.
-
-  Definition coq_alloc_decl :=
-    let header := LLVM.Build_fn_header None None CALLING_CONV false PTR_TYPE nil "coq_alloc"%string ((UNIVERSAL, "size", nil)::nil)%string nil None None None in
-      LLVM.Declare_d header.
   
   Definition coq_error_decl := 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_error"%string nil nil None None None in
@@ -318,7 +417,7 @@ Section monadic.
   
   Definition generateProgram (p : Low.program) : m LLVM.module :=
     decls <- mapM generateFunction (p_topdecl p) ;;
-    ret (coq_error_decl :: coq_done_decl :: coq_alloc_decl :: decls).
+    ret (coq_error_decl :: coq_done_decl :: decls).
 
 End monadic.
 End globals.
