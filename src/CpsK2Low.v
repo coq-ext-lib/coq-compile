@@ -18,6 +18,8 @@ Require Import CoqCompile.CpsK.
 Require Import CoqCompile.Low.
 Require Import CoqCompile.CpsKUtil.
 Require Import ExtLib.Data.Map.FMapAList.
+Require Import ExtLib.Data.Monads.EitherMonad.
+Require Import ExtLib.Data.Monads.ReaderMonad.
 
 Section maps.
   Import CPSK.
@@ -87,8 +89,6 @@ Section monadic.
   Definition withNewCont (ks : list (CPSK.cont * label)) : forall {T}, m T -> m T :=
     @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (inr (snd x)) acc) ks).
   
-  (* Doesn't this definition of inFreshLbl cause the terminating switch in cpsk2low
-   * to be emitted in the default label block!? *)
   Definition inFreshLbl {T} (vs:list var) (k:m T) : m (label * T) :=
     l <- freshLbl ;;
     result <- newBlock l vs k ;;
@@ -224,13 +224,65 @@ Section monadic.
             cpsk2low' e)
     end.
 
+  Fixpoint tl_cpsk2low (e:exp) : m block :=
+    l <- freshLbl ;;
+    blk <- cpsk2low' e ;;
+    add_block l blk ;;
+    ret blk.
+
 End monadic.
 
-(*
-Definition cpsk2low (fs : list decl) (e : exp) : Low.program.
+Section monadic2.
+  Import MonadNotation.
+  Local Open Scope monad_scope.
+
+  Variable m : Type -> Type.
+  Context {Monad_m : Monad m}.
+  Context {Exc_m : MonadExc string m}.
+
+  Definition tl_decl2low (name : var) (ks : list cont) (args : list var) (e : exp) : m Low.function.
+  refine (
+    let c := tl_cpsk2low (eitherT string (readerT (map_cont Low.cont) (readerT (map_var var) (stateT (alist label block) (stateT (option (label * list var * list instr)) (stateT positive (state positive))))))) e in
+    let c' := runState (runStateT (runStateT (runStateT (runReaderT (runReaderT (unEitherT c) Maps.empty) Maps.empty) Maps.empty) None) 1%positive) 1%positive in
+    match c' with
+      | (res, body, _, _, _) => 
+        match res with
+          | inl ex => raise ex
+          | inr blk =>
+            let ks := map (fun k => match k with 
+                                      | K name pos => Pos.to_nat pos 
+                                    end) ks in
+            let f := {| f_name := name; 
+              f_args := args ; 
+              f_conts := ks ; 
+              f_body := body ; 
+              f_entry := "blah"%string |} in
+            ret f
+        end
+    end
+  ).
+  Defined.
+
+  Definition tl_cpsk2low' (fs : list decl) (e : exp) : m Low.program.
+  refine (
+    fs <- mapM (fun d => 
+      match d with
+        | Fn_d f ks args e => tl_decl2low f ks args e
+        | _ => raise ("Decl other than function found in top-lvl")%string
+      end) fs ;;
+    entry <- tl_decl2low (Named_v "main"%string None) nil nil e ;;
+    ret {| p_topdecl := entry::fs; p_entry := (Named_v "main"%string None) |}
+    ).
+  Defined.
+End monadic2.
+
+Definition cpsk2low (fs : list decl) (e : exp) : string + Low.program.
 refine (
-  
+  match tl_cpsk2low' _ fs e with
+    | inl ex => inl ex
+    | inr prog => inr prog
+  end
 ).
-*)
+Defined.
 
 End maps.

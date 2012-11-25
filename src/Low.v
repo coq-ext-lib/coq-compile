@@ -57,7 +57,7 @@ Record block := mk_block {
 Record function := mk_function {
   f_name  : fname ;
   f_args  : list var ;
-  f_conts : nat ;
+  f_conts : list nat ;
   f_body  : alist label block ; 
   f_entry : label
 }.
