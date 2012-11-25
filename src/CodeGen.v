@@ -213,8 +213,12 @@ Section monadic.
   Definition generateMalloc T (allocs : list (var * primtyp)) (k : m T) : m T.
   Admitted.
 
-  Definition generateLoad T (dest : var) (t : primtyp) (index : Z) (ptr : var) (k : m T) : m T.
-  Admitted.
+  Definition generateLoad T (dest : var) (t : primtyp) (index : Z) (ptr : var) (k : m T) : m T :=
+    let idx := (UNIVERSAL,index) in
+    let gep := LLVM.Getelementptr_e false PTR_TYPE (% ptr) (idx::nil) in
+    elem <- emitExp gep ;;
+    load <- emitExp (LLVM.Load_e false false PTR_TYPE (%elem) None None None false) ;;
+    withNewVar dest load k.
 
   Definition generateStore T (t : primtyp) (v : op) (index : Z) (ptr : var) (k : m T) : m T.
   Admitted.
