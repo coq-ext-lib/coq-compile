@@ -250,16 +250,24 @@ Section monadic.
         end) (b_insns b) in
       inFreshLabel block.
 
+  Definition addCaller (l : label) (s : option (lset (@eq label))) :=
+    match s with
+      | None => singleton l
+      | Some s => add l s
+    end.
+
+  (* XXX Should be able to do this without a separate addCaller and
+     refine/generalize/defined... *)
   Definition addEdge (l : label) (k : cont) (cfg : CFG) : CFG.
-(*    match k with
+    refine(
+    match k with
       | inl _ => cfg
       | inr d =>
-        match lookup (map:=twothree label) l cfg with
-          | None => add l (singleton d) cfg
-          | Some s => add l (add d s) cfg (* &$#%# type classes *)
-        end
-    end.*)
-  Admitted.
+        let newSet := addCaller l (lookup (map:=twothree label) d cfg)
+         in _ d newSet cfg
+    end).
+    generalize add ; intros ; auto.
+  Defined.
 
   Definition controlFlowGraph (f : Low.function) : CFG :=
     let processBlock block cfg :=
