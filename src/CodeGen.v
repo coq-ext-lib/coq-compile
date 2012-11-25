@@ -344,7 +344,48 @@ Section monadic.
         emitInstr LLVM.Unreachable_i ;;
         label <- getLabel ;;
         ret label
-      | Call_tm retVal fptr args conts => _
+      | Call_tm retVal fptr args conts =>
+        base <- getBase ;;
+        limit <- getLimit ;;
+        args <- mapM opgen args ;;
+        let args := (PTR_TYPE, % base, nil) ::
+                    (PTR_TYPE, % limit, nil) ::
+                    map (fun x => (UNIVERSAL, x, nil)) args in
+        f <- opgen fptr ;;
+        match conts with
+          | nil =>    
+            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None f args (LLVM.Noreturn :: nil) in
+            let instr := LLVM.Assign_i None call in
+            emitInstr instr ;;
+            emitInstr LLVM.Unreachable_i
+          | (inl 0)::nil =>
+            (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
+            let types := LLVM.Struct_t false (PTR_TYPE::PTR_TYPE::nil) in
+            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil types None (f) args (LLVM.Noreturn :: nil) in
+            let instr := LLVM.Assign_i None call in
+            emitInstr instr ;;
+            emitInstr LLVM.Unreachable_i
+          | (inr lbl)::nil =>
+            (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
+            arity <- ret 1 ;;
+            let types arity :=
+              LLVM.Struct_t false (PTR_TYPE::PTR_TYPE::(Low.count_to (fun _ => UNIVERSAL) arity)) in
+            let RET_TYPE := types arity
+            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil RET_TYPE None (f) args (LLVM.Noreturn :: nil) in
+            result <- emitExp call
+            let extractResult type index :=
+              let index := opgen (Int_o index) in
+              let gep := LLVM.Getelementptr_e false RET_TYPE result ((type,index)::nil) in
+              elem <- emitExp gep ;;
+              value <- emitExp (LLVM.Load_e false false type (%elem) None None None false) in
+            newBase <- extractResult PTR_TYPE 0 ;;
+            newLimit <- extractResult PTR_TYPE 1 ;;
+            (* Call the next continuation here *)
+            _ 
+          | _ => raise "Multiple continuations not supported yet"%string
+        end ;;
+        label <- getLabel ;;
+        ret label
       | Cont_tm cont args => _
       | Switch_tm op arms default => _
     end).
