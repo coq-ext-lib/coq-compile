@@ -33,7 +33,6 @@ Section monadic.
 
   Variable m : Type -> Type.
   Context {Monad_m : Monad m}.
-  Context {State_blks : MonadState (list block) m}.
   Context {Exc_m : MonadExc string m}.
   Context {Fresh_m : MonadState positive m}.
   Context {Freshl_m : MonadState positive m}.
@@ -172,7 +171,7 @@ Section monadic.
       | Bind_d _ _ m _ => match m with end
     end.
   
-  Fixpoint cpsk2low (e:exp) : m block :=
+  Fixpoint cpsk2low' (e:exp) : m block :=
     match e with
       | App_e o ks os => 
         v <- opgen o ;;
@@ -182,21 +181,21 @@ Section monadic.
         emit_tm (Call_tm x v vs ks)
       | Let_e d e => 
         decl2low d ;;
-        cpsk2low e
+        cpsk2low' e
       | Letrec_e ds e => 
         mapM decl2low ds ;;
-        cpsk2low e
+        cpsk2low' e
       | Switch_e o arms e =>
         v <- opgen o ;;
         arms <- mapM (fun pat =>
           let '(p,e) := pat in
-            lbl_blk <- inFreshLbl nil (cpsk2low e) ;;
+            lbl_blk <- inFreshLbl nil (cpsk2low' e) ;;
             add_block (fst lbl_blk) (snd lbl_blk) ;;
             ret (p, fst lbl_blk, map (fun x => Var_o x) nil)) arms ;;
         defLbl <- match e with
                     | None => ret None
                     | Some e => 
-                      lbl_blk <- inFreshLbl nil (cpsk2low e) ;;
+                      lbl_blk <- inFreshLbl nil (cpsk2low' e) ;;
                       add_block (fst lbl_blk) (snd lbl_blk) ;;
                       ret (Some (fst lbl_blk, nil))
                   end ;;
@@ -218,12 +217,20 @@ Section monadic.
             l <- cont2low k ;;
             match l with
               | inr l =>
-                blk <- newBlock l vs (cpsk2low e) ;;
+                blk <- newBlock l vs (cpsk2low' e) ;;
                 add_block l blk
               | inl _ => raise "local cont references cont parameter"%string
             end) cves) ;;
-            cpsk2low e)
+            cpsk2low' e)
     end.
 
 End monadic.
+
+(*
+Definition cpsk2low (fs : list decl) (e : exp) : Low.program.
+refine (
+  
+).
+*)
+
 End maps.
