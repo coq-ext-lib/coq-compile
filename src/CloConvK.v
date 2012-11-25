@@ -1,5 +1,5 @@
 Require Import String List BinPos.
-Require Import CoqCompile.Cps CoqCompile.CpsUtil.
+Require Import CoqCompile.CpsK CoqCompile.CpsKUtil.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Structures.Monoid.
 Require Import ExtLib.Structures.Reducible.
@@ -9,12 +9,13 @@ Require Import ExtLib.Structures.Sets.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Data.Set.ListSet.
 Require Import ExtLib.Data.Lists.
+Require Import ExtLib.Programming.Show.
 
 Set Implicit Arguments.
 Set Strict Implicit.
 
 Module ClosureConvert.
-  Import CPS.
+  Import CPSK.
 
   Section maps.
     Variable env_v : Type -> Type.
@@ -27,6 +28,7 @@ Module ClosureConvert.
     Context {Writer_m : MonadWriter (@Monoid_list_app decl) m}.
     Context {Reader_m : MonadReader (env_v var) m}.
     Context {Reader_custom_call : MonadReader (env_v (var * var)) m}.
+    Context {Exc_m : MonadExc string m}.
     (** I need some way to encapsulate when calls should use a specified environment
      **)
 
@@ -56,6 +58,8 @@ Module ClosureConvert.
         | Con_o c => ret (Con_o c)
         | Int_o i => ret (Int_o i)
       end.
+
+    Definition cloconv_k (k : cont) : m cont := ret k.
 
     Definition liftDecl (d : decl) : m unit :=
       tell (d :: nil).
@@ -89,19 +93,29 @@ Module ClosureConvert.
     Fixpoint cloconv_exp' (e : exp) : m exp.
     refine (
       match e with
-        | App_e f args =>
+        | AppK_e k args =>
+          args <- mapM cloconv_op args ;;
+          k <- cloconv_k k ;;
+          ret (AppK_e k args)
+        | LetK_e ks e =>
+          ks <- mapM (fun k_xs_e => let '(k,xs,e) := k_xs_e in
+                        e <- cloconv_exp' e ;;
+                        ret (k, xs, e)) ks ;;
+          e <- cloconv_exp' e ;;
+          ret (LetK_e ks e)
+        | App_e f ks args =>
           custom <- getCustomCall f ;;
           match custom with
             | Some (f, e) =>
               args <- mapM cloconv_op args ;;
               e <- cloconv_op (Var_o e) ;;
-              ret (App_e (Var_o f) (e :: args))
+              ret (App_e (Var_o f) ks (e :: args))
             | None =>
               f <- cloconv_op f ;;
               args <- mapM cloconv_op args ;;
               f_code <- fresh "cptr" ;;
               ret (Let_e (Prim_d f_code Proj_p (Int_o 0 :: f :: nil))
-                         (App_e (Var_o f_code) (f :: args)))
+                         (App_e (Var_o f_code) ks (f :: args)))
           end
         | Switch_e o arms def =>
           o <- cloconv_op o ;;
@@ -130,42 +144,55 @@ Module ClosureConvert.
           os <- mapM cloconv_op os ;;
           e <- cloconv_exp' e ;;
           ret (Let_e (Bind_d x w m os) e) 
-        | Let_e (Fn_d v vs e') e =>
-          let fvars := free_vars_decl false (Fn_d v vs e') in
+        | Let_e (Fn_d v ks vs e') e =>
+          let fvars := free_vars_decl false (Fn_d v ks vs e') in
           fvars <- mapM (fun v =>
-            x <- getCustomCall (Var_o v) ;;
-            match x with
-              | None => ret v
-              | Some (_, e) => ret e
+            match v with
+              | inl v => 
+                x <- getCustomCall (Var_o v) ;;
+                match x with
+                  | None => ret v
+                  | Some (_, e) => ret e
+                end
+              | inr x => raise ("Invariant violation: escaping continuation " ++ runShow (show x))%string
             end) fvars ;;
           (** fvars does not contain duplicates **)
           envV <- fresh "env"%string ;;
           v_code <- freshFor v ;;
           e' <- underBinders (Var_o envV) fvars 1 (cloconv_exp' e') ;;
           e <- cloconv_exp' e ;;
-          liftDecl (Fn_d v_code (envV :: vs) e') ;;
+          liftDecl (Fn_d v_code ks (envV :: vs) e') ;;
           fvars' <- mapM (T := lset eq) cloconv_op (map Var_o fvars) ;;
           ret (Let_e (Prim_d v MkTuple_p (Var_o v_code :: fvars'))
                      e)
-
         | Letrec_e ds e_body => _
       end).
     refine (
           let func_names := fold_left (fun acc d =>
             match d with
-              | Fn_d v _ _ => v :: acc
+              | Fn_d v _ _ _ => v :: acc
               | _ => acc
             end) ds nil in
           (** Find all the functions and get the combined environment **)
-          let env := toList (monoid_sum (@Monoid_set_union _ _ _ _)
+          let env : list (var + cont) := toList (monoid_sum (@Monoid_set_union _ _ _ _)
             (map (fun d => 
               match d with 
-                | Fn_d v vs e => free_vars_decl true (Fn_d v vs e)  
+                | Fn_d _ _ _ _ => free_vars_decl true d
                 | _ => monoid_unit (@Monoid_set_union _ _ _ _)
               end) ds))
           in
           (** Remove the recursive functions from the environment **)
-          let env := filter (fun x => negb (anyb (eq_dec x) func_names)) env in
+          let env := filter (fun x => 
+            match x with
+              | inl x => negb (anyb (eq_dec x) func_names)
+              | inr x => false
+            end) env in
+          env <- mapM (fun x => match x with
+                                  | inl x => ret x
+                                  | inr x =>
+                                    raise "ERROR: found continuation in list"%string
+                                end) env ;;
+          let _ : list var := env in
           (** The names for the code **)
           funcCodeNames <- mapM (fun n => 
             v <- freshFor n ;; 
@@ -176,17 +203,17 @@ Module ClosureConvert.
           (** Lift the functions & wrappers out **)
           iterM (fun d =>
             match d with
-              | Fn_d v vs e =>
+              | Fn_d v ks vs e =>
                 envV <- fresh "env" ;;
                 e <- usingEnvForAll envV funcCodeOps (underBinders (Var_o envV) env 0 (cloconv_exp' e_body)) ;;
                 match alist_lookup _ v funcCodeNames with
                   | None => ret tt (** Dead Code **)
                   | Some (cptr, cptr_wrap) =>
-                    liftDecl (Fn_d cptr (envV :: vs) e) ;;
+                    liftDecl (Fn_d cptr ks (envV :: vs) e) ;;
                     zV <- fresh "env" ;;
-                    liftDecl (Fn_d cptr_wrap (envV :: vs) 
+                    liftDecl (Fn_d cptr_wrap ks (envV :: vs) 
                                    (Let_e (Prim_d zV Proj_p (Int_o (PreOmega.Z_of_nat' 1) :: Var_o envV :: nil))
-                                          (App_e (Var_o cptr) (Var_o zV :: map Var_o vs))))
+                                          (App_e (Var_o cptr) ks (Var_o zV :: map Var_o vs))))
                 end
               | _ => ret tt
             end) ds ;;
@@ -197,7 +224,7 @@ Module ClosureConvert.
           (** Construct non-functions & wrapper closures **)
           ds' <- mapM (fun d =>
             match d with
-              | Fn_d v _ _ =>
+              | Fn_d v _ _ _ =>
                 match alist_lookup _ v funcCodeNames with
                   | None => ret d (** Dead Code **)
                   | Some (_, cptr_wrap) =>
@@ -230,11 +257,18 @@ Module ClosureConvert.
   Require Import ExtLib.Data.Monads.StateMonad.
   Require Import ExtLib.Data.Monads.EitherMonad.
 
-  Definition cloconv_exp (e : exp) : list decl * exp :=
+  Import MonadNotation.
+  Local Open Scope monad_scope.
+  
+  Definition cloconv_exp (e : exp) : string + (list decl * exp) :=
     let env_v := alist var in
-    let c := cloconv_exp' (env_v := env_v) (m := readerT (env_v var) (readerT (env_v (var * var)%type) (writerT (@Monoid_list_app decl) (state positive)))) e in
-    let '(e', ds', _) := runState (runWriterT (runReaderT (runReaderT c empty) empty)) 1%positive in
-    (ds', e').
+    let c := cloconv_exp' (env_v := env_v)
+      (m := readerT (env_v var) (readerT (env_v (var * var)%type) (writerT (@Monoid_list_app decl) (stateT positive (sum string))))) 
+      e in
+    res <- runStateT (runWriterT (runReaderT (runReaderT c Sets.empty) Maps.empty)) 1%positive ;;
+    let '(e', ds', _) := res in
+    ret (ds', e').
+
 
 (*
   Module Tests.
