@@ -82,7 +82,7 @@ Section Printing.
     match p return showM with
       | Int_t => "int"
       | Ptr_t t => "ptr(" << show_primtyp t << ")"
-      | Struct_t ls => "<" << sepBy "," (map show_primtyp ls) << ">"
+      | Struct_t ls => "<" << sepBy "," (List.map show_primtyp ls) << ">"
     end }.
 
   Global Instance Show_fname : Show fname :=
@@ -104,11 +104,11 @@ Section Printing.
   Global Instance Show_instr : Show instr :=
   { show := fun i =>
     match i with
-      | Primop_i v p os => show v << " = " << show p << "(" << sepBy ", " (map show os)
-      | Alloca_i vs => "[" << sepBy "," (map (fun x => show (fst x)) vs) <<
-        "] = alloc(" << sepBy "," (map (fun x => show (snd x)) vs) << ")"
-      | Malloc_i vs => "[" << sepBy "," (map (fun x => show (fst x)) vs) <<
-        "] = malloc(" << sepBy "," (map (fun x => show (snd x)) vs) << ")"
+      | Primop_i v p os => show v << " = " << show p << "(" << sepBy ", " (List.map show os)
+      | Alloca_i vs => "[" << sepBy "," (List.map (fun x => show (fst x)) vs) <<
+        "] = alloc(" << sepBy "," (List.map (fun x => show (snd x)) vs) << ")"
+      | Malloc_i vs => "[" << sepBy "," (List.map (fun x => show (fst x)) vs) <<
+        "] = malloc(" << sepBy "," (List.map (fun x => show (snd x)) vs) << ")"
       | Load_i x t d v => show x << " = load " << show t << " from " << show v << " + " << show d
       | Store_i t o d v => 
         "store " << show o << "@" << show t << " into " << show v << " + " << show d
@@ -126,22 +126,22 @@ Section Printing.
     match t with
       | Halt_tm o => "halt " << show o
       | Call_tm v fn args ks => 
-        show v << " = " << show fn << "(" << sepBy "," (map show args) << ") return ["
-        << sepBy "," (map show ks) << "]"
-      | Cont_tm k args => "return " << show k << "(" << sepBy "," (map show args) << ")"
+        show v << " = " << show fn << "(" << sepBy "," (List.map show args) << ") return ["
+        << sepBy "," (List.map show ks) << "]"
+      | Cont_tm k args => "return " << show k << "(" << sepBy "," (List.map show args) << ")"
       | Switch_tm o ps def =>
         "switch " << show o 
-        << indent "  " (sepBy chr_newline (map (fun plos => let '(p,l,os) := plos in
-          "| " << show p << " => " << show l << "(" << sepBy "," (map show os) << ")") ps))
+        << indent "  " (sepBy chr_newline (List.map (fun plos => let '(p,l,os) := plos in
+          "| " << show p << " => " << show l << "(" << sepBy "," (List.map show os) << ")") ps))
         << match def with 
              | None => empty
-             | Some def => indent "  " ("| _ => " << show (fst def) <<  "(" << sepBy "," (map show (snd def)))
+             | Some def => indent "  " ("| _ => " << show (fst def) <<  "(" << sepBy "," (List.map show (snd def)))
            end
     end }.
   
   Definition showBlock (l : label) (b : block) : showM :=
-    show l << "(" << sepBy "," (map show b.(b_args)) << "):"
-    << indent "  " (sepBy chr_newline (map show b.(b_insns)))
+    show l << "(" << sepBy "," (List.map show b.(b_args)) << "):"
+    << indent "  " (sepBy chr_newline (List.map show b.(b_insns)))
     << indent "  " (chr_newline << show b.(b_term)).
     
   Global Instance Show_block : Show block :=
@@ -161,7 +161,7 @@ Section Printing.
     show f.(f_name) << "(" << match ks with
                                 | nil => empty
                                 | _ :: _ => sepBy "," nil << ";" 
-                              end << sepBy "," (map show f.(f_args)) << "):"
+                              end << sepBy "," (List.map show f.(f_args)) << "):"
     << indent "  " match Maps.lookup f.(f_entry) f.(f_body) with
                      | None => "<ERROR: couldn't find entry block>"
                      | Some b => showBlock f.(f_entry) b
@@ -174,7 +174,7 @@ Section Printing.
 
   Global Instance Show_program : Show program :=
   { show := fun p =>
-    iter_show (map (fun x => show x) p.(p_topdecl))
+    iter_show (List.map (fun x => show x) p.(p_topdecl))
     << chr_newline << "main = " << show p.(p_entry) }.
 
 End Printing.
