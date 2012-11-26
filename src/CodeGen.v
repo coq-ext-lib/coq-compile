@@ -473,33 +473,40 @@ base <- getBase ;;
         end) (b_insns b) in
       withLabel l block.
 
+  Definition genBlocks (blocks : alist label block) : m unit :=
+    iterM (fun block => let '(l,b) := block in generateBlock l b) blocks.
+
 End monadic.
+
 
 Definition m : Type -> Type :=
     eitherT string (writerT (Monoid_CFG) (readerT (map_ctor Z) (readerT (LLVM.var * LLVM.var) (readerT (map_var lvar)
 (stateT (option LLVM.label) (stateT (list LLVM.block) (stateT LLVM.block (state (nat * nat))))))
 ))).
 
-Definition runM T (ctor_m : map_ctor Z) (cmd : m T) : string + (T  * CFG * list LLVM.block) :=
-    let res := (runState (runStateT (runStateT (runStateT (runReaderT (runReaderT (runReaderT (runWriterT (unEitherT cmd)) ctor_m) ("base", "limit")%string) Maps.empty) None) nil) (None, nil)) (0,0)) in
+Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : string + (T  * CFG * list LLVM.block) :=
+    let res := (runState (runStateT (runStateT (runStateT (runReaderT (runReaderT (runReaderT (runWriterT (unEitherT cmd)) ctor_m) ("base", "limit")%string) var_m) None) nil) (None, nil)) (0,0)) in
     match res with
       | (((((inl e, _), _), _), _), _) => inl e
       | (((((inr x, cfg), _), l), b), _) => inr (x, cfg, b :: l)
     end.
 
-Typeclasses eauto := 50.
-
-Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + LLVM.topdecl.
-refine (
-  let genBlocks : m unit := iterM (m := m) (fun block => let '(l,b) := block in 
-    _) (f_body f) in
-  match runM ctor_m genBlocks with
-    | inl e => inl e
-    | inr (_,cfg,blocks) => _
-  end
-).
-eapply (generateBlock (m := m) l b).
+Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : string + (unit * CFG * list LLVM.block).
+(* runM ctor_m var_m (genBlocks blocks). *)
 Admitted.
+
+Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + LLVM.topdecl :=
+  let f_params : list (LLVM.type * LLVM.var * list LLVM.param_attr) := 
+    Reducible.map (fun (x : Env.var) => (UNIVERSAL, runShow (show x) : string, nil : list LLVM.param_attr)) (f_args f) in
+  (* should figure out return type *)
+  let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil (runShow (show (f_name f))) f_params nil None None GC_NAME in 
+  let locals : map_var lvar := fold_left (fun (acc : map_var lvar) v => 
+    let lv : LLVM.var := runShow (show v) in Maps.add v lv acc) (f_args f) Maps.empty
+  in  
+  match runGenBlocks ctor_m locals (f_body f) with
+    | inl e => inl e
+    | inr (_,cfg,blocks) => inr (LLVM.Define_d header blocks) (* DO SOMETHING WITH CFG HERE *)
+  end.
   
   Definition coq_error_decl := 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_error"%string nil nil None None None in
