@@ -133,7 +133,7 @@ Section Printing.
       | Halt_tm o => "halt " << show o
       | Call_tm v fn args ks => 
         show v << " = " << show fn << "(" << sepBy "," (List.map show args) << ") return ["
-        << sepBy "," (List.map show ks) << "]"
+        << sepBy "," (List.map (show : cont -> showM) ks) << "]"
       | Cont_tm k args => "return " << show k << "(" << sepBy "," (List.map show args) << ")"
       | Switch_tm o ps def =>
         "switch " << show o 
@@ -147,7 +147,10 @@ Section Printing.
   
   Definition showBlock (l : label) (b : block) : showM :=
     l << "(" << sepBy "," (List.map show b.(b_args)) << "):"
-    << indent "  " (chr_newline << sepBy chr_newline (List.map show b.(b_insns)))
+    << match b.(b_insns) with
+         | nil => empty
+         | _ => indent "  " (chr_newline << sepBy chr_newline (List.map show b.(b_insns)))
+       end
     << indent "  " (chr_newline << show b.(b_term)).
     
   Global Instance Show_block : Show block :=
@@ -166,23 +169,23 @@ Section Printing.
     in
     show f.(f_name) << "(" << match ks with
                                 | nil => empty
-                                | _ :: _ => sepBy "," nil << ";" 
+                                | _ :: _ => sepBy "," ks << ";" 
                               end << sepBy "," (List.map show f.(f_args)) << ") {"
     << chr_newline
     << match Maps.lookup f.(f_entry) f.(f_body) with
          | None => "<ERROR: couldn't find entry block>"
          | Some b => showBlock f.(f_entry) b
        end 
-    << indent "  " (let ls : list showM := map (fun x => let '(l,b) := x in
+    << let ls : list showM := map (fun x => let '(l,b) := x in
       if eq_dec l f.(f_entry) then empty
       else
-        chr_newline << showBlock l b) f.(f_body) in
-    iter_show ls)
+        chr_newline << (showBlock l b)) f.(f_body) in
+    iter_show ls
     << chr_newline << "}" << chr_newline }.
 
   Global Instance Show_program : Show program :=
   { show := fun p =>
-    iter_show (List.map (fun x => show x) p.(p_topdecl))
+    iter_show (List.map (fun x => chr_newline << show x) p.(p_topdecl))
     << chr_newline << "main = " << show p.(p_entry) }.
 
   Definition string_of_program (p : program) : string := runShow (show p) "".
