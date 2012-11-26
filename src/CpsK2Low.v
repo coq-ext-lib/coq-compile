@@ -104,7 +104,7 @@ Section maps.
 
     Definition withNewVar (v : var) (o : op) : forall {T}, m T -> m T :=
       @withNewVars ((v,o) :: nil).
-    
+
     Definition inFreshLbl {T} (vs:list var) (k:m T) : m (label * T) :=
       l <- freshLbl ;;
       result <- newBlock l vs k ;;
@@ -140,6 +140,13 @@ Section maps.
         | S n => a :: list_repeat n a
       end.
 
+    Definition nat_of_Z (z:Z) : nat :=
+      match z with
+        | Z0 => O
+        | Zpos p => Pos.to_nat p
+        | Zneg p => O
+      end.
+
     Definition decl2low (d:decl) {T} (c : m T) : m T :=
       match d with
         | Op_d x o => 
@@ -165,27 +172,29 @@ Section maps.
               emit_instr (Primop_i x Times_p vs)
             | CpsCommon.MkTuple_p => 
               mtyp <- mapM (fun v => x <- freshVar ;; ret (x, Int_t, v)) vs ;;
-              emit_instr (Malloc_i (map (fun x => let '(x, t, v) := x in (x, t)) mtyp)) ;;
-              dummy <- mapM (fun x => let '(x, t, v) := x in
-                emit_instr (Store_i t v 0 (Var_o x))) mtyp ;;
-              ret tt
+              match mtyp with
+                | nil => ret tt
+                | _ =>
+                  emit_instr (Malloc_i (map (fun x => let '(x, t, v) := x in (x, t)) mtyp)) ;;
+                  dummy <- mapM (fun x => let '(x, t, v) := x in 
+                    emit_instr (Store_i t v 0 (Var_o x))) mtyp ;;
+                  ret tt
+              end
             | CpsCommon.Proj_p => 
               match vs with
                 | CpsCommon.Int_o idx :: v :: nil => 
-                (** TODO: Why do we require Int_o here? **)
-                (** TODO: [length vs] is wrong here. **)
-                  emit_instr (Load_i x (Struct_t (list_repeat (length vs) Int_t)) idx v)
+                  emit_instr (Load_i x (Struct_t (list_repeat (nat_of_Z idx) Int_t)) idx v)
                 | _ => raise ("ERROR: Proj_p requires exactly 2 arguments"%string)
               end
           end ;;
           withNewVar x (Var_o x) c
         | Fn_d _ _ _ _ => raise ("ERROR: Function found in closure converted body"%string) 
-        | Bind_d x _ mop os => 
+        | Bind_d x w mop os => 
           vs <- mapM opgen os ;;
           match mop return m unit with 
             | PrintInt_m => emit_instr (Bind_i x PrintInt_m vs)
           end ;;
-          withNewVar x (Var_o x) c
+          withNewVars ((x, Var_o x)::(w, Int_o 1)::nil) c
       end.
     
     Fixpoint cpsk2low' (e:exp) : m block :=

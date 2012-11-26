@@ -27,7 +27,12 @@ Definition plus_e := Parse.parse_topdecls
      ((S p) `(S ,(@ plus p m))))))".
 
 Definition mult_e := Parse.parse_topdecls
-"(define mult (lambdas (n m)
+"(define plus (lambdas (n m)
+  (match n
+     ((O) m)
+     ((S p) `(S ,(@ plus p m))))))
+
+(define mult (lambdas (n m)
   (match n
      ((O) `(O))
      ((S p) (@ plus m (@ mult p m))))))".
@@ -71,6 +76,5 @@ refine (
 Defined.
 
 Eval compute in lambda2low plus_e.
-
 Eval compute in lambda2low mult_e.
 Eval compute in lambda2low fact_e.
