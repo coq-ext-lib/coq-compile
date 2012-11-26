@@ -355,8 +355,6 @@ Section monadic.
           ret c
       end.
 
-  Check Call_tm.
-
   Definition generateCall (retVal : var) (fptr : op) (args : list op) (conts : list cont) : m unit :=
 base <- getBase ;;
         limit <- getLimit ;;
