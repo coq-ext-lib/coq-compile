@@ -1,4 +1,4 @@
-CORE       := Env Lambda Parse CpsCommon Cps CpsK Low LLVM \
+CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKSemantics Low LLVM \
 	      CpsUtil CpsKUtil AlphaEquivCps CpsIO CpsConvert \
 	      CpsKIO CpsKConvert \
 	      Optimize
