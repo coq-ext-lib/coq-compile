@@ -59,8 +59,9 @@ Section free.
   Definition free_in_op (o : op) : bool :=
     match o with
       | Var_o v' => eq_dec v v'
-      | Int_o _ => false
-      | Con_o _ => false
+      | Int_o _
+      | Con_o _
+      | InitWorld_o => false
     end.
 
   Fixpoint free_in_exp (e : exp) : bool :=

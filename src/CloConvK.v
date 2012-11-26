@@ -55,8 +55,9 @@ Module ClosureConvert.
             | None => ret o
             | Some v => ret (Var_o v)
           end          
-        | Con_o c => ret (Con_o c)
-        | Int_o i => ret (Int_o i)
+        | Con_o _ => ret o
+        | Int_o _ => ret o
+        | InitWorld_o => ret o
       end.
 
     Definition cloconv_k (k : cont) : m cont := ret k.

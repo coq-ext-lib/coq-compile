@@ -96,6 +96,7 @@ Section AI.
             ret (lookup ctx v domain)
           | Con_o c => ret bottomA (** TODO: Not done **)
           | Int_o i => ret (injInt (Some i))
+          | InitWorld_o => ret bottomA (** TODO: ?? **)
         end.
 
 (**

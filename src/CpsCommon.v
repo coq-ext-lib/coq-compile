@@ -9,7 +9,8 @@ Set Strict Implicit.
 Inductive op : Type := 
 | Var_o : var -> op
 | Con_o : Lambda.constructor -> op
-| Int_o : Z -> op.
+| Int_o : Z -> op
+| InitWorld_o : op. (** this should be used only once **)
 
 (** We compile pattern matching into simple C-like switch expressions, where
    you can only match an operand against a tag, which is either an integer
@@ -102,6 +103,7 @@ Section decidables.
                      | Var_o l , Var_o r => eq_dec l r
                      | Con_o l , Con_o r => eq_dec l r
                      | Int_o l , Int_o r => eq_dec l r
+                     | InitWorld_o , InitWorld_o => true
                      | _ , _ => false
                    end }.
 
@@ -132,6 +134,7 @@ Section Printing.
       | Var_o x => show x
       | Con_o c => "Con(" << show c << ")"
       | Int_o i => show i
+      | InitWorld_o => "<init-world>"
     end }.
   Global Instance Show_pat : Show pattern :=
   { show p :=

@@ -62,7 +62,7 @@ Module IO.
       )
       (App_e (Var_o k) (Var_o res :: nil))).
 
-  Definition runIO (world e : op) : exp :=
+  Definition runIO (e : op) : exp :=
     let k :=
       let k := wrapVar "IO$k" in
       if eq_dec (Var_o k) e then 
@@ -74,7 +74,7 @@ Module IO.
     let x := wrapVar "x" in
     let main := wrapVar "main" in 
     Let_e (Fn_d k (x :: w :: nil) (Halt_e (Var_o x) (Var_o w)))
-          (App_e e (world :: Var_o k :: nil)).
+          (App_e e (InitWorld_o :: Var_o k :: nil)).
 
   Definition wrapIO (bind ret : var) (e : exp) : exp :=
      Let_e (IO_bind bind) (Let_e (IO_return ret) e).

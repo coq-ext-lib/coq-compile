@@ -71,6 +71,7 @@ Section free.
           | Var_o v' => eq_dec v v'
           | Int_o _ => false
           | Con_o _ => false
+          | InitWorld_o => false
         end
       | _ => false
     end.

@@ -60,13 +60,13 @@ Module IO.
       )
       (AppK_e k (Var_o res :: nil))).
 
-  Definition runIO (world e : op) : exp :=
+  Definition runIO (e : op) : exp :=
     let k := wrapCont "IO$k" in
     let w := wrapVar "IO$w" in
     let x := wrapVar "x" in
     let main := wrapVar "main" in 
     LetK_e ((k, x :: w :: nil, (Halt_e (Var_o x) (Var_o w)))::nil)
-           (App_e e (k::nil) (world :: nil)).
+           (App_e e (k::nil) (InitWorld_o :: nil)).
 
   Definition wrapIO (bind ret : var) (e : exp) : exp :=
      Let_e (IO_bind bind) (Let_e (IO_return ret) e).

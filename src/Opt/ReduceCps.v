@@ -51,6 +51,7 @@ Module Reduce.
         : option exp :=
         match v, arms, def with
           | Var_o _, _, _ => None
+          | InitWorld_o, _, _ => None
           | v, nil, x => x
           | Con_o c, ((Int_p _,_)::_), _ => None
           | Int_o i, ((Con_p _,_)::_), _ => None

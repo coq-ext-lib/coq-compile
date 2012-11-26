@@ -118,8 +118,9 @@ Section maps.
             | None => raise ("ERROR: Unknown variable '" ++ runShow (show v) ++ "'")
             | Some v => ret v
           end
-        | Con_o c => ret (Con_o c)
-        | Int_o z => ret (Int_o z)
+        | Con_o _ => ret o
+        | Int_o _ => ret o
+        | InitWorld_o => ret o
       end.
 
     Definition gen_lbl_args (e:exp) : m (list var) :=

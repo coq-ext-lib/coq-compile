@@ -151,7 +151,7 @@ Section monadic.
         match Maps.lookup v x with
           | None => 
             match Maps.lookup v globals with
-              | None => raise ("Couldn't find variable '" ++ runShow (show v) ++ "' in context")%string
+              | None => raise ("Couldn't find variable '" ++ runShow (show v) ++ "' in context")
               | Some (v,t) => 
                 asLocal <- castFrom t v ;;
                 ret (%asLocal)
@@ -163,7 +163,8 @@ Section monadic.
         z <- tagForConstructor c ;;
         ret (LLVM.Constant (LLVM.Int_c z))
       | Int_o i => ret (LLVM.Constant (LLVM.Int_c i))
-    end.
+      | InitWorld_o => raise "BUG: Got initial world. should have been erased"
+    end%string.
 
     Definition opgen_list2 (ls : list op) : m (LLVM.value * LLVM.value) :=
       match ls with

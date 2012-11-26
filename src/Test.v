@@ -60,7 +60,7 @@ refine (
             | inl ex => "CloConv: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string cps_e))
             | inr (ds, e) => (* CPSK.exp2string e *)
               match @cpsk2low (sum string) _ _ ds e with
-                | inl ex => "Lower: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string (CPSK.Letrec_e ds e)))
+                | inl ex => "Lower: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string cps_e)) (* (String Char.chr_newline (CPSK.exp2string (CPSK.Letrec_e ds e))) *)
                 | inr prog => string_of_program prog
               end
           end

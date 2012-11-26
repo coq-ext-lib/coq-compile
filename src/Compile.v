@@ -102,20 +102,15 @@ Module Compile.
     Variable word_size : nat.
     Variable cps_opt :  Opt.optimizationK.
 
-    Definition topCompile (io : bool) (e:Lambda.exp) : string + LLVM.module.
-    refine (
+    Definition topCompile (io : bool) (e:Lambda.exp) : string + LLVM.module :=
       mctor <- makeCtorMap e ;;
       let cps_e := 
         if io then CpsKConvert.CPS_io e else CpsKConvert.CPS_pure e 
       in
       opt_e <- cps_opt cps_e ;;
       clo_conv_e <- CloConvK.ClosureConvert.cloconv_exp opt_e ;;
-      _).
-    refine (
-      low <- CoqCompile.CpsK2Low.cpsk2low (fst clo_conv_e) (snd clo_conv_e) ;;
-      _).
-      @CodeGen.generateProgram _ word_size mctor low).
-    Defined.      
+      low <- CoqCompile.CpsK2Low.cpsk2low _ (fst clo_conv_e) (snd clo_conv_e) ;;
+      @CodeGen.generateProgram _ word_size mctor low.
 
     Definition topCompile_string (e : Lambda.exp) : string + string := 
       match topCompile true e with
