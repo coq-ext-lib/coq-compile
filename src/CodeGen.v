@@ -75,6 +75,9 @@ Section monadic.
       put (S v_n, l_n) ;;
       ret (runShow (show v) (nat2string10 v_n))%string.     
   
+  Definition freshLLVMVar (s : string) : m LLVM.var :=
+    freshVar (wrapVar s).
+
   Definition freshLabel : m LLVM.var :=
     x <- get ;;
     let '(v_n, l_n) := x in 
@@ -114,9 +117,22 @@ Section monadic.
       | Some lbl => ret lbl
     end.
 
+  Definition getBase : m LLVM.var :=
+    x <- ask (MonadReader := Reader_baselimit) ;;
+    ret (fst x).
+
+  Definition getLimit : m LLVM.var :=
+    x <- ask (MonadReader := Reader_baselimit) ;;
+    ret (snd x).
+
+  Definition withBaseLimit {T} (base limit : LLVM.var) : m T -> m T :=                                                              
+    local (MonadReader := Reader_baselimit) (fun _ => (base,limit)). 
+
   Definition addJump (to : label) (args : list LLVM.value) : m unit :=
     from <- getLabel ;;
-    tell (Maps.singleton to ((from,args) :: nil)).
+    base <- getBase ;;
+    limit <- getLimit ;;
+    tell (Maps.singleton to ((from,(%base)::(%limit)::args) :: nil)).
 
   Definition tagForConstructor (c : constructor) : m Z :=
     x <- ask (MonadReader := Reader_ctormap) ;;
@@ -233,17 +249,6 @@ Section monadic.
         withNewVar x y k
     end.
 
-  Definition getBase : m LLVM.var :=
-    x <- ask (MonadReader := Reader_baselimit) ;;
-    ret (fst x).
-
-  Definition getLimit : m LLVM.var :=
-    x <- ask (MonadReader := Reader_baselimit) ;;
-    ret (snd x).
-
-  Definition withBaseLimit {T} (base limit : LLVM.var) : m T -> m T :=                                                              
-    local (MonadReader := Reader_baselimit) (fun _ => (base,limit)). 
-
   Fixpoint sizeof (t : primtyp) : nat :=
     match t with
       | Struct_t ts =>
@@ -357,47 +362,46 @@ Section monadic.
       end.
 
   Definition generateCall (retVal : var) (fptr : op) (args : list op) (conts : list cont) : m unit :=
-base <- getBase ;;
-        limit <- getLimit ;;
-        args <- mapM opgen args ;;
-        let args := (PTR_TYPE, % base, nil) ::
-                    (PTR_TYPE, % limit, nil) ::
-                    map (fun x => (UNIVERSAL, x, nil)) args in
-        f <- opgen fptr ;;
+    base <- getBase ;;
+    limit <- getLimit ;;
+    args <- mapM opgen args ;;
+    let args := (PTR_TYPE, % base, nil) ::
+                (PTR_TYPE, % limit, nil) ::
+                map (fun x => (UNIVERSAL, x, nil)) args in
+    f <- opgen fptr ;;
+    (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
+    let arity := 1 in
+    match conts with
+      | nil =>    
+        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None f args (LLVM.Noreturn :: nil) in
+        let instr := LLVM.Assign_i None call in
+        emitInstr instr ;;
+        emitInstr LLVM.Unreachable_i
+      | (inl 0)::nil =>
         (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
-        let arity := 1 in
-        match conts with
-          | nil =>    
-            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None f args (LLVM.Noreturn :: nil) in
-            let instr := LLVM.Assign_i None call in
-            emitInstr instr ;;
-            emitInstr LLVM.Unreachable_i
-          | (inl 0)::nil =>
-            (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
-            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
-            result <- emitExp call ;;
-            emitInstr (LLVM.Ret_i (Some (RET_TYPE arity,%result)))
-          | (inr lbl)::nil =>
-            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
-            result <- emitExp call ;;
-            let extractResult type index :=
-              index <- opgen (Int_o index) ;;
-              let gep := LLVM.Getelementptr_e false (RET_TYPE arity) (%result) ((type,index)::nil) in
-              elem <- emitExp gep ;;
-              value <- emitExp (LLVM.Load_e false false type (%elem) None None None false) ;;
-              ret value
-            in
-            newBase <- extractResult PTR_TYPE 0%Z ;;
-            newLimit <- extractResult PTR_TYPE 1%Z ;;
-            result <- extractResult UNIVERSAL 2%Z ;;
-            (* Call the next continuation here *)
-            withBaseLimit newBase newLimit (
-              addJump lbl ((%result)::nil) ;;
-              emitInstr (LLVM.Br_uncond_i lbl)
-              )
-          | _ => raise "Multiple continuations not supported yet"%string
-        end.
-    
+        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
+        result <- emitExp call ;;
+        emitInstr (LLVM.Ret_i (Some (RET_TYPE arity,%result)))
+      | (inr lbl)::nil =>
+        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
+        result <- emitExp call ;;
+        let extractResult type index :=
+          index <- opgen (Int_o index) ;;
+          let gep := LLVM.Getelementptr_e false (RET_TYPE arity) (%result) ((type,index)::nil) in
+          elem <- emitExp gep ;;
+          value <- emitExp (LLVM.Load_e false false type (%elem) None None None false) ;;
+          ret value
+        in
+        newBase <- extractResult PTR_TYPE 0%Z ;;
+        newLimit <- extractResult PTR_TYPE 1%Z ;;
+        result <- extractResult UNIVERSAL 2%Z ;;
+        (* Call the next continuation here *)
+        withBaseLimit newBase newLimit (
+          addJump lbl ((%result)::nil) ;;
+          emitInstr (LLVM.Br_uncond_i lbl)
+        )
+      | _ => raise "Multiple continuations not supported yet"%string
+    end.
 
   Definition generateTerm (t : Low.term) : m unit :=
     match t with
@@ -465,20 +469,35 @@ base <- getBase ;;
         emitInstr (LLVM.Switch_i UNIVERSAL v (fst default) labels)
     end.
 
-  Definition generateBlock (l : label) (b : Low.block) : m unit :=
-    let block :=
+  Definition generateBlock (l : label) (b : Low.block) : m (list LLVM.var) :=
+   let args := b_args b in
+   newVars <- mapM freshVar args ;;
+   newBase <- freshLLVMVar "base"%string ;;
+   newLimit <- freshLLVMVar "limit"%string ;;
+   let withNewVars (k : m unit) := 
+     (fix recur args :=
+       match args with
+         | nil => k
+         | (a,v)::rest => withNewVar a v (recur rest)
+       end
+       ) (List.combine args newVars) in
+   let block :=
       (fix recur instrs :=
         match instrs with
           | nil => generateTerm (b_term b)
           | i::rest => generateInstr i (recur rest)
         end) (b_insns b) in
-      withLabel l block.
+      withLabel l (
+        withBaseLimit newBase newLimit (
+          withNewVars block
+        )
+      ) ;;
+      ret (newBase::newLimit::newVars).
 
-  Definition genBlocks (blocks : alist label block) : m unit :=
-    iterM (fun block => let '(l,b) := block in generateBlock l b) blocks.
+  Definition genBlocks (blocks : alist label block) : m (list (list LLVM.var)) :=
+    mapM (fun block => let '(l,b) := block in generateBlock l b) blocks.
 
 End monadic.
-
 
 Definition m : Type -> Type :=
     eitherT string (writerT (Monoid_CFG) (readerT (map_ctor Z) (readerT (LLVM.var * LLVM.var) (readerT (map_var lvar)
@@ -492,20 +511,67 @@ Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : str
       | (((((inr x, cfg), _), l), b), _) => inr (x, cfg, b :: l)
     end.
 
-Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : string + (unit * CFG * list LLVM.block) :=
+Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : string + ((list (list LLVM.var)) * CFG * list LLVM.block) :=
   runM ctor_m var_m (genBlocks (m := m) blocks).
+
+Fixpoint combine_with {A B C} (f : A -> B -> C) (l : list A) (l' : list B) : option (list C) :=
+  match l,l' with
+    | x::tl, y::tl' =>
+      let h := f x y in
+      t <- combine_with f tl tl' ;;
+      ret (h::t)
+    | nil, nil =>
+      ret nil
+    | _, _ =>
+      None
+  end.
+
+Definition generatePhi (v : LLVM.var) (vs : list (LLVM.value * label)) : LLVM.instr :=
+  LLVM.Assign_i (Some (%v)) (LLVM.Phi_e UNIVERSAL vs).
+
+Definition rewriteBlock (cfg : CFG) (formals : list LLVM.var) (block : LLVM.block) : string + LLVM.block.
+refine (
+  match block with
+    | (None,_) => ret block
+    | (Some lbl,intrs) =>
+      match lookup lbl cfg with
+        | None => ret block
+        | Some callers =>
+          let reassoc := List.map (fun c => let '(caller,args) := c in List.map (fun a => (a,caller)) args) callers in
+          let phi_args :=
+            match reassoc with
+              | nil => ret nil
+              | h::nil => ret (map (fun e => e::nil) h)
+              | h::rest => foldM (fun elem acc => combine_with (fun e a => e::a) elem acc) (map (fun e => e::nil) h) rest
+            end in
+          match phi_args with
+            | Some (baseArgs::limitArgs::lblArgs) =>
+              match combine_with (fun f a => (f,a)) formals lblArgs with
+                | Some phi_recs =>
+                  let phis := map (fun e => let '(f,a) := e in generatePhi f a) phi_recs in
+                  ret (Some lbl,phis ++ intrs)
+                | _ => raise "Control-flow graph inconsisent with Low.function: wrong number of args"%string
+              end
+            | _ => raise "Inconsistent phi node argument counts"%string
+          end
+      end
+  end).
+Defined.
 
 Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + LLVM.topdecl :=
   let f_params : list (LLVM.type * LLVM.var * list LLVM.param_attr) := 
     Reducible.map (fun (x : Env.var) => (UNIVERSAL, runShow (show x) : string, nil : list LLVM.param_attr)) (f_args f) in
-  (* should figure out return type *)
-  let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil (runShow (show (f_name f))) f_params nil None None GC_NAME in 
+  (* right return type always? *)
+  let type := RET_TYPE 1 in
+  let header := LLVM.Build_fn_header None None CALLING_CONV false type nil (runShow (show (f_name f))) f_params nil None None GC_NAME in 
   let locals : map_var lvar := fold_left (fun (acc : map_var lvar) v => 
     let lv : LLVM.var := runShow (show v) in Maps.add v lv acc) (f_args f) Maps.empty
   in  
   match runGenBlocks ctor_m locals (f_body f) with
     | inl e => inl e
-    | inr (_,cfg,blocks) => inr (LLVM.Define_d header blocks) (* DO SOMETHING WITH CFG HERE *)
+    | inr (formals,cfg,blocks) =>
+      finalBlocks <- mapM (fun e => let '(f,b) := e in rewriteBlock cfg f b) (List.combine formals blocks) ;;
+      ret (LLVM.Define_d header finalBlocks)
   end.
   
   Definition coq_error_decl := 
@@ -516,11 +582,10 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string ((UNIVERSAL, "o", nil)::nil)%string nil None None None in
       LLVM.Declare_d header.
 
-  Parameter generateProgram : forall (word_size : nat) (mctor : map_ctor Z) (p : Low.program), string + LLVM.module.
-(*
-    let decls := map generateFunction (p_topdecl p)
-      in coq_error_decl :: coq_done_decl :: decls.
-*)
+  Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : string + LLVM.module :=
+    decls <- mapM (generateFunction mctor) (p_topdecl p) ;;
+    ret (coq_error_decl :: coq_done_decl :: decls).
+
 End globals.
 End maps.
 End sized.
