@@ -44,10 +44,10 @@ Section monadic.
   Context {ContMap_m : MonadReader (map_cont Low.cont) m}.
 
   Definition freshVar : m var :=
-    x <- modify (MR := Fresh_m) (fun x => Psucc x) ;;
+    x <- modify (MS := Fresh_m) (fun x => Psucc x) ;;
     ret (Env.Anon_v x).
   Definition freshLbl : m label :=
-    l <- modify (MR := Freshl_m) (fun x => Psucc x) ;;
+    l <- modify (MS := Freshl_m) (fun x => Psucc x) ;;
     ret ("l"++nat2string10 (nat_of_P l))%string.
 
   Definition emit_tm (tm : term) : m block :=
@@ -69,7 +69,7 @@ Section monadic.
     end.
 
   Definition add_block (l : label) (blk : block) : m unit :=
-    modify (MR := Blocks_m) (Maps.add l blk) ;;
+    modify (MS := Blocks_m) (Maps.add l blk) ;;
     ret tt.
 
   Definition newBlock {T} (l : label) (vs : list var) (c : m T) : m T :=
