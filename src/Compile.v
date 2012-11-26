@@ -110,7 +110,7 @@ Module Compile.
       opt_e <- cps_opt cps_e ;;
       clo_conv_e <- CloConvK.ClosureConvert.cloconv_exp opt_e ;;
       low <- CoqCompile.CpsK2Low.cpsk2low _ (fst clo_conv_e) (snd clo_conv_e) ;;
-      @CodeGen.generateProgram _ word_size mctor low.
+      CodeGen.generateProgram word_size mctor low.
 
     Definition topCompile_string (e : Lambda.exp) : string + string := 
       match topCompile true e with

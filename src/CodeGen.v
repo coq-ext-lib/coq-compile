@@ -249,6 +249,11 @@ Section monadic.
         withNewVar x y k
     end.
 
+  Definition generateMop T (x : Env.var) (p : Low.mop) (os : list op) (k : m T) : m T :=
+    match p with
+      | PrintInt_m => k (* XXX IMPLEMENT! *)
+    end.
+
   Fixpoint sizeof (t : primtyp) : nat :=
     match t with
       | Struct_t ts =>
@@ -346,6 +351,8 @@ Section monadic.
         generateLoad d t i s k
       | Store_i t v i d =>
         generateStore t v i d k
+      | Bind_i v m os =>
+        generateMop v m os k
     end.
 
   Definition HALT_LABEL : LLVM.var := "coq_done"%string.
@@ -573,7 +580,13 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + 
       finalBlocks <- mapM (fun e => let '(f,b) := e in rewriteBlock cfg f b) (List.combine formals blocks) ;;
       ret (LLVM.Define_d header finalBlocks)
   end.
-  
+
+End globals.
+
+  Definition generateGlobals (fs : list Low.function) : map_var (LLVM.value * LLVM.type) :=
+    fold (fun f map => let fname := f_name f in
+      Maps.add fname (LLVM.Global (runShow (show fname)),UNIVERSAL) map) Maps.empty fs.
+
   Definition coq_error_decl := 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_error"%string nil nil None None None in
       LLVM.Declare_d header.
@@ -582,10 +595,17 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string ((UNIVERSAL, "o", nil)::nil)%string nil None None None in
       LLVM.Declare_d header.
 
-  Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : string + LLVM.module :=
-    decls <- mapM (generateFunction mctor) (p_topdecl p) ;;
-    ret (coq_error_decl :: coq_done_decl :: decls).
-
-End globals.
 End maps.
 End sized.
+
+Section program.
+Variable map_ctor : Type -> Type.
+Context {M_ctor : forall x, Reducible (map_ctor x) (constructor * x)}.
+Context {FM_ctor : DMap constructor map_ctor}.
+
+Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : string + LLVM.module :=
+  let globals := generateGlobals word_size (p_topdecl p) in
+  decls <- mapM (generateFunction word_size globals mctor) (p_topdecl p) ;;
+  ret (coq_error_decl :: coq_done_decl word_size :: decls).
+
+End program.
