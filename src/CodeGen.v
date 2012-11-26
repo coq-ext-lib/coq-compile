@@ -310,8 +310,8 @@ Section monadic.
     in doMalloc size (fun base => doGeps (%base) allocs k) exitLabel.
 
   (* Should use primtyp at least as a check *)
-  Definition generateLoad T (dest : var) (t : primtyp) (index : Z) (ptr : var) (k : m T) : m T :=
-    ptr <- opgen (Var_o ptr) ;;
+  Definition generateLoad T (dest : var) (t : primtyp) (index : Z) (ptr : op) (k : m T) : m T :=
+    ptr <- opgen ptr ;;
     index <- opgen (Int_o index) ;;
     let gep := LLVM.Getelementptr_e false PTR_TYPE ptr ((UNIVERSAL,index)::nil) in
     elem <- emitExp gep ;;
@@ -319,8 +319,8 @@ Section monadic.
     withNewVar dest load k.
 
   (* Should use primtyp at least as a check *)
-  Definition generateStore T (t : primtyp) (v : op) (index : Z) (ptr : var) (k : m T) : m T :=
-    ptr <- opgen (Var_o ptr) ;;
+  Definition generateStore T (t : primtyp) (v : op) (index : Z) (ptr : op) (k : m T) : m T :=
+    ptr <- opgen ptr ;;
     index <- opgen (Int_o index) ;;
     value <- opgen v ;;
     let gep := LLVM.Getelementptr_e false PTR_TYPE ptr ((UNIVERSAL,index)::nil) in

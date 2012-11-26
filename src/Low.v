@@ -32,9 +32,10 @@ Inductive instr :=
 | Primop_i : var -> primop -> list op -> instr
 | Alloca_i : list (var * primtyp) -> instr
 | Malloc_i : list (var * primtyp) -> instr
-(* Load_i(value,type,offset,pointer) *)
-| Load_i : var -> primtyp -> Z -> var -> instr
-| Store_i : primtyp -> op -> Z -> var -> instr.
+(* Load_i(var,type,offset,ptr) => var = *((type* )(ptr+offset)) *)
+| Load_i : var -> primtyp -> Z -> op -> instr
+(* Store_i(type,value,offset,ptr) => *(ptr+offset) = value *)
+| Store_i : primtyp -> op -> Z -> op -> instr.
 
 (* A function can be called with a list of continuations that were either 
    passed as arguments (referred to by the index of the formal) or that 

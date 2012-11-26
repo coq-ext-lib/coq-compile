@@ -20,6 +20,7 @@ Require Import CoqCompile.CpsKUtil.
 Require Import ExtLib.Data.Map.FMapAList.
 Require Import ExtLib.Data.Monads.EitherMonad.
 Require Import ExtLib.Data.Monads.ReaderMonad.
+Require Import ExtLib.Programming.Show.
 
 Section maps.
   Import CPSK.
@@ -32,6 +33,7 @@ Section maps.
 Section monadic.
   Import MonadNotation.
   Local Open Scope monad_scope.
+  Local Open Scope string_scope.
 
   Variable m : Type -> Type.
   Context {Monad_m : Monad m}.
@@ -53,7 +55,7 @@ Section monadic.
   Definition emit_tm (tm : term) : m block :=
     block_stack <- get (MonadState := Block_m) ;;
     match block_stack with
-      | None => raise "ERROR: No current block"%string
+      | None => raise "BUG: No current block"%string
       | Some (l, vs, is) =>
         put None ;;
         let blk := {| b_args := vs ; b_insns := rev is ; b_term := tm |} in
@@ -63,7 +65,7 @@ Section monadic.
   Definition emit_instr (i : instr) : m unit :=
     block_stack <- get (MonadState := Block_m) ;;
     match block_stack with
-      | None => raise "ERROR: No current block"%string
+      | None => raise "BUG: No current block"%string
       | Some (l, vs, is) =>
         put (Some (l, vs, i :: is))
     end.
@@ -83,7 +85,7 @@ Section monadic.
     r <- asks (MR := ContMap_m) (Maps.lookup c) ;;
     match r with
       | Some r => ret r
-      | None => raise "ERROR: Unknown continuation"%string
+      | None => raise ("ERROR: Unknown continuation '" ++ runShow (show c) ++ "'")
     end.
 
   Definition withNewCont (ks : list (CPSK.cont * label)) : forall {T}, m T -> m T :=
@@ -99,7 +101,7 @@ Section monadic.
       | Var_o v => 
         x <- asks (Maps.lookup v) ;;
         match x with
-          | None => raise "ERROR: Unknown variable"%string
+          | None => raise ("ERROR: Unknown variable '" ++ runShow (show v) ++ "'")
           | Some v => ret (Var_o v)
         end
       | Con_o c => ret (Con_o c)
@@ -114,7 +116,7 @@ Section monadic.
                                end) vs in
     mapM (fun x => match x with
                      | inl x => ret x
-                     | inr _ => raise "found continuation after filter"%string
+                     | inr _ => raise "BUG: found continuation after filter"%string
                    end) vs.
 
   Fixpoint list_repeat {A} (n:nat) (a:A) : list A :=
@@ -127,47 +129,40 @@ Section monadic.
     match d with
       | Op_d x o => ret tt
       | Prim_d x p os =>
+        vs <- mapM opgen os ;;
         match p with
           | CpsCommon.Eq_p => 
-            vs <- mapM opgen os ;;
             emit_instr (Primop_i x Eq_p vs)
           | CpsCommon.Neq_p =>
-            vs <- mapM opgen os ;;
             emit_instr (Primop_i x Neq_p vs)
           | CpsCommon.Lt_p =>
-            vs <- mapM opgen os ;;
             emit_instr (Primop_i x Lt_p vs)
           | CpsCommon.Lte_p =>
-            vs <- mapM opgen os ;;
             emit_instr (Primop_i x Lte_p vs)
           | CpsCommon.Ptr_p =>
-            vs <- mapM opgen os ;;
             emit_instr (Primop_i x Ptr_p vs)
           | CpsCommon.Plus_p => 
-            vs <- mapM opgen os ;;
             emit_instr (Primop_i x Plus_p vs)
           | CpsCommon.Minus_p => 
-            vs <- mapM opgen os ;;
             emit_instr (Primop_i x Minus_p vs)
           | CpsCommon.Times_p => 
-            vs <- mapM opgen os ;;
             emit_instr (Primop_i x Times_p vs)
-          | MkTuple_p => 
-            vs <- mapM opgen os ;;
+          | CpsCommon.MkTuple_p => 
             mtyp <- mapM (fun v => x <- freshVar ;; ret (x, Int_t, v)) vs ;;
             emit_instr (Malloc_i (map (fun x => let '(x, t, v) := x in (x, t)) mtyp)) ;;
             dummy <- mapM (fun x => let '(x, t, v) := x in
-              emit_instr (Store_i t v 0 x)) mtyp ;;
+              emit_instr (Store_i t v 0 (Var_o x))) mtyp ;;
             ret tt
-          | Proj_p => 
-            vs <- mapM opgen os ;;
+          | CpsCommon.Proj_p => 
             match vs with
-              | CpsCommon.Int_o idx :: CpsCommon.Var_o v :: nil => 
+              | CpsCommon.Int_o idx :: v :: nil => 
+                (** TODO: Why do we require Int_o and Var_o here? **)
+                (** TODO: [length vs] is wrong here. **)
                 emit_instr (Load_i x (Struct_t (list_repeat (length vs) Int_t)) idx v)
-              | _ => raise ("Proj_p requires exactly 2 arguments"%string)
+              | _ => raise ("ERROR: Proj_p requires exactly 2 arguments"%string)
             end
         end
-      | Fn_d _ _ _ _ => raise ("Function found in closure converted body"%string) 
+      | Fn_d _ _ _ _ => raise ("ERROR: Function found in closure converted body"%string) 
       | Bind_d _ _ m _ => match m with end
     end.
   
@@ -219,7 +214,7 @@ Section monadic.
               | inr l =>
                 blk <- newBlock l vs (cpsk2low' e) ;;
                 add_block l blk
-              | inl _ => raise "local cont references cont parameter"%string
+              | inl _ => raise "??: local cont references cont parameter"%string
             end) cves) ;;
             cpsk2low' e)
     end.
