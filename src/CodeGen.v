@@ -48,7 +48,8 @@ Section maps.
   Variable map_lbl : Type -> Type.
   Context {Map_lbl : DMap label map_lbl}.
   Context {Foldable_lbl : forall a, Foldable (map_lbl a) (label * a)}.
-  Definition Monoid_CFG : Monoid.Monoid (map_lbl (list (label * list LLVM.value))) :=
+  Definition CFG := map_lbl (list (label * list LLVM.value)).
+  Definition Monoid_CFG : Monoid.Monoid CFG :=
     {| Monoid.monoid_plus := fun x y => Maps.combine (K := label) (fun k l r => l ++ r) x y
      ; Monoid.monoid_unit := Maps.empty |}.    
 
@@ -470,16 +471,33 @@ Section monadic.
 
 End monadic.
 
-Definition m : Type -> Type := writerT (Monoid_CFG) (readerT (LLVM.var * LLVM.var) (readerT (map_ctor Z) (readerT (map_var lvar) (stateT (option LLVM.label) (stateT (list LLVM.block) (stateT (LLVM.block) (stateT (nat * nat) (sum string)))))))).
+Definition m : Type -> Type :=
+    eitherT string (writerT (Monoid_CFG) (readerT (map_ctor Z) (readerT (LLVM.var * LLVM.var) (readerT (map_var lvar)
+(stateT (option LLVM.label) (stateT (list LLVM.block) (stateT LLVM.block (state (nat * nat))))))
+))).
 
-(* Need to run this... *)
-(* Definition runM :=
-  runReaderT runWriterT () *)
+Definition runM T (ctor_m : map_ctor Z) (cmd : m T) : string + (T  * CFG * list LLVM.block) :=
+    let res := (runState (runStateT (runStateT (runStateT (runReaderT (runReaderT (runReaderT (runWriterT (unEitherT cmd)) ctor_m) ("base", "limit")%string) Maps.empty) None) nil) (None, nil)) (0,0)) in
+    match res with
+      | (((((inl e, _), _), _), _), _) => inl e
+      | (((((inr x, cfg), _), l), b), _) => inr (x, cfg, b :: l)
+    end.
 
-Definition generateFunction (f : Low.function) : LLVM.topdecl.
+Typeclasses eauto := 50.
+
+Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + LLVM.topdecl.
 refine (
-(*  iterM (fun block => let '(l,b) := block in generateBlock l b) (f_body f)*)
+  let genBlocks : m unit := iterM (m := m) (fun block => let '(l,b) := block in 
+    _) (f_body f) in
   _
+).
+eapply (generateBlock (m := m) l b).
+
+
+match runM ctor_m genBlocks with
+    | inl e => inl e
+    | inr (_,cfg,blocks) => _
+  end
   ).
 Admitted.
   
