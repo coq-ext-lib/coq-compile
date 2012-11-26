@@ -42,7 +42,8 @@ Section maps.
   Variable map_var : Type -> Type.
   Variable map_ctor : Type -> Type.
   Context {FM : DMap Env.var map_var}.
-  Context {M_ctor : forall x, Reducible (map_ctor x) (constructor * x)}.
+  Context {FM_var : forall x, Foldable (map_var x) (var * x)}.
+  Context {M_ctor : forall x, Foldable (map_ctor x) (constructor * x)}.
   Context {FM_ctor : DMap constructor map_ctor}.
 
   Variable map_lbl : Type -> Type.
@@ -137,7 +138,7 @@ Section monadic.
   Definition tagForConstructor (c : constructor) : m Z :=
     x <- ask (MonadReader := Reader_ctormap) ;;
     match Maps.lookup c x with
-      | None => raise ("error looking for '" ++ c ++ "' in TODO" (*++ show_map x*))%string
+      | None => raise ("error looking for '" ++ c ++ "' in {" ++ (to_string x) ++ "}")%string
       | Some z => ret z
     end.
   
@@ -159,7 +160,7 @@ Section monadic.
       | _ =>
         emitExp (LLVM.Bitcast_e ty v UNIVERSAL)
     end.
-  
+
   Definition opgen (op : op) : m LLVM.value :=
     match op with
       | Var_o v => 
@@ -167,7 +168,8 @@ Section monadic.
         match Maps.lookup v x with
           | None => 
             match Maps.lookup v globals with
-              | None => raise ("Couldn't find variable '" ++ runShow (show v) ++ "' in context")
+              | None => raise ("Couldn't find variable '" ++ (to_string v) ++ "' in context: {"
+                        ++ (to_string x) ++ "} or globals map: {" ++ (to_string globals) ++ "}")
               | Some (v,t) => 
                 asLocal <- castFrom t v ;;
                 ret (%asLocal)
@@ -600,7 +602,7 @@ End sized.
 
 Section program.
 Variable map_ctor : Type -> Type.
-Context {M_ctor : forall x, Reducible (map_ctor x) (constructor * x)}.
+Context {M_ctor : forall x, Foldable (map_ctor x) (constructor * x)}.
 Context {FM_ctor : DMap constructor map_ctor}.
 
 Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : string + LLVM.module :=
