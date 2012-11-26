@@ -53,17 +53,20 @@ refine (
   match e with
     | Some e =>
       let cps_e := CpsKConvert.CPS_io e in
-      (* CPSK.exp2string cps_e *)
-      match ClosureConvert.cloconv_exp cps_e with
-        | inl ex => ex
-        | inr (ds, e) => (* CPSK.exp2string e *)
-          match cpsk2low ds e with
-            | inl ex => ex
-            | inr prog => string_of_program prog
+      match CPSK.exp_sane (m' := sum string) cps_e with
+        | inl err => "CpsConv: " ++ err
+        | inr _ =>
+          match ClosureConvert.cloconv_exp cps_e with
+            | inl ex => "CloConv: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string cps_e))
+            | inr (ds, e) => (* CPSK.exp2string e *)
+              match cpsk2low ds e with
+                | inl ex => "Lower: " ++ ex
+                | inr prog => string_of_program prog
+              end
           end
       end
     | None => "Parsing failed"%string
-  end
+  end%string
 ).
 Defined.
 

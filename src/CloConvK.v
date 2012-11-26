@@ -146,15 +146,15 @@ Module ClosureConvert.
           ret (Let_e (Bind_d x w m os) e) 
         | Let_e (Fn_d v ks vs e') e =>
           let fvars := free_vars_decl false (Fn_d v ks vs e') in
-          fvars <- mapM (fun v =>
-            match v with
+          fvars <- mapM (fun v' =>
+            match v' with
               | inl v => 
                 x <- getCustomCall (Var_o v) ;;
                 match x with
                   | None => ret v
                   | Some (_, e) => ret e
                 end
-              | inr x => raise ("Invariant violation: escaping continuation " ++ runShow (show x))%string
+              | inr x => raise ("Invariant violation: escaping continuation " ++ runShow (show x) ++ " from " ++ runShow (show v))%string
             end) fvars ;;
           (** fvars does not contain duplicates **)
           envV <- fresh "env"%string ;;

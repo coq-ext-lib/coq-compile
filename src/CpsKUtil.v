@@ -205,11 +205,12 @@ Section free_vars.
             iterM free_vars_op os
         | Bind_d x w m os =>
           iterM free_vars_op os 
-        | Fn_d v _ xs e =>
-          if rec then
-            censor (filter (fun x => negb (eq_dec (inl v) x || anyb (fun v => eq_dec x (inl v)) xs))) (free_vars_exp' e)
-          else 
-            censor (filter (fun x => negb (anyb (fun v => eq_dec x (inl v)) xs))) (free_vars_exp' e)
+        | Fn_d v ks xs e =>
+          censor (filter (fun x => negb (orb (anyb (fun v => eq_dec x (inl v)) xs) (anyb (fun v => eq_dec x (inr v)) ks))))
+            (if rec then
+              censor (filter (fun x => negb (eq_dec (inl v) x))) (free_vars_exp' e)
+             else 
+              free_vars_exp' e)
       end.
   End monadic.
 
