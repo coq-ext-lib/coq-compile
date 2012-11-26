@@ -30,6 +30,14 @@ Section maps.
   Variable map_cont : Type -> Type.
   Context {FM_cont : DMap CPSK.cont map_cont}.
 
+  Definition lowBinder (d : decl) : var :=
+    match d with
+      | Prim_d x _ _ 
+      | Fn_d x _ _ _ 
+      | Bind_d x _ _ _
+      | Op_d x _ => x
+    end.
+
   Section monadic.
     Import MonadNotation.
     Local Open Scope monad_scope.
@@ -134,7 +142,7 @@ Section maps.
     Definition decl2low (d:decl) {T} (c : m T) : m T :=
       match d with
         | Op_d x o => 
-        withNewVar x o c
+          withNewVar x o c
         | Prim_d x p os =>
           vs <- mapM opgen os ;;
           match p with
@@ -169,11 +177,11 @@ Section maps.
                 | _ => raise ("ERROR: Proj_p requires exactly 2 arguments"%string)
               end
           end ;;
-        withNewVar x (Var_o x) c
+          withNewVar x (Var_o x) c
         | Fn_d _ _ _ _ => raise ("ERROR: Function found in closure converted body"%string) 
         | Bind_d x _ mop _ => 
           match mop return m unit with end ;;
-        withNewVar x (Var_o x) c
+          withNewVar x (Var_o x) c
       end.
     
     Fixpoint cpsk2low' (e:exp) : m block :=
@@ -187,17 +195,10 @@ Section maps.
         | Let_e d e => 
           decl2low d (cpsk2low' e)
         | Letrec_e ds e => 
-          binders <- mapM (fun d =>
-            match d with
-              | Prim_d x _ _ 
-              | Fn_d x _ _ _ 
-              | Bind_d x _ _ _
-              | Op_d x _ => ret (x, Var_o x)
-            end) ds ;;
-          let _ : list (var * op) := binders in
-        withNewVars binders
-          (iterM (fun x => decl2low x (ret tt)) ds ;;
-            cpsk2low' e)
+          let binders : list (var * op) := map (fun d => let v := lowBinder d in (v, Var_o v)) ds in
+          withNewVars binders
+            (iterM (fun x => decl2low x (ret tt)) ds ;;
+             cpsk2low' e)
         | Switch_e o arms e =>
           v <- opgen o ;;
           arms <- mapM (fun pat =>
@@ -224,24 +225,23 @@ Section maps.
           lbls <- mapM (fun x => let '(k, vs, e) := x in 
             l <- freshLbl ;;
             ret (k, l)) cves ;;
-        withNewConts
-          (map (fun x => let '(k, l) := x in (k, l)) lbls)
-          ((iterM (fun x => let '(k, vs, e) := x in 
-            l <- cont2low k ;;
-            match l with
-              | inr l =>
-                blk <- newBlock l vs (cpsk2low' e) ;;
-                add_block l blk
-              | inl _ => raise "??: local cont references cont parameter"%string
-            end) cves) ;;
-          cpsk2low' e)
+          withNewConts
+            (map (fun x => let '(k, l) := x in (k, l)) lbls)
+            ((iterM (fun x => let '(k, vs, e) := x in 
+              l <- cont2low k ;;
+              match l with
+                | inr l =>
+                  blk <- newBlock l vs (withNewVars (map (fun x => (x, Var_o x)) vs) (cpsk2low' e)) ;;
+                  add_block l blk
+                | inl _ => raise "??: local cont references cont parameter"%string
+              end) cves) ;;
+            cpsk2low' e)
       end.
 
     Fixpoint tl_cpsk2low (e:exp) : m (label * block) :=
-      l <- freshLbl ;;
-      blk <- cpsk2low' e ;;
-      add_block l blk ;;
-      ret (l, blk).
+      lbl_blk <- inFreshLbl nil (cpsk2low' e) ;;
+      add_block (fst lbl_blk) (snd lbl_blk) ;;
+      ret lbl_blk.
 
   End monadic.
 
@@ -288,11 +288,10 @@ Section monadic2.
 
   Instance MonadReader_ReaderData_contMap m (M : Monad m) : MonadReader _ (readerT ReaderData m) :=
     ReaderProd contMap (fun x d => {| varMap := d.(varMap) ; contMap := x |}).
-  About tl_cpsk2low.
 
   Arguments tl_cpsk2low {_ _ _ _ m Mon MExc MSvar MSlbl _ _ _ _} (e) : rename.
-
-  Definition tl_decl2low (name : var) (ks : list CPSK.cont) (args : list var) (e : CPSK.exp) : m Low.function :=
+  
+  Definition tl_decl2low (name : var) (ks : list CPSK.cont) (args : list var) (tops : list (var * op)) (e : CPSK.exp) : m Low.function :=
     let c := tl_cpsk2low 
       (map_var := alist var) (FM_var := DMap_alist RelDec_var_eq)
       (map_cont := alist CPSK.cont) (FM_cont := DMap_alist CPSK.RelDec_cont_eq)
@@ -308,8 +307,15 @@ Section monadic2.
        |}
     in
     let init_reader : ReaderData :=
-      {| varMap := Maps.empty
-       ; contMap := Maps.empty
+      {| varMap := 
+         let vars := fold_left (fun acc x => Maps.add (fst x) (snd x) acc) tops Maps.empty in
+         fold_left (fun acc x => Maps.add x (Var_o x) acc) args vars
+       ; contMap := (fix recur (ls : list CPSK.cont) idx (mp : alist CPSK.cont Low.cont) : alist CPSK.cont Low.cont := 
+         match ls with
+           | nil => mp 
+           | l :: ls => 
+             recur ls (S idx) (Maps.add l (inl idx) mp)
+         end) ks 0 Maps.empty
        |}
     in
     c' <- runReaderT (runStateT c init_state) init_reader ;;
@@ -321,12 +327,13 @@ Section monadic2.
          ; f_entry := entry_label |}.
 
   Definition cpsk2low (fs : list CPSK.decl) (e : CPSK.exp) : m Low.program :=
+    let binders : list (var * op) := map (fun d => let v := lowBinder d in (v, Var_o v)) fs in
     fs <- mapM (fun d => 
       match d with
-        | CPSK.Fn_d f ks args e => tl_decl2low f ks args e
+        | CPSK.Fn_d f ks args e => tl_decl2low f ks args binders e
         | _ => raise ("Decl other than function found in top-lvl")%string
       end) fs ;;
-    entry <- tl_decl2low (Named_v "main"%string None) nil nil e ;;
+    entry <- tl_decl2low (Named_v "main"%string None) nil nil binders e ;;
     ret {| p_topdecl := entry::fs; p_entry := (Named_v "main"%string None) |}.
 
 End monadic2.

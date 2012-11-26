@@ -48,8 +48,6 @@ Definition fact_e := Parse.parse_topdecls
      ((O) `(S ,`(O)))
      ((S n~) (@ mult n (fact n~))))))".
 
-About cpsk2low.
-
 Definition lambda2low (e:option Lambda.exp) : string.
 refine (
   match e with
@@ -62,7 +60,7 @@ refine (
             | inl ex => "CloConv: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string cps_e))
             | inr (ds, e) => (* CPSK.exp2string e *)
               match @cpsk2low (sum string) _ _ ds e with
-                | inl ex => "Lower: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string e))
+                | inl ex => "Lower: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string (CPSK.Letrec_e ds e)))
                 | inr prog => string_of_program prog
               end
           end
@@ -73,5 +71,6 @@ refine (
 Defined.
 
 Eval compute in lambda2low plus_e.
+
 Eval compute in lambda2low mult_e.
 Eval compute in lambda2low fact_e.
