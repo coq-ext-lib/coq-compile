@@ -60,6 +60,29 @@ Module IO.
       )
       (AppK_e k (Var_o res :: nil))).
 
+  (** PrintIO :: Z -> IO unit
+   ** fun k i =>
+   **   let res = fun k' w =>
+   **     let (x, w') = bind PrintInt (w :: i :: nil) in
+   **     k' x w'
+   **   in k res
+   **)
+  Definition IO_printInt (printint : var) : decl :=
+    let k := wrapCont "k" in
+    let k' := wrapCont "k'" in
+    let res := wrapVar "res" in
+    let i := wrapVar "i" in
+    let w := wrapVar "w" in
+    let w' := wrapVar "w'" in
+    let x := wrapVar "x" in
+    Fn_d printint (k :: nil) (i :: nil)
+    (Let_e
+      (Fn_d res (k' :: nil) (w :: nil)
+        (Let_e
+          (Bind_d x w' PrintInt_m (Var_o w :: Var_o i :: nil))
+          (AppK_e k' (Var_o x :: Var_o w' :: nil))))
+      (AppK_e k (Var_o res :: nil))).
+    
   Definition runIO (e : op) : exp :=
     let k := wrapCont "IO$k" in
     let w := wrapVar "IO$w" in
@@ -68,7 +91,7 @@ Module IO.
     LetK_e ((k, x :: w :: nil, (Halt_e (Var_o x) (Var_o w)))::nil)
            (App_e e (k::nil) (InitWorld_o :: nil)).
 
-  Definition wrapIO (bind ret : var) (e : exp) : exp :=
-     Let_e (IO_bind bind) (Let_e (IO_return ret) e).
+  Definition wrapIO (bind ret printint : var) (e : exp) : exp :=
+     Let_e (IO_bind bind) (Let_e (IO_return ret) (Let_e (IO_printInt printint) e)).
 
 End IO.
