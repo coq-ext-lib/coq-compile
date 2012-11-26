@@ -42,7 +42,7 @@ Section monadic.
   Context {Freshl_m : MonadState positive m}.
   Context {Block_m : MonadState (option (label * list var * list instr)) m}.
   Context {Blocks_m : MonadState (alist label block) m}.
-  Context {VarMap_m : MonadReader (map_var var) m}.
+  Context {VarMap_m : MonadReader (map_var op) m}.
   Context {ContMap_m : MonadReader (map_cont Low.cont) m}.
 
   Definition freshVar : m var :=
@@ -88,8 +88,14 @@ Section monadic.
       | None => raise ("ERROR: Unknown continuation '" ++ runShow (show c) ++ "'")
     end.
 
-  Definition withNewCont (ks : list (CPSK.cont * label)) : forall {T}, m T -> m T :=
+  Definition withNewConts (ks : list (CPSK.cont * label)) : forall {T}, m T -> m T :=
     @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (inr (snd x)) acc) ks).
+
+  Definition withNewVars (vo : list (var * op)) : forall {T}, m T -> m T :=
+    @local _ _ VarMap_m (fold_left (fun acc x => Maps.add (fst x) (snd x) acc) vo).
+
+  Definition withNewVar (v : var) (o : op) : forall {T}, m T -> m T :=
+    @withNewVars ((v,o) :: nil).
   
   Definition inFreshLbl {T} (vs:list var) (k:m T) : m (label * T) :=
     l <- freshLbl ;;
@@ -102,7 +108,7 @@ Section monadic.
         x <- asks (Maps.lookup v) ;;
         match x with
           | None => raise ("ERROR: Unknown variable '" ++ runShow (show v) ++ "'")
-          | Some v => ret (Var_o v)
+          | Some v => ret v
         end
       | Con_o c => ret (Con_o c)
       | Int_o z => ret (Int_o z)
@@ -125,9 +131,10 @@ Section monadic.
       | S n => a :: list_repeat n a
     end.
 
-  Definition decl2low (d:decl) : m unit :=
+  Definition decl2low (d:decl) {T} (c : m T) : m T :=
     match d with
-      | Op_d x o => ret tt
+      | Op_d x o => 
+        withNewVar x o c
       | Prim_d x p os =>
         vs <- mapM opgen os ;;
         match p with
@@ -161,9 +168,12 @@ Section monadic.
                 emit_instr (Load_i x (Struct_t (list_repeat (length vs) Int_t)) idx v)
               | _ => raise ("ERROR: Proj_p requires exactly 2 arguments"%string)
             end
-        end
+        end ;;
+        withNewVar x (Var_o x) c
       | Fn_d _ _ _ _ => raise ("ERROR: Function found in closure converted body"%string) 
-      | Bind_d _ _ m _ => match m with end
+      | Bind_d x _ mop _ => 
+        match mop return m unit with end ;;
+        withNewVar x (Var_o x) c
     end.
   
   Fixpoint cpsk2low' (e:exp) : m block :=
@@ -175,11 +185,19 @@ Section monadic.
         ks <- mapM cont2low ks ;;
         emit_tm (Call_tm x v vs ks)
       | Let_e d e => 
-        decl2low d ;;
-        cpsk2low' e
+        decl2low d (cpsk2low' e)
       | Letrec_e ds e => 
-        mapM decl2low ds ;;
-        cpsk2low' e
+        binders <- mapM (fun d =>
+          match d with
+            | Prim_d x _ _ 
+            | Fn_d x _ _ _ 
+            | Bind_d x _ _ _
+            | Op_d x _ => ret (x, Var_o x)
+          end) ds ;;
+        let _ : list (var * op) := binders in
+        withNewVars binders
+          (iterM (fun x => decl2low x (ret tt)) ds ;;
+           cpsk2low' e)
       | Switch_e o arms e =>
         v <- opgen o ;;
         arms <- mapM (fun pat =>
@@ -206,7 +224,7 @@ Section monadic.
         lbls <- mapM (fun x => let '(k, vs, e) := x in 
           l <- freshLbl ;;
           ret (k, l)) cves ;;
-        withNewCont 
+        withNewConts
           (map (fun x => let '(k, l) := x in (k, l)) lbls)
           ((iterM (fun x => let '(k, vs, e) := x in 
             l <- cont2low k ;;
@@ -235,25 +253,73 @@ Section monadic2.
   Context {Monad_m : Monad m}.
   Context {Exc_m : MonadExc string m}.
 
-  Definition tl_decl2low (name : var) (ks : list cont) (args : list var) (e : CPSK.exp) : m Low.function.
-  refine (
-    let c := tl_cpsk2low (eitherT string (readerT (map_cont Low.cont) (readerT (map_var var) (stateT (alist label block) (stateT (option (label * list var * list instr)) (stateT positive (state positive))))))) e in
-    let c' := runState (runStateT (runStateT (runStateT (runReaderT (runReaderT (unEitherT c) Maps.empty) Maps.empty) Maps.empty) None) 1%positive) 1%positive in
-    match c' with
-      | (res, body, _, _, _) => 
-        match res with
-          | inl ex => raise ex
-          | inr (l, blk) =>
-            let f := {| f_name := name; 
-              f_args := args ; 
-              f_conts := length ks; 
-              f_body := body ; 
-              f_entry := l |} in
-            ret f
-        end
-    end
-  ).
-  Defined.
+(*
+Context {Monad_m : Monad m}.
+  Context {Exc_m : MonadExc string m}.
+  Context {VarMap_m : MonadReader (map_var op) m}.
+  Context {ContMap_m : MonadReader (map_cont Low.cont) m}.
+*)
+
+  Record StateData : Type :=
+  { freshVar_p : positive
+  ; freshLabel_p : positive
+  ; curBlock : option (label * list var * list instr)
+  ; allBlocks : alist label block
+  }.
+  Record ReaderData : Type :=
+  { varMap : map_var op
+  ; contMap : map_cont Low.cont
+  }.
+
+  Definition MonadState_StateData_freshVar m (M : Monad m) : MonadState _ (stateT StateData m) :=
+    StateProd freshVar_p 
+    (fun x d => {| freshVar_p := x ; freshLabel_p := d.(freshLabel_p) ; curBlock := d.(curBlock) ; allBlocks := d.(allBlocks) |}).
+
+  Definition MonadState_StateData_freshLabel_p m (M : Monad m) : MonadState _ (stateT StateData m) :=
+    StateProd freshLabel_p 
+    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := x ; curBlock := d.(curBlock) ; allBlocks := d.(allBlocks) |}).
+
+  Instance MonadState_StateData_curBlock m (M : Monad m) : MonadState _ (stateT StateData m) :=
+    StateProd curBlock
+    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := d.(freshLabel_p) ; curBlock := x ; allBlocks := d.(allBlocks) |}).
+
+  Instance MonadState_StateData_allBlocks m (M : Monad m) 
+    : MonadState _ (stateT StateData m) :=
+    StateProd allBlocks
+    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := d.(freshLabel_p) ; curBlock := d.(curBlock) ; allBlocks := x |}).
+
+  Instance MonadReader_ReaderData_varMap m (M : Monad m) : MonadReader _ (readerT ReaderData m) :=
+    ReaderProd varMap (fun x d => {| varMap := x ; contMap := d.(contMap) |}).
+
+  Instance MonadReader_ReaderData_contMap m (M : Monad m) : MonadReader _ (readerT ReaderData m) :=
+    ReaderProd contMap (fun x d => {| varMap := d.(varMap) ; contMap := x |}).
+
+  Arguments tl_cpsk2low {m Mon MExc MSvar MSlbl _ _ _ _} (e) : rename.
+
+  Definition tl_decl2low (name : var) (ks : list cont) (args : list var) (e : CPSK.exp) : m Low.function :=
+    let c := tl_cpsk2low (m := stateT StateData (readerT ReaderData m))
+      (MSvar := MonadState_StateData_freshVar _ _)
+      (MSlbl := MonadState_StateData_freshLabel_p _ _)
+      e in
+    let init_state : StateData := 
+      {| freshVar_p := 1%positive
+       ; freshLabel_p := 1%positive
+       ; curBlock := None
+       ; allBlocks := nil
+       |}
+    in
+    let init_reader : ReaderData :=
+      {| varMap := Maps.empty
+       ; contMap := Maps.empty
+       |}
+    in
+    c' <- runReaderT (runStateT c init_state) init_reader ;;
+    let '(entry_label, _, state) := c' in
+    ret {| f_name := name
+         ; f_args := args
+         ; f_conts := length ks
+         ; f_body := state.(allBlocks)
+         ; f_entry := entry_label |}.
 
   Definition tl_cpsk2low' (fs : list decl) (e : exp) : m Low.program.
   refine (
