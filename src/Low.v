@@ -28,6 +28,8 @@ Inductive primop :=
 | Minus_p 
 | Times_p. 
 
+Definition mop := CpsCommon.mop.
+
 Inductive instr :=
 | Primop_i : var -> primop -> list op -> instr
 | Alloca_i : list (var * primtyp) -> instr
@@ -35,7 +37,8 @@ Inductive instr :=
 (* Load_i(var,type,offset,ptr) => var = *((type* )(ptr+offset)) *)
 | Load_i : var -> primtyp -> Z -> op -> instr
 (* Store_i(type,value,offset,ptr) => *(ptr+offset) = value *)
-| Store_i : primtyp -> op -> Z -> op -> instr.
+| Store_i : primtyp -> op -> Z -> op -> instr
+| Bind_i : var -> mop -> list op -> instr.
 
 (* A function can be called with a list of continuations that were either 
    passed as arguments (referred to by the index of the formal) or that 
@@ -105,7 +108,7 @@ Section Printing.
   Global Instance Show_instr : Show instr :=
   { show := fun i =>
     match i with
-      | Primop_i v p os => show v << " = " << show p << "(" << sepBy ", " (List.map show os)
+      | Primop_i v p os => show v << " = " << show p << "(" << sepBy ", " (List.map show os) << ")"
       | Alloca_i vs => "[" << sepBy "," (List.map (fun x => show (fst x)) vs) <<
         "] = alloc(" << sepBy "," (List.map (fun x => show (snd x)) vs) << ")"
       | Malloc_i vs => "[" << sepBy "," (List.map (fun x => show (fst x)) vs) <<
@@ -113,6 +116,8 @@ Section Printing.
       | Load_i x t d v => show x << " = load " << show t << " from " << show v << " + " << show d
       | Store_i t o d v => 
         "store " << show o << "@" << show t << " into " << show v << " + " << show d
+      | Bind_i x m os =>
+        show x << " = " << show m << "(" << sepBy ", " (List.map show os) << ")"
     end }.
 
   Global Instance Show_cont : Show cont :=
