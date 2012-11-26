@@ -85,9 +85,7 @@ Module Compile.
     Definition optimization : Type := Optimize.optimization CPS.exp (sum string).
     Definition optimizationK : Type := Optimize.optimization CPSK.exp (sum string).
 
-    Definition O0 : optimization := fun x => ret x.
-    Definition O1 : optimization := 
-      fun x => ret (CseCps.Cse.cse x).
+    Definition O0 : optimizationK := fun x => ret x.
 
     Definition runOpt (o : optimization) (e : CPS.exp) := o e.
   End Opt.
@@ -125,14 +123,30 @@ Module Compile.
           CpsK.CPSK.exp2string (CpsKConvert.CPS_io e)
       end.
 
-(*
     Definition stringToClos (s : string) : string :=
       match Parse.parse_topdecls s with
         | None => "Failed to parse."%string
         | Some e =>
-          CpsK.CPSK.exp2string (CloConv.ClosureConvert.cloconv_exp (CpsConvert.CPS_io e))
+          match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io e)) with
+            | inl e => e
+            | inr (ds,e) => to_string (CPSK.Letrec_e ds e)
+          end
       end.
 
+    Definition stringToLow (s : string) : string :=
+       match Parse.parse_topdecls s with
+        | None => "Failed to parse."%string
+        | Some e =>
+          match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io e)) with
+            | inl e => e
+            | inr (decls,main) =>
+              match (CpsK2Low.cpsk2low _ decls main) with
+                | inl e => e
+                | inr low => to_string low
+              end
+          end
+      end.
+(*
     Definition stringToAssembly (s: string) : string + string :=
       match Parse.parse_topdecls s with
         | None => inl "Failed to parse."%string
@@ -147,30 +161,32 @@ Module Compile.
 
 End Compile.
 
-(*
 Module CompileTest.
   Import Lambda.
   Import LambdaNotation.
 
-  Definition blah (e:Lambda.exp) :=
-      let cps_e := CpsConvert.CPS e in
-      let clo_conv_e := CloConv.ClosureConvert.cloconv_exp cps_e in
-      (cps_e, clo_conv_e).
+  Definition identity : string := "(define ident (lambda (x) x))"%string.
 
   Definition e_ident : Lambda.exp :=
     Eval compute in 
-      match Parse.parse_topdecls "(define ident (lambda (x) x))"%string with
+      match Parse.parse_topdecls identity with
         | None => Lambda.Var_e (Env.wrapVar ""%string)
         | Some o => o
       end.
 
-  Eval vm_compute in (blah e_ident).
+  Eval vm_compute in
+    Compile.stringToLow identity.
 
-  Eval vm_compute in    
-    match Compile.topCompile 8 Compile.Opt.O0 (gen e3) with
+  Eval vm_compute in
+    match Compile.topCompile 8 Compile.Opt.O0 false (e_ident) with
+      | inl err => err
+      | inr mod' => runShow (show mod') ""%string
+    end.
+
+  Eval vm_compute in
+    match Compile.topCompile 8 Compile.Opt.O0 false (gen e3) with
       | inl err => err
       | inr mod' => runShow (show mod') ""%string
     end.
 
 End CompileTest.
-*)
