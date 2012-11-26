@@ -489,16 +489,12 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + 
 refine (
   let genBlocks : m unit := iterM (m := m) (fun block => let '(l,b) := block in 
     _) (f_body f) in
-  _
-).
-eapply (generateBlock (m := m) l b).
-
-
-match runM ctor_m genBlocks with
+  match runM ctor_m genBlocks with
     | inl e => inl e
     | inr (_,cfg,blocks) => _
   end
-  ).
+).
+eapply (generateBlock (m := m) l b).
 Admitted.
   
   Definition coq_error_decl := 
@@ -508,11 +504,11 @@ Admitted.
   Definition coq_done_decl :=
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string ((UNIVERSAL, "o", nil)::nil)%string nil None None None in
       LLVM.Declare_d header.
-  
+(*  
   Definition generateProgram (p : Low.program) : LLVM.module :=
     let decls := map generateFunction (p_topdecl p)
       in coq_error_decl :: coq_done_decl :: decls.
-
+*)
 End globals.
 End maps.
 End sized.
