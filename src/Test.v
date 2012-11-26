@@ -48,18 +48,20 @@ Definition fact_e := Parse.parse_topdecls
      ((O) `(S ,`(O)))
      ((S n~) (@ mult n (fact n~))))))".
 
+About cpsk2low.
+
 Definition lambda2low (e:option Lambda.exp) : string.
 refine (
   match e with
     | Some e =>
       let cps_e := CpsKConvert.CPS_io e in
       match CPSK.exp_sane (m' := sum string) cps_e with
-        | inl err => "CpsConv: " ++ err++ (String Char.chr_newline (CPSK.exp2string cps_e))
+        | inl err => "CpsConv: " ++ err ++ (String Char.chr_newline (CPSK.exp2string cps_e))
         | inr _ =>
           match ClosureConvert.cloconv_exp cps_e with
             | inl ex => "CloConv: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string cps_e))
             | inr (ds, e) => (* CPSK.exp2string e *)
-              match cpsk2low ds e with
+              match @cpsk2low (sum string) _ _ ds e with
                 | inl ex => "Lower: " ++ ex ++ (String Char.chr_newline (CPSK.exp2string e))
                 | inr prog => string_of_program prog
               end

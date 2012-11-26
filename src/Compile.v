@@ -110,7 +110,10 @@ Module Compile.
       in
       opt_e <- cps_opt cps_e ;;
       clo_conv_e <- CloConvK.ClosureConvert.cloconv_exp opt_e ;;
+      _).
+    refine (
       low <- CoqCompile.CpsK2Low.cpsk2low (fst clo_conv_e) (snd clo_conv_e) ;;
+      _).
       @CodeGen.generateProgram _ word_size mctor low).
     Defined.      
 
