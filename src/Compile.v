@@ -106,7 +106,7 @@ Module Compile.
         if io then CpsKConvert.CPS_io e else CpsKConvert.CPS_pure e 
       in
       opt_e <- cps_opt cps_e ;;
-      clo_conv_e <- CloConvK.ClosureConvert.cloconv_exp opt_e ;;
+      clo_conv_e <- CloConvK.ClosureConvert.cloconv_exp cps_e ;;
       low <- CoqCompile.CpsK2Low.cpsk2low _ (fst clo_conv_e) (snd clo_conv_e) ;;
       CodeGen.generateProgram word_size mctor low.
 

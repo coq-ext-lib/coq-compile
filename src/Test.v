@@ -75,6 +75,13 @@ refine (
 ).
 Defined.
 
+(*
 Eval compute in lambda2low plus_e.
 Eval compute in lambda2low mult_e.
 Eval compute in lambda2low fact_e.
+*)
+
+Definition identity : string := "(define ident33 (lambda (x) x))"%string.
+Definition identity_e := Parse.parse_topdecls identity.
+Eval vm_compute in lambda2low identity_e.
+
