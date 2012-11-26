@@ -224,11 +224,11 @@ Section monadic.
             cpsk2low' e)
     end.
 
-  Fixpoint tl_cpsk2low (e:exp) : m block :=
+  Fixpoint tl_cpsk2low (e:exp) : m (label * block) :=
     l <- freshLbl ;;
     blk <- cpsk2low' e ;;
     add_block l blk ;;
-    ret blk.
+    ret (l, blk).
 
 End monadic.
 
@@ -248,12 +248,12 @@ Section monadic2.
       | (res, body, _, _, _) => 
         match res with
           | inl ex => raise ex
-          | inr blk =>
+          | inr (l, blk) =>
             let f := {| f_name := name; 
               f_args := args ; 
               f_conts := length ks; 
               f_body := body ; 
-              f_entry := "blah"%string |} in
+              f_entry := l |} in
             ret f
         end
     end
