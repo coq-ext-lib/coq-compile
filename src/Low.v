@@ -177,4 +177,6 @@ Section Printing.
     iter_show (List.map (fun x => show x) p.(p_topdecl))
     << chr_newline << "main = " << show p.(p_entry) }.
 
+  Definition string_of_program (p : program) : string := runShow (show p) "".
+
 End Printing.
