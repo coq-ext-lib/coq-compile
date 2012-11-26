@@ -180,8 +180,11 @@ Section maps.
           end ;;
           withNewVar x (Var_o x) c
         | Fn_d _ _ _ _ => raise ("ERROR: Function found in closure converted body"%string) 
-        | Bind_d x _ mop _ => 
-          match mop return m unit with end ;;
+        | Bind_d x _ mop os => 
+          vs <- mapM opgen os ;;
+          match mop return m unit with 
+            | PrintInt_m => emit_instr (Bind_i x PrintInt_m vs)
+          end ;;
           withNewVar x (Var_o x) c
       end.
     

@@ -38,7 +38,8 @@ Inductive primop : Type :=
                by v, using zero-based indexing. *)
 
 (** Monadic operations **)
-Inductive mop : Type := .
+Inductive mop : Type := 
+| PrintInt_m : mop. (* First argument is the world, second is a Z *)
 
 Section sanity.
   Definition primop_sane (p : primop) (ls : list op) : bool :=
@@ -56,7 +57,12 @@ Section sanity.
       | MkTuple_p => true
     end.
   Definition mop_sane (m : mop) (ls : list op) : bool :=
-    match m with end.      
+    match m with 
+      | PrintInt => match ls with
+                      | _::_::nil => true
+                      | _ => false
+                    end
+    end.
 
 End sanity.
 
@@ -91,11 +97,12 @@ Section decidables.
 
   Global Instance RelDec_mop_eq : RelDec (@eq mop) :=
   { rel_dec l r := match l , r with
+                     | PrintInt_m, PrintInt_m => true
                    end }.
 
   Global Instance RelDecCorrect_mop_eq : RelDec_Correct RelDec_mop_eq.
   Proof.
-    constructor. destruct x.
+    constructor. destruct x. destruct y. intuition.
   Qed.
 
   Global Instance RelDec_op_eq : RelDec (@eq op) :=
@@ -126,7 +133,9 @@ Section Printing.
   Local Open Scope show_scope.
 
   Global Instance Show_mop : Show mop :=
-  { show m := match m with end }.
+  { show m := match m with 
+              | PrintInt_m => "PrintInt"
+              end }.
     
   Global Instance Show_op : Show op :=
   { show o :=
