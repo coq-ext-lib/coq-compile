@@ -99,7 +99,7 @@ Module CPS.
                  | Some e => chr_newline << "| _ => " << emitexp e
                end) *)
           << chr_newline << "end"
-        | Halt_e o1 o2 => "HALT " << show o1 << show o2
+        | Halt_e o1 o2 => "HALT " << show o1 << " " << show o2
       end
     with emitdecl (d:decl) : showM := 
       match d with 
