@@ -11,6 +11,9 @@ Require Import ExtLib.Data.Strings.
 Require Import ExtLib.Data.Monads.EitherMonad.
 Require Import ExtLib.Data.Map.FMapTwoThreeK.
 Require Import ExtLib.Data.Map.FMapAList.
+Require Import ExtLib.Data.Monads.StateMonad.
+Require Import ExtLib.Data.Monads.ReaderMonad.
+Require Import ExtLib.Data.Monads.WriterMonad.
 Require Import ExtLib.Data.Set.ListSet.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Tactics.Consider.
@@ -42,6 +45,13 @@ Section maps.
   Context {M_ctor : forall x, Reducible (map_ctor x) (constructor * x)}.
   Context {FM_ctor : DMap constructor map_ctor}.
 
+  Variable map_lbl : Type -> Type.
+  Context {Map_lbl : DMap label map_lbl}.
+  Context {Foldable_lbl : forall a, Foldable (map_lbl a) (label * a)}.
+  Definition Monoid_CFG : Monoid.Monoid (map_lbl (list (label * list LLVM.value))) :=
+    {| Monoid.monoid_plus := fun x y => Maps.combine (K := label) (fun k l r => l ++ r) x y
+     ; Monoid.monoid_unit := Maps.empty |}.    
+
 Section globals.
   Variable globals : map_var (LLVM.value * LLVM.type).
 
@@ -56,6 +66,7 @@ Section monadic.
   Context {State_instrs : MonadState (LLVM.block) m}.
   Context {State_blks : MonadState (list LLVM.block) m}.
   Context {State_isExit : MonadState (option LLVM.label) m}.
+  Context {Writer_cfg : MonadWriter Monoid_CFG m}.
 
   Definition freshVar (v : Env.var) : m LLVM.var :=
     x <- get ;;
@@ -101,6 +112,10 @@ Section monadic.
       | None => raise "Expected label for basic block"%string
       | Some lbl => ret lbl
     end.
+
+  Definition addJump (to : label) (args : list LLVM.value) : m unit :=
+    from <- getLabel ;;
+    tell (Maps.singleton to ((from,args) :: nil)).
 
   Definition tagForConstructor (c : constructor) : m Z :=
     x <- ask (MonadReader := Reader_ctormap) ;;
@@ -328,8 +343,18 @@ Section monadic.
 
   Definition HALT_LABEL : LLVM.var := "coq_done"%string.
 
-  Definition generateTerm (t : Low.term) : m LLVM.label.
-  refine (
+  Definition RET_TYPE arity :=
+    LLVM.Struct_t false (PTR_TYPE::PTR_TYPE::(Low.count_to (fun _ => UNIVERSAL) arity)).
+
+  Definition pgen (p : pattern) : m Z :=
+      match p with
+        | Int_p i => ret i
+        | Con_p c =>
+          c <- tagForConstructor c ;;
+          ret c
+      end.
+
+  Definition generateTerm (t : Low.term) : m unit :=
     match t with
       | Halt_tm arg =>
         base <- getBase ;;
@@ -341,20 +366,100 @@ Section monadic.
         let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (LLVM.Global HALT_LABEL) args (LLVM.Noreturn :: nil) in
         let instr := LLVM.Assign_i None call in
         emitInstr instr ;;
-        emitInstr LLVM.Unreachable_i ;;
-        label <- getLabel ;;
-        ret label
-      | Call_tm retVal fptr args conts => _
-      | Cont_tm cont args => _
-      | Switch_tm op arms default => _
-    end).
-  Admitted.
+        emitInstr LLVM.Unreachable_i
+      | Call_tm retVal fptr args conts =>
+        base <- getBase ;;
+        limit <- getLimit ;;
+        args <- mapM opgen args ;;
+        let args := (PTR_TYPE, % base, nil) ::
+                    (PTR_TYPE, % limit, nil) ::
+                    map (fun x => (UNIVERSAL, x, nil)) args in
+        f <- opgen fptr ;;
+        (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
+        let arity := 1 in
+        match conts with
+          | nil =>    
+            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None f args (LLVM.Noreturn :: nil) in
+            let instr := LLVM.Assign_i None call in
+            emitInstr instr ;;
+            emitInstr LLVM.Unreachable_i
+          | (inl 0)::nil =>
+            (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
+            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
+            result <- emitExp call ;;
+            emitInstr (LLVM.Ret_i (Some (RET_TYPE arity,%result)))
+          | (inr lbl)::nil =>
+            let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
+            result <- emitExp call ;;
+            let extractResult type index :=
+              index <- opgen (Int_o index) ;;
+              let gep := LLVM.Getelementptr_e false (RET_TYPE arity) (%result) ((type,index)::nil) in
+              elem <- emitExp gep ;;
+              value <- emitExp (LLVM.Load_e false false type (%elem) None None None false) ;;
+              ret value
+            in
+            newBase <- extractResult PTR_TYPE 0%Z ;;
+            newLimit <- extractResult PTR_TYPE 1%Z ;;
+            result <- extractResult UNIVERSAL 2%Z ;;
+            (* Call the next continuation here *)
+            withBaseLimit newBase newLimit (
+              addJump lbl ((%result)::nil) ;;
+              emitInstr (LLVM.Br_uncond_i lbl)
+              )
+          | _ => raise "Multiple continuations not supported yet"%string
+        end
+      | Cont_tm cont args =>
+        match cont with
+          | inl 0 =>
+            let TYPE := RET_TYPE (length args) in
+            base <- getBase ;;
+            limit <- getLimit ;;
+            retVal <- emitExp (LLVM.Insertvalue_e TYPE (LLVM.Constant LLVM.Undef_c) PTR_TYPE (%base) 0 nil) ;;
+            retVal <- emitExp (LLVM.Insertvalue_e TYPE (%retVal) PTR_TYPE (%limit) 1 nil) ;;
+            retVal <- (fix recur n args retVal :=
+              match args with
+                | nil =>
+                  ret retVal
+                | a::rest =>
+                  arg <- opgen a ;;
+                  retVal <- emitExp (LLVM.Insertvalue_e TYPE retVal UNIVERSAL arg n nil) ;;
+                  recur (n+1) rest (%retVal)
+              end) 2 args (%retVal) ;;
+            emitInstr (LLVM.Ret_i (Some (TYPE,retVal)))
+          | inl _ => raise "Multiple continuations not supported yet"%string
+          | inr lbl =>
+            newArgs <- mapM opgen args ;;
+            addJump lbl newArgs ;;
+            emitInstr (LLVM.Br_uncond_i lbl)
+        end
+      | Switch_tm op arms default => 
+        v <- opgen op ;;
+        arms <- mapM (fun pat =>
+          let '(p,target,args) := pat in
+            tag <- pgen p ;;
+            inFreshLabel (
+              args <- mapM opgen args ;;
+              addJump target args ;;
+              emitInstr (LLVM.Br_uncond_i target) ;;
+              ret tag
+            )) arms ;;
+        default <- match default with
+                     | None => 
+                       v <- exitLabel ;;
+                       ret (v,tt)
+                     | Some (target,args) =>
+                       inFreshLabel (
+                         args <- mapM opgen args ;;
+                         addJump target args ;;
+                         emitInstr (LLVM.Br_uncond_i target) ;;
+                         ret tt
+                       )
+                   end ;;
+        let labels := map (fun x => (UNIVERSAL,snd x,fst x)) arms in
+        emitInstr (LLVM.Switch_i UNIVERSAL v (fst default) labels)
+    end.
 
-  Definition CFG := twothree label (lset (@eq label)).
-  Context {CFG_FM : DMap label (twothree label)}.
-  Context {CFG_set : DSet (lset (@eq label)) (@eq label)}.
-
-  Definition generateBlock (l : label) (b : Low.block) : m LLVM.label :=
+  Definition generateBlock (l : label) (b : Low.block) : m unit :=
     let block :=
       (fix recur instrs :=
         match instrs with
@@ -363,49 +468,20 @@ Section monadic.
         end) (b_insns b) in
       withLabel l block.
 
-  Definition addCaller (l : label) (s : option (lset (@eq label))) :=
-    match s with
-      | None => singleton l
-      | Some s => add l s
-    end.
+End monadic.
 
-  (* XXX Should be able to do this without a separate addCaller and
-     refine/generalize/defined... *)
-  Definition addEdge (l : label) (k : cont) (cfg : CFG) : CFG.
-    refine(
-    match k with
-      | inl _ => cfg
-      | inr d =>
-        let newSet := addCaller l (lookup (map:=twothree label) d cfg)
-         in _ d newSet cfg
-    end).
-    generalize add ; intros ; auto.
-  Defined.
+Definition m : Type -> Type := writerT (Monoid_CFG) (readerT (LLVM.var * LLVM.var) (readerT (map_ctor Z) (readerT (map_var lvar) (stateT (option LLVM.label) (stateT (list LLVM.block) (stateT (LLVM.block) (stateT (nat * nat) (sum string)))))))).
 
-  Definition controlFlowGraph (f : Low.function) : CFG :=
-    let processBlock block cfg :=
-      let '(l,b) := block in
-      match b_term b with
-        | Halt_tm _ => cfg
-        | Call_tm _ _ _ ks =>
-          fold (addEdge l) cfg ks
-        | Cont_tm k _ => addEdge l k cfg
-        | Switch_tm _ arms default =>
-          let cfg' := fold (fun e => let '(_,k,_) := e in addEdge l (inr k)) cfg arms
-          in match default with
-               | None => cfg'
-               | Some (k,_) => addEdge l (inr k) cfg'
-             end
-      end in
-    fold processBlock (Maps.empty : CFG) (f_body f).
+(* Need to run this... *)
+(* Definition runM :=
+  runReaderT runWriterT () *)
 
-  Definition generateFunction (f : Low.function) : m LLVM.topdecl.
-  refine (
-    let cfg := controlFlowGraph f in 
-      blocks <- mapM (fun block => let '(l,b) := block in generateBlock l b) (f_body f) ;;
-      _
+Definition generateFunction (f : Low.function) : LLVM.topdecl.
+refine (
+(*  iterM (fun block => let '(l,b) := block in generateBlock l b) (f_body f)*)
+  _
   ).
-  Admitted.
+Admitted.
   
   Definition coq_error_decl := 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_error"%string nil nil None None None in
@@ -415,11 +491,10 @@ Section monadic.
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string ((UNIVERSAL, "o", nil)::nil)%string nil None None None in
       LLVM.Declare_d header.
   
-  Definition generateProgram (p : Low.program) : m LLVM.module :=
-    decls <- mapM generateFunction (p_topdecl p) ;;
-    ret (coq_error_decl :: coq_done_decl :: decls).
+  Definition generateProgram (p : Low.program) : LLVM.module :=
+    let decls := map generateFunction (p_topdecl p)
+      in coq_error_decl :: coq_done_decl :: decls.
 
-End monadic.
 End globals.
 End maps.
 End sized.
