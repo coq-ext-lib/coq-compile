@@ -509,7 +509,7 @@ Admitted.
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string ((UNIVERSAL, "o", nil)::nil)%string nil None None None in
       LLVM.Declare_d header.
 
-  Parameter generateProgram : forall (p : Low.program), LLVM.module.
+  Parameter generateProgram : forall (word_size : nat) (mctor : map_ctor Z) (p : Low.program), string + LLVM.module.
 (*
     let decls := map generateFunction (p_topdecl p)
       in coq_error_decl :: coq_done_decl :: decls.

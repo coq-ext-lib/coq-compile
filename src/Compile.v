@@ -10,10 +10,9 @@ Require Import ExtLib.Tactics.Consider.
 Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Programming.Show.
 Require Import CoqCompile.Lambda.
-Require Import CoqCompile.Cps.
+Require Import CoqCompile.Cps CoqCompile.CpsK.
 Require Import CoqCompile.LLVM.
-Require Import CoqCompile.CodeGen.
-Require Import CoqCompile.CloConv.
+Require Import CoqCompile.CodeGen CoqCompile.CloConvK.
 Require Import CoqCompile.ExtractTypes.
 Require Import CoqCompile.Parse.
 
@@ -50,9 +49,9 @@ Module Compile.
                   | None => raise "constructor not found"%string 
                   | Some (arity, _) =>
                     n <- (if string_dec "True" ctor
-                           then ret 1
+                           then ret 3
                            else if string_dec "False" ctor
-                                  then ret 3
+                                  then ret 1
                                   else next)%Z ;;
                     let map' := Maps.add ctor n acc in
                     ret map'
@@ -64,17 +63,14 @@ Module Compile.
     End monadic.
 
     Definition m : Type -> Type :=
-      eitherT string (state Z).
+      stateT Z (sum string).
 
     Definition runM (cmd:m (map_ctor Z)) : string + map_ctor Z :=
-      let res := (runState (unEitherT cmd) 2%Z) in
-        match res with
-          | (either, _) =>
-            match either with
-              | inl str => inl str
-              | inr mctor => inr mctor
-            end
-        end.
+      let res := evalStateT cmd 2%Z in
+      match res with
+        | inl str => inl str
+        | inr mctor => inr mctor
+      end.
 
     Definition makeCtorMap (e:Lambda.exp) : string + map_ctor Z :=
       runM (@makeCtorMap' m _ _ _ e).
@@ -83,50 +79,43 @@ Module Compile.
 
 
   Module Opt.
+    Require Import CoqCompile.Optimize.
     Require CoqCompile.Opt.CseCps.
 
-    Definition optimizer : Type := CPS.exp -> CPS.exp.
+    Definition optimization : Type := Optimize.optimization CPS.exp (sum string).
+    Definition optimizationK : Type := Optimize.optimization CPSK.exp (sum string).
 
-    Definition ident : optimizer := fun x => x.
+    Definition O0 : optimization := fun x => ret x.
+    Definition O1 : optimization := 
+      fun x => ret (CseCps.Cse.cse x).
 
-    Fixpoint chain (opts : list optimizer) : optimizer :=
-      match opts with
-        | nil => ident
-        | opt :: opts =>
-          let r := chain opts in
-          fun x => r (opt x)
-      end.
-
-    Fixpoint iterate (n : nat) (opt : optimizer) : optimizer :=
-      match n with
-        | 0 => ident
-        | 1 => opt
-        | S n => fun x => opt (iterate n opt x)
-      end.
-
-    Definition O0 : optimizer := ident.
-    Definition O1 : optimizer := 
-      CseCps.Cse.cse.
+    Definition runOpt (o : optimization) (e : CPS.exp) := o e.
   End Opt.
 
-
   Section Driver.
+    Require CoqCompile.CpsKConvert.
+    Require CoqCompile.CpsK2Low.
+
+    Import MonadNotation.
+    Local Open Scope monad_scope.
     
     Variable word_size : nat.
-    Variable cps_opt : Opt.optimizer.
+    Variable cps_opt :  Opt.optimizationK.
 
-    Definition topCompile (e:Lambda.exp) : string + LLVM.module :=
-      let m := makeCtorMap e in
-      let cps_e := CpsConvert.CPS e in
-      let clo_conv_e := CloConv.ClosureConvert.cloconv_exp cps_e in
-      let opt_cc_e := cps_opt clo_conv_e in
-      match m with
-        | inl str => inl str
-        | inr mctor => CodeGen.CodeGen.toModule word_size mctor (opt_cc_e)
-      end.
+    Definition topCompile (io : bool) (e:Lambda.exp) : string + LLVM.module.
+    refine (
+      mctor <- makeCtorMap e ;;
+      let cps_e := 
+        if io then CpsKConvert.CPS_io e else CpsKConvert.CPS_pure e 
+      in
+      opt_e <- cps_opt cps_e ;;
+      clo_conv_e <- CloConvK.ClosureConvert.cloconv_exp opt_e ;;
+      low <- CoqCompile.CpsK2Low.cpsk2low (fst clo_conv_e) (snd clo_conv_e) ;;
+      @CodeGen.generateProgram _ word_size mctor low).
+    Defined.      
 
     Definition topCompile_string (e : Lambda.exp) : string + string := 
-      match topCompile e with
+      match topCompile true e with
         | inl e => inl e
         | inr mod' => inr (runShow (show mod') ""%string)
       end.
@@ -135,14 +124,15 @@ Module Compile.
       match Parse.parse_topdecls s with
         | None => "Failed to parse."%string
         | Some e =>
-          Cps.CPS.exp2string (CpsConvert.CPS e)
+          CpsK.CPSK.exp2string (CpsKConvert.CPS_io e)
       end.
 
+(*
     Definition stringToClos (s : string) : string :=
       match Parse.parse_topdecls s with
         | None => "Failed to parse."%string
         | Some e =>
-          Cps.CPS.exp2string (CloConv.ClosureConvert.cloconv_exp (CpsConvert.CPS e))
+          CpsK.CPSK.exp2string (CloConv.ClosureConvert.cloconv_exp (CpsConvert.CPS_io e))
       end.
 
     Definition stringToAssembly (s: string) : string + string :=
@@ -154,11 +144,12 @@ Module Compile.
             | inr module => inr (runShow (show module) ""%string)
           end
       end.
-
+*)
   End Driver.
 
 End Compile.
 
+(*
 Module CompileTest.
   Import Lambda.
   Import LambdaNotation.
@@ -184,3 +175,4 @@ Module CompileTest.
     end.
 
 End CompileTest.
+*)
