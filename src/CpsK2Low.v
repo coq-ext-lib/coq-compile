@@ -240,7 +240,7 @@ Section monadic2.
   Context {Monad_m : Monad m}.
   Context {Exc_m : MonadExc string m}.
 
-  Definition tl_decl2low (name : var) (ks : list cont) (args : list var) (e : exp) : m Low.function.
+  Definition tl_decl2low (name : var) (ks : list cont) (args : list var) (e : CPSK.exp) : m Low.function.
   refine (
     let c := tl_cpsk2low (eitherT string (readerT (map_cont Low.cont) (readerT (map_var var) (stateT (alist label block) (stateT (option (label * list var * list instr)) (stateT positive (state positive))))))) e in
     let c' := runState (runStateT (runStateT (runStateT (runReaderT (runReaderT (unEitherT c) Maps.empty) Maps.empty) Maps.empty) None) 1%positive) 1%positive in
@@ -273,13 +273,13 @@ Section monadic2.
   Defined.
 End monadic2.
 
-Definition cpsk2low (fs : list decl) (e : exp) : string + Low.program.
+End maps.
+
+Definition cpsk2low (fs : list CPSK.decl) (e : CPSK.exp) : string + Low.program.
 refine (
-  match tl_cpsk2low' _ fs e with
+  match tl_cpsk2low' _ _ _ fs e with
     | inl ex => inl ex
     | inr prog => inr prog
   end
 ).
 Defined.
-
-End maps.
