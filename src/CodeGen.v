@@ -491,9 +491,8 @@ Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : str
       | (((((inr x, cfg), _), l), b), _) => inr (x, cfg, b :: l)
     end.
 
-Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : string + (unit * CFG * list LLVM.block).
-(* runM ctor_m var_m (genBlocks blocks). *)
-Admitted.
+Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : string + (unit * CFG * list LLVM.block) :=
+  runM ctor_m var_m (genBlocks (m := m) blocks).
 
 Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + LLVM.topdecl :=
   let f_params : list (LLVM.type * LLVM.var * list LLVM.param_attr) := 
