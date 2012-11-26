@@ -355,21 +355,10 @@ Section monadic.
           ret c
       end.
 
-  Definition generateTerm (t : Low.term) : m unit :=
-    match t with
-      | Halt_tm arg =>
-        base <- getBase ;;
-        limit <- getLimit ;;
-        o <- opgen arg ;;
-        let args := (PTR_TYPE, % base, nil) ::
-                    (PTR_TYPE, % limit, nil) ::
-                    (UNIVERSAL, o, nil) :: nil in
-        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (LLVM.Global HALT_LABEL) args (LLVM.Noreturn :: nil) in
-        let instr := LLVM.Assign_i None call in
-        emitInstr instr ;;
-        emitInstr LLVM.Unreachable_i
-      | Call_tm retVal fptr args conts =>
-        base <- getBase ;;
+  Check Call_tm.
+
+  Definition generateCall (retVal : var) (fptr : op) (args : list op) (conts : list cont) : m unit :=
+base <- getBase ;;
         limit <- getLimit ;;
         args <- mapM opgen args ;;
         let args := (PTR_TYPE, % base, nil) ::
@@ -408,7 +397,24 @@ Section monadic.
               emitInstr (LLVM.Br_uncond_i lbl)
               )
           | _ => raise "Multiple continuations not supported yet"%string
-        end
+        end.
+    
+
+  Definition generateTerm (t : Low.term) : m unit :=
+    match t with
+      | Halt_tm arg =>
+        base <- getBase ;;
+        limit <- getLimit ;;
+        o <- opgen arg ;;
+        let args := (PTR_TYPE, % base, nil) ::
+                    (PTR_TYPE, % limit, nil) ::
+                    (UNIVERSAL, o, nil) :: nil in
+        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (LLVM.Global HALT_LABEL) args (LLVM.Noreturn :: nil) in
+        let instr := LLVM.Assign_i None call in
+        emitInstr instr ;;
+        emitInstr LLVM.Unreachable_i
+      | Call_tm retVal fptr args conts =>
+        generateCall retVal fptr args conts
       | Cont_tm cont args =>
         match cont with
           | inl 0 =>
@@ -504,8 +510,9 @@ Admitted.
   Definition coq_done_decl :=
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string ((UNIVERSAL, "o", nil)::nil)%string nil None None None in
       LLVM.Declare_d header.
-(*  
-  Definition generateProgram (p : Low.program) : LLVM.module :=
+
+  Parameter generateProgram : forall (p : Low.program), LLVM.module.
+(*
     let decls := map generateFunction (p_topdecl p)
       in coq_error_decl :: coq_done_decl :: decls.
 *)
