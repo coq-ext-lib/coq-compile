@@ -146,8 +146,8 @@ Section Printing.
     end }.
   
   Definition showBlock (l : label) (b : block) : showM :=
-    show l << "(" << sepBy "," (List.map show b.(b_args)) << "):"
-    << indent "  " (sepBy chr_newline (List.map show b.(b_insns)))
+    l << "(" << sepBy "," (List.map show b.(b_args)) << "):"
+    << indent "  " (chr_newline << sepBy chr_newline (List.map show b.(b_insns)))
     << indent "  " (chr_newline << show b.(b_term)).
     
   Global Instance Show_block : Show block :=
@@ -167,16 +167,18 @@ Section Printing.
     show f.(f_name) << "(" << match ks with
                                 | nil => empty
                                 | _ :: _ => sepBy "," nil << ";" 
-                              end << sepBy "," (List.map show f.(f_args)) << "):"
-    << indent "  " match Maps.lookup f.(f_entry) f.(f_body) with
-                     | None => "<ERROR: couldn't find entry block>"
-                     | Some b => showBlock f.(f_entry) b
-                   end 
+                              end << sepBy "," (List.map show f.(f_args)) << ") {"
+    << chr_newline
+    << match Maps.lookup f.(f_entry) f.(f_body) with
+         | None => "<ERROR: couldn't find entry block>"
+         | Some b => showBlock f.(f_entry) b
+       end 
     << indent "  " (let ls : list showM := map (fun x => let '(l,b) := x in
       if eq_dec l f.(f_entry) then empty
       else
         chr_newline << showBlock l b) f.(f_body) in
-    iter_show ls) }.
+    iter_show ls)
+    << chr_newline << "}" << chr_newline }.
 
   Global Instance Show_program : Show program :=
   { show := fun p =>
