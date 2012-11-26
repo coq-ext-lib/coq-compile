@@ -183,7 +183,7 @@ Section maps.
             | CpsCommon.Proj_p => 
               match vs with
                 | CpsCommon.Int_o idx :: v :: nil => 
-                  emit_instr (Load_i x (Struct_t (list_repeat (nat_of_Z idx) Int_t)) idx v)
+                  emit_instr (Load_i x (Struct_t (list_repeat (S (nat_of_Z idx)) Int_t)) idx v)
                 | _ => raise ("ERROR: Proj_p requires exactly 2 arguments"%string)
               end
           end ;;
