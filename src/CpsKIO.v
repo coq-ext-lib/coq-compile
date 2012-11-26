@@ -91,7 +91,7 @@ Module IO.
     LetK_e ((k, x :: w :: nil, (Halt_e (Var_o x) (Var_o w)))::nil)
            (App_e e (k::nil) (InitWorld_o :: nil)).
 
-  Definition wrapIO (bind ret : var) (e : exp) : exp :=
-     Let_e (IO_bind bind) (Let_e (IO_return ret) e).
+  Definition wrapIO (bind ret printint : var) (e : exp) : exp :=
+     Let_e (IO_bind bind) (Let_e (IO_return ret) (Let_e (IO_printInt printint) e)).
 
 End IO.
