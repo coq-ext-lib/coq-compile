@@ -488,8 +488,8 @@ Module LLVM.
 
     Global Instance Show_block : Show block :=
       fun b => 
-        option_show (fun l : label => "  " << l << ":" << chr_newline) (fst b) << 
-        iter_show (map show (snd b)).
+        option_show (fun l : label => l << ":") (fst b) << 
+        indent "  " (chr_newline << sepBy Char.chr_newline (map show (snd b))).
 
     Global Instance Show_topdecl : Show topdecl :=
       fun t =>
@@ -506,7 +506,7 @@ Module LLVM.
             option_show (fun n => ", align " << show n << " ") al <<
             chr_newline 
           | Define_d fh bs => "define " <<
-            show_fn_header false fh << " {" << chr_newline << iter_show (map show bs) << "}" << chr_newline
+            show_fn_header false fh << " {" << chr_newline << indent "  " (sepBy Char.chr_newline (map show bs)) << chr_newline << "}" << chr_newline
           | Declare_d fh => "declare " << show_fn_header true fh << chr_newline
           | Alias_d x l v t e => 
             x << " = alias " << 
@@ -520,7 +520,7 @@ Module LLVM.
         end.
 
     Global Instance Show_module : Show module :=
-      fun m => iter_show (map show m).
+      fun m => sepBy Char.chr_newline (map show m).
     
     Definition string_of_module (m : module) : string := runShow (show m) "".
     Definition string_of_topdecl (t : topdecl) : string := runShow (show t) "".
