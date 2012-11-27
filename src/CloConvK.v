@@ -26,7 +26,7 @@ Module ClosureConvert.
     Context {Monad_m : Monad m}.
     Context {State_m : MonadState positive m}.
     Context {Writer_m : MonadWriter (@Monoid_list_app decl) m}.
-    Context {Reader_m : MonadReader (env_v var) m}.
+    Context {Reader_m : MonadReader (env_v op) m}.
     Context {Reader_custom_call : MonadReader (env_v (var * var)) m}.
     Context {Exc_m : MonadExc string m}.
     (** I need some way to encapsulate when calls should use a specified environment
@@ -53,7 +53,7 @@ Module ClosureConvert.
           x <- ask (MonadReader := Reader_m) ;;
           match Maps.lookup v x with
             | None => ret o
-            | Some v => ret (Var_o v)
+            | Some v => ret v
           end          
         | Con_o _ => ret o
         | Int_o _ => ret o
@@ -70,9 +70,14 @@ Module ClosureConvert.
         | nil => c
         | l :: ls => 
           l' <- freshFor l ;;
-          e <- local (Maps.add l l') (underBinders o ls (S from) c) ;;
+          e <- local (Maps.add l (Var_o l')) (underBinders o ls (S from) c) ;;
           ret (Let_e (Prim_d l' Proj_p (Int_o (PreOmega.Z_of_nat' from) :: o :: nil)) e)
       end.
+
+    Check fold_left.
+
+    Definition withVars {T} (ls : list (var * op)) : m T -> m T :=
+      local (fold_left (fun mp vo => Maps.add (fst vo) (snd vo) mp) ls).
     
     Fixpoint usingEnvForAll (env : var) (ls : list (var * var)) {T} : m T -> m T :=
       local (fold_left (fun acc v => Maps.add (fst v) (snd v, env) acc) ls).
@@ -243,7 +248,16 @@ Module ClosureConvert.
             end) ds ;;
           let _ : list decl := ds' in
           (** Cps the result **)
-          e <- cloconv_exp' e_body ;;
+          let var_map : list (var * op) := 
+            fold_left (fun acc d => 
+              match d with
+                | Fn_d v _ _ _ => (v, Var_o v) :: acc
+                | Prim_d v _ _ => (v, Var_o v) :: acc
+                | Bind_d x w _ _ => (x, Var_o x) :: (w, Var_o w) :: acc
+                | Op_d v _ => (v, Var_o v) :: acc
+              end) ds nil
+          in
+          e <- withVars var_map (cloconv_exp' e_body) ;;
           (** Return everything **)
           ret (Letrec_e (all_env_d :: ds') e)).
     Defined.
@@ -264,7 +278,7 @@ Module ClosureConvert.
   Definition cloconv_exp (e : exp) : string + (list decl * exp) :=
     let env_v := alist var in
     let c := cloconv_exp' (env_v := env_v)
-      (m := readerT (env_v var) (readerT (env_v (var * var)%type) (writerT (@Monoid_list_app decl) (stateT positive (sum string))))) 
+      (m := readerT (env_v op) (readerT (env_v (var * var)%type) (writerT (@Monoid_list_app decl) (stateT positive (sum string))))) 
       e in
     res <- runStateT (runWriterT (runReaderT (runReaderT c Sets.empty) Maps.empty)) 1%positive ;;
     let '(e', ds', _) := res in

@@ -96,19 +96,31 @@ Module Compile.
 
     Import MonadNotation.
     Local Open Scope monad_scope.
+    Import ShowNotation.
+
     
     Variable word_size : nat.
     Variable cps_opt :  Opt.optimizationK.
+
+    Definition phase {T U} {S : Show U} (name : string) 
+      (c : U -> string + T) (x : U)
+      : string + T :=
+      catch (c x) 
+            (fun (err : string) => 
+              let err : string := 
+                runShow (name << ": "%string << err 
+                         << Char.chr_newline << to_string x)%show
+              in raise err).
 
     Definition topCompile (io : bool) (e:Lambda.exp) : string + LLVM.module :=
       mctor <- makeCtorMap e ;;
       let cps_e := 
         if io then CpsKConvert.CPS_io e else CpsKConvert.CPS_pure e 
       in
-      opt_e <- cps_opt cps_e ;;
-      clo_conv_e <- CloConvK.ClosureConvert.cloconv_exp cps_e ;;
-      low <- CoqCompile.CpsK2Low.cpsk2low _ (fst clo_conv_e) (snd clo_conv_e) ;;
-      CodeGen.generateProgram word_size mctor low.
+      opt_e <- phase "Optimize"%string cps_opt cps_e ;;
+      clo_conv_e <- phase "Closure Convert"%string CloConvK.ClosureConvert.cloconv_exp cps_e ;;
+      low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x))) (fun x => CoqCompile.CpsK2Low.cpsk2low _ (fst x) (snd x)) clo_conv_e ;;
+      phase "CodeGen" (CodeGen.generateProgram word_size mctor) low.
 
     Definition topCompile_string (e : Lambda.exp) : string + string := 
       match topCompile true e with
@@ -120,14 +132,14 @@ Module Compile.
       match Parse.parse_topdecls s with
         | None => "Failed to parse."%string
         | Some e =>
-          CpsK.CPSK.exp2string (CpsKConvert.CPS_io e)
+          CpsK.CPSK.exp2string (CpsKConvert.CPS_pure e)
       end.
 
     Definition stringToClos (s : string) : string :=
       match Parse.parse_topdecls s with
         | None => "Failed to parse."%string
         | Some e =>
-          match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io e)) with
+          match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
             | inr (ds,e) => to_string (CPSK.Letrec_e ds e)
           end
@@ -137,7 +149,7 @@ Module Compile.
        match Parse.parse_topdecls s with
         | None => "Failed to parse."%string
         | Some e =>
-          match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io e)) with
+          match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
             | inr (decls,main) =>
               match (CpsK2Low.cpsk2low _ decls main) with
@@ -175,7 +187,10 @@ Module CompileTest.
       end.
 
   Eval vm_compute in
-    Compile.stringToLow identity.
+    Compile.stringToCPS identity.
+
+  Eval vm_compute in
+    Compile.stringToClos identity.
 
   Eval vm_compute in
     match Compile.topCompile 8 Compile.Opt.O0 false (e_ident) with
