@@ -193,6 +193,9 @@ Module CompileTest.
     Compile.stringToClos identity.
 
   Eval vm_compute in
+    Compile.stringToLow identity.
+
+  Eval vm_compute in
     match Compile.topCompile 8 Compile.Opt.O0 false (e_ident) with
       | inl err => err
       | inr mod' => runShow (show mod') ""%string

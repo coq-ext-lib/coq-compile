@@ -74,8 +74,6 @@ Module ClosureConvert.
           ret (Let_e (Prim_d l' Proj_p (Int_o (PreOmega.Z_of_nat' from) :: o :: nil)) e)
       end.
 
-    Check fold_left.
-
     Definition withVars {T} (ls : list (var * op)) : m T -> m T :=
       local (fold_left (fun mp vo => Maps.add (fst vo) (snd vo) mp) ls).
     
@@ -211,7 +209,7 @@ Module ClosureConvert.
             match d with
               | Fn_d v ks vs e =>
                 envV <- fresh "env" ;;
-                e <- usingEnvForAll envV funcCodeOps (underBinders (Var_o envV) env 0 (cloconv_exp' e_body)) ;;
+                e <- usingEnvForAll envV funcCodeOps (underBinders (Var_o envV) env 0 (cloconv_exp' e)) ;;
                 match alist_lookup _ v funcCodeNames with
                   | None => ret tt (** Dead Code **)
                   | Some (cptr, cptr_wrap) =>
