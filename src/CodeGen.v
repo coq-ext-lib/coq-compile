@@ -62,7 +62,7 @@ Section monadic.
   Context {Monad : Monad m}.
   Context {Exception : MonadExc string m}.
   Context {State_fresh : MonadState (nat * nat) m}.
-  Context {Reader_varmap : MonadReader (map_var lvar) m}.
+  Context {State_varmap : MonadState (map_var lvar) m}.
   Context {Reader_ctormap : MonadReader (map_ctor Z) m}.
   Context {Reader_baselimit : MonadReader (LLVM.var * LLVM.var) m}.
   Context {State_instrs : MonadState (LLVM.block) m}.
@@ -75,7 +75,7 @@ Section monadic.
     let '(v_n, l_n) := x in 
       put (S v_n, l_n) ;;
       ret (runShow (show v) (nat2string10 v_n))%string.     
-  
+
   Definition freshLLVMVar (s : string) : m LLVM.var :=
     freshVar (wrapVar s).
 
@@ -85,8 +85,8 @@ Section monadic.
       put (v_n, S l_n) ;;
       ret ("lbl" ++ nat2string10 l_n)%string.
   
-  Definition withNewVar {T} (cps : Env.var) (llvm : LLVM.var) : m T -> m T :=
-    local (MonadReader := Reader_varmap) (Maps.add cps llvm).
+  Definition withNewVar (cps : Env.var) (llvm : LLVM.var) : m unit :=
+    modify (Maps.add cps llvm) ;; ret tt.
   
   Definition emitInstr (i : LLVM.instr) : m unit :=
     st <- get (MonadState := State_instrs) ;;
@@ -145,40 +145,51 @@ Section monadic.
       | Some z => ret z
     end.
   
-  Definition emitExp (e : LLVM.exp) : m LLVM.var :=
+  Definition emitExp (v : LLVM.var) (e : LLVM.exp) : m unit :=
+(*    x <- freshVar (Env.Named_v "_"%string None) ;; *)
+    emitInstr (LLVM.Assign_i (Some (LLVM.Local v)) e).
+
+  Definition emitExpFresh (e : LLVM.exp) : m LLVM.var :=
     x <- freshVar (Env.Named_v "_"%string None) ;;
     emitInstr (LLVM.Assign_i (Some (LLVM.Local x)) e) ;;
     ret x.
   
   Definition castTo (ty : LLVM.type) (v : LLVM.value) : m LLVM.var :=
+    x <- freshVar (Env.Named_v "_"%string None) ;;
     match ty with
-      | LLVM.Pointer_t _ _ => emitExp (LLVM.Inttoptr_e UNIVERSAL v ty)
-      | _ => emitExp (LLVM.Bitcast_e UNIVERSAL v ty)
-    end.
+      | LLVM.Pointer_t _ _ => 
+        emitExp x (LLVM.Inttoptr_e UNIVERSAL v ty)
+      | _ => 
+        emitExp x (LLVM.Bitcast_e UNIVERSAL v ty)
+    end ;;
+    ret x.
   
   Definition castFrom (ty : LLVM.type) (v : LLVM.value) : m LLVM.var :=
+    x <- freshVar (Env.Named_v "_"%string None) ;;
     match ty with
       | LLVM.Pointer_t _ _ =>
-        emitExp (LLVM.Ptrtoint_e ty v UNIVERSAL)
+        emitExp x (LLVM.Ptrtoint_e ty v UNIVERSAL)
       | _ =>
-        emitExp (LLVM.Bitcast_e ty v UNIVERSAL)
-    end.
+        emitExp x (LLVM.Bitcast_e ty v UNIVERSAL)
+    end ;;
+    ret x.
 
   Definition opgen (op : op) : m LLVM.value :=
     match op with
       | Var_o v => 
-        x <- ask ;;
-        match Maps.lookup v x with
+        x <- gets (Maps.lookup v) ;;
+        match x with
           | None => 
             match Maps.lookup v globals with
-              | None => raise ("Couldn't find variable '" ++ (to_string v) ++ "' in context: {"
-                        ++ (to_string x) ++ "} or globals map: {" ++ (to_string globals) ++ "}")
+              | None =>
+                v' <- freshVar v ;;
+                withNewVar v v' ;;
+                ret (LLVM.Local v')
               | Some (v,t) => 
                 asLocal <- castFrom t v ;;
                 ret (%asLocal)
             end
-          | Some v =>
-            ret (LLVM.Local v)
+          | Some v => ret (LLVM.Local v)
         end
       | Con_o c => 
         z <- tagForConstructor c ;;
@@ -205,53 +216,54 @@ Section monadic.
           raise ("Expected 1 arguments got " ++ nat2string10 (length ls))%string
       end.
 
-  Definition generatePrim T (x : Env.var) (p : Low.primop) (os : list op) (k : m T) : m T :=
+    Definition forLocal (x : Env.var) : m LLVM.var :=
+      x' <- opgen (Var_o x) ;;
+      match x' with
+        | LLVM.Local v => ret v 
+        | _ => raise "BUG"%string
+      end.
+
+
+  Definition generatePrim (x : Env.var) (p : Low.primop) (os : list op) : m unit :=
+    x' <- forLocal x ;;
     match p with
       | Eq_p =>
         lr <- opgen_list2 os ;;
         let '(l,r) := lr in
-        y <- emitExp (LLVM.Icmp_e LLVM.Eq UNIVERSAL l r) ;;
-        withNewVar x y k
+        emitExp x' (LLVM.Icmp_e LLVM.Eq UNIVERSAL l r)
       | Neq_p => 
         lr <- opgen_list2 os ;;
         let '(l,r) := lr in
-        y <- emitExp (LLVM.Icmp_e LLVM.Ne UNIVERSAL l r) ;;
-        withNewVar x y k
+        emitExp x' (LLVM.Icmp_e LLVM.Ne UNIVERSAL l r)
       | Lt_p =>
         lr <- opgen_list2 os ;;
         let '(l,r) := lr in
-        y <- emitExp (LLVM.Icmp_e LLVM.Slt UNIVERSAL l r) ;; (** Signed? **)
-        withNewVar x y k
+        emitExp x' (LLVM.Icmp_e LLVM.Slt UNIVERSAL l r) (** Signed? **)
       | Lte_p =>
         lr <- opgen_list2 os ;;
         let '(l,r) := lr in
-        y <- emitExp (LLVM.Icmp_e LLVM.Sle UNIVERSAL l r) ;;(** Signed? **)
-        withNewVar x y k
+        emitExp x' (LLVM.Icmp_e LLVM.Sle UNIVERSAL l r) (** Signed? **)
           
       | Plus_p => 
         lr <- opgen_list2 os ;;
         let '(l,r) := lr in
-        y <- emitExp (LLVM.Add_e false false UNIVERSAL l r ) ;;
-        withNewVar x y k
+        emitExp x' (LLVM.Add_e false false UNIVERSAL l r )
       | Minus_p => 
         lr <- opgen_list2 os ;;
         let '(l,r) := lr in
-        y <- emitExp (LLVM.Sub_e false false UNIVERSAL l r ) ;;
-        withNewVar x y k
+        emitExp x' (LLVM.Sub_e false false UNIVERSAL l r )
       | Times_p => 
         lr <- opgen_list2 os ;;
         let '(l,r) := lr in
-        y <- emitExp (LLVM.Mul_e false false UNIVERSAL l r ) ;;
-        withNewVar x y k
+        emitExp x' (LLVM.Mul_e false false UNIVERSAL l r )
 
       | Ptr_p => (* XXX Should use Select instruction *)
         p <- opgen_list1 os ;;
-        y <- emitExp (LLVM.And_e UNIVERSAL p (LLVM.Constant (LLVM.Int_c 1)%Z)) ;;
-        y <- emitExp (LLVM.Icmp_e LLVM.Ne UNIVERSAL (%y) (LLVM.Constant (LLVM.Int_c 1)%Z)) ;;
-        y <- emitExp (LLVM.Zext_e (LLVM.I_t 1) (%y) UNIVERSAL) ;;
-        y <- emitExp (LLVM.Shl_e true true UNIVERSAL (%y) (LLVM.Constant (LLVM.Int_c 1)%Z)) ;;
-        y <- emitExp (LLVM.Add_e true true UNIVERSAL (%y) (LLVM.Constant (LLVM.Int_c 1)%Z)) ;;
-        withNewVar x y k
+        y <- emitExpFresh (LLVM.And_e UNIVERSAL p (LLVM.Constant (LLVM.Int_c 1)%Z)) ;;
+        y <- emitExpFresh (LLVM.Icmp_e LLVM.Ne UNIVERSAL (%y) (LLVM.Constant (LLVM.Int_c 1)%Z)) ;;
+        y <- emitExpFresh (LLVM.Zext_e (LLVM.I_t 1) (%y) UNIVERSAL) ;;
+        y <- emitExpFresh (LLVM.Shl_e true true UNIVERSAL (%y) (LLVM.Constant (LLVM.Int_c 1)%Z)) ;;
+        emitExp x' (LLVM.Add_e true true UNIVERSAL (%y) (LLVM.Constant (LLVM.Int_c 1)%Z))
     end.
 
   Definition generateMop T (x : Env.var) (p : Low.mop) (os : list op) (k : m T) : m T :=
@@ -270,8 +282,9 @@ Section monadic.
     let doAlloc alloc k :=
       let '(v,t) := alloc in
       let size := WORD_SIZE + sizeof t in
-      addr <- emitExp (LLVM.Alloca_e UNIVERSAL (Some (UNIVERSAL, size)) None) ;;
-      withNewVar v addr k
+      addr <- forLocal v ;;
+      emitExp addr (LLVM.Alloca_e UNIVERSAL (Some (UNIVERSAL, size)) None) ;;
+      k
     in (fix recur allocs :=
         match allocs with
           | nil => k
@@ -281,11 +294,11 @@ Section monadic.
   Definition doMalloc {T} (size:nat) (succ:LLVM.var -> m (LLVM.label * T)) (fail:m LLVM.label) : m T :=
     base <- getBase ;;
     limit <- getLimit ;;
-    baseCasted <- emitExp (LLVM.Ptrtoint_e PTR_TYPE (% base) UNIVERSAL) ;;
-    limitCasted <- emitExp (LLVM.Ptrtoint_e PTR_TYPE (% limit) UNIVERSAL) ;;
-    newBase <- emitExp (LLVM.Add_e true false UNIVERSAL (% baseCasted) (LLVM.Constant (LLVM.Int_c (Z_of_nat size)))) ;;
+    baseCasted <- emitExpFresh (LLVM.Ptrtoint_e PTR_TYPE (% base) UNIVERSAL) ;;
+    limitCasted <- emitExpFresh (LLVM.Ptrtoint_e PTR_TYPE (% limit) UNIVERSAL) ;;
+    newBase <- emitExpFresh (LLVM.Add_e true false UNIVERSAL (% baseCasted) (LLVM.Constant (LLVM.Int_c (Z_of_nat size)))) ;;
     newBaseCasted <- castTo PTR_TYPE (% newBase) ;;
-    test <- emitExp (LLVM.Icmp_e LLVM.Ult UNIVERSAL (% newBase) (% limitCasted)) ;;
+    test <- emitExpFresh (LLVM.Icmp_e LLVM.Ult UNIVERSAL (% newBase) (% limitCasted)) ;;
     labelSucc <- withBaseLimit newBaseCasted limit (succ base) ;;
     labelFail <- fail ;;
     emitInstr (LLVM.Br_cond_i (% test) (fst labelSucc) labelFail) ;;
@@ -318,13 +331,14 @@ Section monadic.
         len <- opgen (Int_o (Z.of_nat size)) ;;
         begin <- opgen (Int_o (Z.of_nat offset)) ;;
         comment "Get a pointer to the header of the object" ;;
-        hdr <- emitExp (LLVM.Getelementptr_e false PTR_TYPE base ((UNIVERSAL,begin)::nil)) ;;
+        hdr <- emitExpFresh (LLVM.Getelementptr_e false PTR_TYPE base ((UNIVERSAL,begin)::nil)) ;;
         comment "Initialize the header with the size of the object" ;;
         emitInstr (LLVM.Store_i false false UNIVERSAL len PTR_TYPE (%hdr) None None false) ;;
         index <- opgen (Int_o (Z.of_nat 1)) ;;
         comment "Get a pointer to the start of the object" ;;
-        addr <- emitExp (LLVM.Getelementptr_e false PTR_TYPE (%hdr) ((UNIVERSAL,index)::nil)) ;;
-        withNewVar v addr (k (offset + size + 1))
+        addr <- forLocal v ;;
+        emitExp addr (LLVM.Getelementptr_e false PTR_TYPE (%hdr) ((UNIVERSAL,index)::nil)) ;;
+        k (offset + size + 1)
       in inFreshLabel ((fix recur allocs :=
         match allocs with
           | nil => (fun _ => k)
@@ -337,9 +351,10 @@ Section monadic.
     ptr <- opgen ptr ;;
     index <- opgen (Int_o index) ;;
     let gep := LLVM.Getelementptr_e false PTR_TYPE ptr ((UNIVERSAL,index)::nil) in
-    elem <- emitExp gep ;;
-    load <- emitExp (LLVM.Load_e false false PTR_TYPE (%elem) None None None false) ;;
-    withNewVar dest load k.
+    elem <- emitExpFresh gep ;;
+    load <- forLocal dest ;;
+    emitExp load (LLVM.Load_e false false PTR_TYPE (%elem) None None None false) ;;
+    k.
 
   (* Should use primtyp at least as a check *)
   Definition generateStore T (t : primtyp) (v : op) (index : Z) (ptr : op) (k : m T) : m T :=
@@ -347,14 +362,14 @@ Section monadic.
     index <- opgen (Int_o index) ;;
     value <- opgen v ;;
     let gep := LLVM.Getelementptr_e false PTR_TYPE ptr ((UNIVERSAL,index)::nil) in
-    elem <- emitExp gep ;;
+    elem <- emitExpFresh gep ;;
     emitInstr (LLVM.Store_i false false UNIVERSAL value PTR_TYPE (%elem) None None false) ;;
     k.
 
   Definition generateInstr {T} (i : Low.instr) (k : m T) : m T :=
     match i with
       | Primop_i v p os =>
-        generatePrim v p os k
+        generatePrim v p os ;; k
       | Alloca_i allocs =>
         generateAlloca allocs k
       | Malloc_i allocs =>
@@ -399,16 +414,16 @@ Section monadic.
       | (inl 0)::nil =>
         (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
         let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
-        result <- emitExp call ;;
+        result <- emitExpFresh call ;;
         emitInstr (LLVM.Ret_i (Some (RET_TYPE arity,%result)))
       | (inr lbl)::nil =>
         let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
-        result <- emitExp call ;;
+        result <- emitExpFresh call ;;
         let extractResult type index :=
           index <- opgen (Int_o index) ;;
           let gep := LLVM.Getelementptr_e false (RET_TYPE arity) (%result) ((type,index)::nil) in
-          elem <- emitExp gep ;;
-          value <- emitExp (LLVM.Load_e false false type (%elem) None None None false) ;;
+          elem <- emitExpFresh gep ;;
+          value <- emitExpFresh (LLVM.Load_e false false type (%elem) None None None false) ;;
           ret value
         in
         newBase <- extractResult PTR_TYPE 0%Z ;;
@@ -443,15 +458,15 @@ Section monadic.
             let TYPE := RET_TYPE (length args) in
             base <- getBase ;;
             limit <- getLimit ;;
-            retVal <- emitExp (LLVM.Insertvalue_e TYPE (LLVM.Constant LLVM.Undef_c) PTR_TYPE (%base) 0 nil) ;;
-            retVal <- emitExp (LLVM.Insertvalue_e TYPE (%retVal) PTR_TYPE (%limit) 1 nil) ;;
+            retVal <- emitExpFresh (LLVM.Insertvalue_e TYPE (LLVM.Constant LLVM.Undef_c) PTR_TYPE (%base) 0 nil) ;;
+            retVal <- emitExpFresh (LLVM.Insertvalue_e TYPE (%retVal) PTR_TYPE (%limit) 1 nil) ;;
             retVal <- (fix recur n args retVal :=
               match args with
                 | nil =>
                   ret retVal
                 | a::rest =>
                   arg <- opgen a ;;
-                  retVal <- emitExp (LLVM.Insertvalue_e TYPE retVal UNIVERSAL arg n nil) ;;
+                  retVal <- emitExpFresh (LLVM.Insertvalue_e TYPE retVal UNIVERSAL arg n nil) ;;
                   recur (n+1) rest (%retVal)
               end) 2 args (%retVal) ;;
             emitInstr (LLVM.Ret_i (Some (TYPE,retVal)))
@@ -493,13 +508,14 @@ Section monadic.
    newVars <- mapM freshVar args ;;
    newBase <- freshLLVMVar "base"%string ;;
    newLimit <- freshLLVMVar "limit"%string ;;
+(*
    let withNewVars (k : m unit) := 
      (fix recur args :=
        match args with
          | nil => k
          | (a,v)::rest => withNewVar a v (recur rest)
        end
-       ) (List.combine args newVars) in
+       ) (List.combine args newVars) in *)
    let block :=
       (fix recur instrs :=
         match instrs with
@@ -508,7 +524,7 @@ Section monadic.
         end) (b_insns b) in
       withLabel l (
         withBaseLimit newBase newLimit (
-          withNewVars block
+          block
         )
       ) ;;
       ret (l,newBase::newLimit::newVars).
@@ -519,12 +535,12 @@ Section monadic.
 End monadic.
 
 Definition m : Type -> Type :=
-    eitherT string (writerT (Monoid_CFG) (readerT (map_ctor Z) (readerT (LLVM.var * LLVM.var) (readerT (map_var lvar)
+    eitherT string (writerT (Monoid_CFG) (readerT (map_ctor Z) (readerT (LLVM.var * LLVM.var) (stateT (map_var lvar)
 (stateT (option LLVM.label) (stateT (list LLVM.block) (stateT LLVM.block (state (nat * nat))))))
 ))).
 
 Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : string + (T  * CFG * list LLVM.block) :=
-    let res := (runState (runStateT (runStateT (runStateT (runReaderT (runReaderT (runReaderT (runWriterT (unEitherT cmd)) ctor_m) ("base", "limit")%string) var_m) None) nil) (None, nil)) (0,0)) in
+    let res := (runState (runStateT (runStateT (runStateT (evalStateT (runReaderT (runReaderT (runWriterT (unEitherT cmd)) ctor_m) ("base", "limit")%string) var_m) None) nil) (None, nil)) (0,0)) in
     match res with
       | (((((inl e, _), _), _), _), _) => inl e
       | (((((inr x, cfg), _), l), b), _) => inr (x, cfg, b :: l)
