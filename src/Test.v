@@ -75,7 +75,7 @@ refine (
 ).
 Defined.
 
-(*
+
 Eval compute in lambda2low plus_e.
 Eval compute in lambda2low mult_e.
 Eval compute in lambda2low fact_e.

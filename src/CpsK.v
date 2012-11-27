@@ -129,7 +129,7 @@ Module CPSK.
             let '(k, xs, b) := kd in 
             show k << "(" << sepBy ", " (List.map show xs) << ") := " << emitexp b
           in
-          "letK " << indent "and  " (sepBy chr_newline (List.map emitKd ks)) << chr_newline
+          "letK " << indent "     " (sepBy chr_newline (List.map emitKd ks)) << chr_newline
           << "in " << emitexp e
         | App_e v ks vs =>
           show v << "(" << sepBy "," (List.map show ks) << "; " 
@@ -138,7 +138,7 @@ Module CPSK.
           "let " << indent "  " (emitdecl d) << " in " 
           << indent "  " (emitexp e)
         | Letrec_e ds e =>
-          "let rec " << indent "    and " (sepBy chr_newline (List.map emitdecl ds)) <<
+          "let rec " << indent "        " (sepBy chr_newline (List.map emitdecl ds)) <<
           chr_newline << "in " << emitexp e
         | Switch_e v arms def =>
           "switch " << show v << " with" << 

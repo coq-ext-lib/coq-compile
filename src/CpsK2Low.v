@@ -178,7 +178,7 @@ Section maps.
               match vs with
                 | CpsCommon.Int_o idx :: v :: nil => 
                   emit_instr (Load_i x (Struct_t (list_repeat (S (nat_of_Z idx)) Int_t)) idx v)
-                | _ => raise ("ERROR: Proj_p requires exactly 2 arguments"%string)
+                | _ => raise ("ERROR: Proj_p requires exactly 2 arguments  ["%string ++ runShow (show os) ++ "] -> ["%string ++ runShow (show vs) ++ "]"%string)
               end
           end ;;
           withNewVar x (Var_o x) c
@@ -197,7 +197,8 @@ Section maps.
           match p with
             | CpsCommon.MkTuple_p => 
               vs <- mapM opgen os ;;
-              foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z vs ;; c
+              foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z vs ;;
+              c
             | _ => c
           end
         | _ => c
@@ -213,7 +214,7 @@ Section maps.
           emit_tm (Call_tm x v vs ks)
         | Let_e d e => 
           (* decl2low d (cpsk2low' e) *)
-          decl2low d (decl2low_storeh d (cpsk2low' e))
+          decl2low_storeh d (decl2low d (cpsk2low' e))
         | Letrec_e ds e => 
           let binders : list (var * op) := map (fun d => let v := lowBinder d in (v, Var_o v)) ds in
           withNewVars binders
