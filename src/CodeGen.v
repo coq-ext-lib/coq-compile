@@ -93,6 +93,9 @@ Section monadic.
     let '(blbl, binstrs) := st in
       put (blbl, binstrs ++ i :: nil).
 
+  Definition comment (s : string) : m unit :=
+    emitInstr (LLVM.Comment_i s).
+
   Definition inLabel {T} (lbl : LLVM.label) (c : m T) : m T :=
     st <- get (MonadState := State_instrs) ;;
     put (Some lbl, nil) ;;
@@ -311,10 +314,17 @@ Section monadic.
     let doGeps base allocs k :=
       let doGep alloc k offset :=
         let '(v,t) := alloc in
-        let size := WORD_SIZE + sizeof t in
-        index <- opgen (Int_o (Z.of_nat (offset + 1))) ;;
-        addr <- emitExp (LLVM.Getelementptr_e false PTR_TYPE base ((UNIVERSAL,index)::nil)) ;;
-        withNewVar v addr (k (offset + size))
+        let size := sizeof t in
+        len <- opgen (Int_o (Z.of_nat size)) ;;
+        begin <- opgen (Int_o (Z.of_nat offset)) ;;
+        comment "Get a pointer to the header of the object" ;;
+        hdr <- emitExp (LLVM.Getelementptr_e false PTR_TYPE base ((UNIVERSAL,begin)::nil)) ;;
+        comment "Initialize the header with the size of the object" ;;
+        emitInstr (LLVM.Store_i false false UNIVERSAL len PTR_TYPE (%hdr) None None false) ;;
+        index <- opgen (Int_o (Z.of_nat 1)) ;;
+        comment "Get a pointer to the start of the object" ;;
+        addr <- emitExp (LLVM.Getelementptr_e false PTR_TYPE (%hdr) ((UNIVERSAL,index)::nil)) ;;
+        withNewVar v addr (k (offset + size + 1))
       in inFreshLabel ((fix recur allocs :=
         match allocs with
           | nil => (fun _ => k)
@@ -573,7 +583,9 @@ Defined.
 
 Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + LLVM.topdecl :=
   let f_params : list (LLVM.type * LLVM.var * list LLVM.param_attr) := 
-    Reducible.map (fun (x : Env.var) => (UNIVERSAL, runShow (show x) : string, nil : list LLVM.param_attr)) (f_args f) in
+    let formals :=
+      Reducible.map (fun (x : Env.var) => (UNIVERSAL, runShow (show x) : string, nil : list LLVM.param_attr)) (f_args f) in
+    (PTR_TYPE,"base"%string,nil)::(PTR_TYPE,"limit"%string,nil)::formals in
   (* right return type always? *)
   let type := RET_TYPE 1 in
   let header := LLVM.Build_fn_header None None CALLING_CONV false type nil (runShow (show (f_name f))) f_params nil None None GC_NAME in 
