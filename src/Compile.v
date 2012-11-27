@@ -186,25 +186,48 @@ Module CompileTest.
         | Some o => o
       end.
 
-  Eval vm_compute in
-    Compile.stringToCPS identity.
+  Definition fact :=
+  "(define plus (lambdas (n m)
+     (match n
+       ((O) m)
+       ((S p) `(S ,(@ plus p m))))))
+  
+   (define mult (lambdas (n m)
+     (match n
+       ((O) `(O))
+       ((S p) (@ plus m (@ mult p m))))))
+  
+   (define fact (lambda (n)
+     (match n
+       ((O) `(S ,`(O)))
+       ((S n~) (@ mult n (fact n~))))))"%string.
+
+  Definition e_fact : Lambda.exp :=
+    Eval compute in 
+      match Parse.parse_topdecls fact with
+        | None => Lambda.Var_e (Env.wrapVar ""%string)
+        | Some o => o
+      end.
 
   Eval vm_compute in
-    Compile.stringToClos identity.
+    Compile.stringToCPS fact.
 
   Eval vm_compute in
-    Compile.stringToLow identity.
+    Compile.stringToClos fact.
 
   Eval vm_compute in
-    match Compile.topCompile 8 Compile.Opt.O0 false (e_ident) with
+    Compile.stringToLow fact.
+
+  Eval vm_compute in
+    match Compile.topCompile 8 Compile.Opt.O0 false (e_fact) with
       | inl err => err
-      | inr mod' => runShow (show mod') ""%string
+      | inr mod' => to_string mod'
     end.
 
-  Eval vm_compute in
+(*  Eval vm_compute in
     match Compile.topCompile 8 Compile.Opt.O0 false (gen e3) with
       | inl err => err
-      | inr mod' => runShow (show mod') ""%string
-    end.
+      | inr mod' =>  to_string mod'
+    end.*)
 
 End CompileTest.

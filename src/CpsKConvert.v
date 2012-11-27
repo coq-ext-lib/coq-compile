@@ -136,8 +136,8 @@ Section cps_convert.
                  | (constant_arms, pointer_arms, def) => 
                    ret (Let_e (Prim_d is_ptr Ptr_p (v::nil))
                      (Switch_e (Var_o is_ptr)
-                       ((CpsCommon.Con_p "false"%string, switch_e v constant_arms def)::
-                         (CpsCommon.Con_p "true"%string, 
+                       ((CpsCommon.Con_p "False"%string, switch_e v constant_arms def)::
+                         (CpsCommon.Con_p "True"%string, 
                            (Let_e (Prim_d tag Proj_p ((Int_o 0)::v::nil))
                              (switch_e (Var_o tag) pointer_arms def)))::nil) None))
                end ;;

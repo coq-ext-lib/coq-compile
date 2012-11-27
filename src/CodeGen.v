@@ -478,7 +478,7 @@ Section monadic.
         emitInstr (LLVM.Switch_i UNIVERSAL v (fst default) labels)
     end.
 
-  Definition generateBlock (l : label) (b : Low.block) : m (list LLVM.var) :=
+  Definition generateBlock (l : label) (b : Low.block) : m (label * list LLVM.var) :=
    let args := b_args b in
    newVars <- mapM freshVar args ;;
    newBase <- freshLLVMVar "base"%string ;;
@@ -501,9 +501,9 @@ Section monadic.
           withNewVars block
         )
       ) ;;
-      ret (newBase::newLimit::newVars).
+      ret (l,newBase::newLimit::newVars).
 
-  Definition genBlocks (blocks : alist label block) : m (list (list LLVM.var)) :=
+  Definition genBlocks (blocks : alist label block) : m (list (label * list LLVM.var)) :=
     mapM (fun block => let '(l,b) := block in generateBlock l b) blocks.
 
 End monadic.
@@ -520,7 +520,7 @@ Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : str
       | (((((inr x, cfg), _), l), b), _) => inr (x, cfg, b :: l)
     end.
 
-Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : string + ((list (list LLVM.var)) * CFG * list LLVM.block) :=
+Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : string + ((list (label * list LLVM.var)) * CFG * list LLVM.block) :=
   runM ctor_m var_m (genBlocks (m := m) blocks).
 
 Fixpoint combine_with {A B C} (f : A -> B -> C) (l : list A) (l' : list B) : option (list C) :=
@@ -538,7 +538,7 @@ Fixpoint combine_with {A B C} (f : A -> B -> C) (l : list A) (l' : list B) : opt
 Definition generatePhi (v : LLVM.var) (vs : list (LLVM.value * label)) : LLVM.instr :=
   LLVM.Assign_i (Some (%v)) (LLVM.Phi_e UNIVERSAL vs).
 
-Definition rewriteBlock (cfg : CFG) (formals : list LLVM.var) (block : LLVM.block) : string + LLVM.block.
+Definition rewriteBlock (cfg : CFG) (formals : alist label (list LLVM.var)) (block : LLVM.block) : string + LLVM.block.
 refine (
   match block with
     | (None,_) => ret block
@@ -555,11 +555,15 @@ refine (
             end in
           match phi_args with
             | Some (baseArgs::limitArgs::lblArgs) =>
-              match combine_with (fun f a => (f,a)) formals lblArgs with
-                | Some phi_recs =>
-                  let phis := map (fun e => let '(f,a) := e in generatePhi f a) phi_recs in
-                  ret (Some lbl,phis ++ intrs)
-                | _ => raise "Control-flow graph inconsisent with Low.function: wrong number of args"%string
+              match lookup lbl formals with
+                | Some formals =>
+                  match combine_with (fun f a => (f,a)) formals lblArgs with
+                    | Some phi_recs =>
+                      let phis := map (fun e => let '(f,a) := e in generatePhi f a) phi_recs in
+                        ret (Some lbl,phis ++ intrs)
+                    | _ => raise "Control-flow graph inconsisent with Low.function: wrong number of args"%string
+                  end
+                | _ => raise "Inconsistent formal counts"%string
               end
             | _ => raise "Inconsistent phi node argument counts"%string
           end
@@ -579,7 +583,7 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + 
   match runGenBlocks ctor_m locals (f_body f) with
     | inl e => inl e
     | inr (formals,cfg,blocks) =>
-      finalBlocks <- mapM (fun e => let '(f,b) := e in rewriteBlock cfg f b) (List.combine formals blocks) ;;
+      finalBlocks <- mapM (rewriteBlock cfg formals) blocks ;;
       ret (LLVM.Define_d header finalBlocks)
   end.
 
