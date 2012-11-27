@@ -1,6 +1,6 @@
 Require Import CoqCompile.Env.
-Require Import CoqCompile.Cps CoqCompile.Lambda.
-Require Import CoqCompile.AlphaEquivCps.
+Require Import CoqCompile.CpsK CoqCompile.Lambda.
+Require Import CoqCompile.AlphaEquivCpsK.
 Require Import String List.
 Require Import ExtLib.ExtLib.
 Require Import ExtLib.Structures.Maps.
@@ -11,18 +11,18 @@ Set Implicit Arguments.
 Set Strict Implicit.
 
 Module Cse.
-  Import CPS.
+  Import CPSK.
 
   Inductive CseValue : Type :=
   | Prim_s : primop -> list op -> CseValue
-  | Fn_s   : list var -> exp -> CseValue.
+  | Fn_s   : list var -> list cont -> exp -> CseValue.
 
   Definition CseValue_equiv (a b : CseValue) : Prop :=
     match a , b with
       | Prim_s p os , Prim_s p' os' =>
         p = p' /\ os = os'
-      | Fn_s vs e , Fn_s vs' e' =>
-        Alpha.alpha_lam e e' vs vs' = true
+      | Fn_s vs ks e , Fn_s vs' ks' e' =>
+        Alpha.alpha_lam e e' vs vs' ks ks' = true
       | _ , _ => False
     end.
 
@@ -31,8 +31,8 @@ Module Cse.
     match a , b with
       | Prim_s p os , Prim_s p' os' =>
         if eq_dec p p' then eq_dec os os' else false
-      | Fn_s vs e , Fn_s vs' e' =>
-        Alpha.alpha_lam e e' vs vs'
+      | Fn_s vs ks e , Fn_s vs' ks' e' =>
+        Alpha.alpha_lam e e' vs vs' ks ks'
       | _ , _ => false
     end }.
 
@@ -77,20 +77,20 @@ Module Cse.
           | Bind_d v w m os =>
             os <- mapM cse_op os ;;
             cc (Bind_d v w m os)
-          | Fn_d v vs e =>
+          | Fn_d v ks vs e =>
             e <- cse_exp e ;;
             x <- ask ;;
-            match Maps.lookup (Fn_s vs e) (snd x) with
-              | None => local (fun x => (fst x, add (Fn_s vs e) (Var_o v) (snd x))) (cc (Fn_d v vs e))
+            match Maps.lookup (Fn_s vs ks e) (snd x) with
+              | None => local (fun x => (fst x, add (Fn_s vs ks e) (Var_o v) (snd x))) (cc (Fn_d v ks vs e))
               | Some o => cc (Op_d v o)
             end
         end
       with cse_exp (e : exp) : m exp :=
         match e with
-          | App_e f xs =>
+          | App_e f ks xs =>
             f <- cse_op f ;;
             xs <- mapM cse_op xs ;;
-            ret (App_e f xs)
+            ret (App_e f ks xs)
           | Let_e ds e =>
             cse_decl ds (fun ds =>
               e <- cse_exp e ;;
@@ -119,6 +119,12 @@ Module Cse.
             o <- cse_op o ;;
             o' <- cse_op o' ;;
             ret (Halt_e o o')
+          | AppK_e k xs =>
+            xs <- mapM cse_op xs ;;
+            ret (AppK_e k xs)
+          | LetK_e ks e =>
+            e <- cse_exp e ;;
+            ret (LetK_e ks e)
         end.
 
     End monadic.
@@ -132,7 +138,7 @@ Module Cse.
 
   Section Tests.
     Import LambdaNotation.
-    Require Import CoqCompile.CpsConvert.
+    Require Import CoqCompile.CpsKConvert.
     Require Import ExtLib.Data.Map.FMapAList.
 
     Definition cse1 := def y := S_c Z_c in def z := S_c Z_c in S_c y.
