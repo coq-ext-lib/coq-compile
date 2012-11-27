@@ -213,7 +213,7 @@ Section maps.
           emit_tm (Call_tm x v vs ks)
         | Let_e d e => 
           (* decl2low d (cpsk2low' e) *)
-          decl2low_storeh d (decl2low d (cpsk2low' e))
+          decl2low d (decl2low_storeh d (cpsk2low' e))
         | Letrec_e ds e => 
           let binders : list (var * op) := map (fun d => let v := lowBinder d in (v, Var_o v)) ds in
           withNewVars binders

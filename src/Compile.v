@@ -177,7 +177,7 @@ Module CompileTest.
   Import Lambda.
   Import LambdaNotation.
 
-  Definition identity : string := "(define ident (lambda (x) x))"%string.
+  Definition identity : string := "(define ident (lambda (x) ident))"%string.
 
   Definition e_ident : Lambda.exp :=
     Eval compute in 

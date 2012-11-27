@@ -27,7 +27,6 @@ Module ClosureConvert.
     Context {State_m : MonadState positive m}.
     Context {Writer_m : MonadWriter (@Monoid_list_app decl) m}.
     Context {Reader_m : MonadReader (env_v op) m}.
-    Context {Reader_custom_call : MonadReader (env_v (var * var)) m}.
     Context {Exc_m : MonadExc string m}.
     (** I need some way to encapsulate when calls should use a specified environment
      **)
@@ -76,22 +75,21 @@ Module ClosureConvert.
 
     Definition withVars {T} (ls : list (var * op)) : m T -> m T :=
       local (fold_left (fun mp vo => Maps.add (fst vo) (snd vo) mp) ls).
-    
-    Fixpoint usingEnvForAll (env : var) (ls : list (var * var)) {T} : m T -> m T :=
-      local (fold_left (fun acc v => Maps.add (fst v) (snd v, env) acc) ls).
+
+    Fixpoint usingEnvForAll (env : op) (ls : list (var * var)) (c : m exp) : m exp :=
+      match ls with
+        | nil => c
+        | (name, code_name) :: ls => 
+          z <- freshFor name ;;
+          local (Maps.add name (Var_o z))
+            (e <- usingEnvForAll env ls c ;;
+             ret (Let_e (Prim_d z MkTuple_p (Var_o code_name :: env :: nil)) e))
+      end.
 
     Fixpoint alist_lookup {K V} (R : RelDec (@eq K)) (k : K) (ls : list (K * V)) : option V :=
       match ls with
         | nil => None
         | l :: ls => if eq_dec k (fst l) then Some (snd l) else alist_lookup _ k ls
-      end.
-
-    Definition getCustomCall (o : op) : m (option (var * var)) :=
-      match o with
-        | Var_o v =>
-          x <- ask ;;
-          ret (Maps.lookup v x)            
-        | _ => ret None
       end.
 
     Fixpoint cloconv_exp' (e : exp) : m exp.
@@ -108,19 +106,11 @@ Module ClosureConvert.
           e <- cloconv_exp' e ;;
           ret (LetK_e ks e)
         | App_e f ks args =>
-          custom <- getCustomCall f ;;
-          match custom with
-            | Some (f, e) =>
-              args <- mapM cloconv_op args ;;
-              e <- cloconv_op (Var_o e) ;;
-              ret (App_e (Var_o f) ks (e :: args))
-            | None =>
-              f <- cloconv_op f ;;
-              args <- mapM cloconv_op args ;;
-              f_code <- fresh "cptr" ;;
-              ret (Let_e (Prim_d f_code Proj_p (Int_o 0 :: f :: nil))
-                         (App_e (Var_o f_code) ks (f :: args)))
-          end
+          f <- cloconv_op f ;;
+          args <- mapM cloconv_op args ;;
+          f_code <- fresh "cptr" ;;
+          ret (Let_e (Prim_d f_code Proj_p (Int_o 0 :: f :: nil))
+                     (App_e (Var_o f_code) ks (f :: args)))
         | Switch_e o arms def =>
           o <- cloconv_op o ;;
           arms <- mapM (fun pe =>
@@ -152,12 +142,7 @@ Module ClosureConvert.
           let fvars := free_vars_decl false (Fn_d v ks vs e') in
           fvars <- mapM (fun v' =>
             match v' with
-              | inl v => 
-                x <- getCustomCall (Var_o v) ;;
-                match x with
-                  | None => ret v
-                  | Some (_, e) => ret e
-                end
+              | inl v => ret v
               | inr x => raise ("Invariant violation: escaping continuation " ++ runShow (show x) ++ " from " ++ runShow (show v))%string
             end) fvars ;;
           (** fvars does not contain duplicates **)
@@ -209,7 +194,7 @@ Module ClosureConvert.
             match d with
               | Fn_d v ks vs e =>
                 envV <- fresh "env" ;;
-                e <- usingEnvForAll envV funcCodeOps (underBinders (Var_o envV) env 0 (cloconv_exp' e)) ;;
+                e <- usingEnvForAll (Var_o envV) funcCodeOps (underBinders (Var_o envV) env 0 (cloconv_exp' e)) ;;
                 match alist_lookup _ v funcCodeNames with
                   | None => ret tt (** Dead Code **)
                   | Some (cptr, cptr_wrap) =>
