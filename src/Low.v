@@ -137,7 +137,7 @@ Section Printing.
       | Cont_tm k args => "return " << show k << "(" << sepBy "," (List.map show args) << ")"
       | Switch_tm o ps def =>
         "switch " << show o 
-        << indent "  " (sepBy chr_newline (List.map (fun plos => let '(p,l,os) := plos in
+        << indent "  " (chr_newline << sepBy chr_newline (List.map (fun plos => let '(p,l,os) := plos in
           "| " << show p << " => " << show l << "(" << sepBy "," (List.map show os) << ")") ps))
         << match def with 
              | None => empty
