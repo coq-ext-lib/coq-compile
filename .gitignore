@@ -5,3 +5,5 @@
 Makefile.coq
 coq-ext-lib
 .dir-locals.el
+deps.dot
+deps.pdf

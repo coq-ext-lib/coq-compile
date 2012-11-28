@@ -218,7 +218,7 @@ Module CompileTest.
    (define fact (lambda (n)
      (match n
        ((O) `(S ,`(O)))
-       ((S n~) (@ mult n (fact n~))))))"%string.
+       ((S n_) (@ mult n (fact n_))))))"%string.
 
   Definition e_fact : Lambda.exp :=
     Eval vm_compute in 
