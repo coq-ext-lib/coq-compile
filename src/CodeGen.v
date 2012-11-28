@@ -7,6 +7,7 @@ Require Import ExtLib.Structures.Folds.
 Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Structures.Sets.
 Require Import ExtLib.Data.Lists.
+Require Import ExtLib.Data.Char.
 Require Import ExtLib.Data.Strings.
 Require Import ExtLib.Data.Monads.EitherMonad.
 Require Import ExtLib.Data.Map.FMapTwoThreeK.
@@ -82,7 +83,9 @@ Section monadic.
     x <- get ;;
     let '(v_n, l_n) := x in 
       put (S v_n, l_n) ;;
-      ret (runShow (show v) (nat2string10 v_n))%string.     
+      let v := to_string v in
+      let v : string := map (fun c => if eq_dec c "~"%char then "_"%char else c) v in
+      ret (runShow (cat (show_exact v) (show v_n))).
 
   Definition freshLLVMVar (s : string) : m LLVM.var :=
     freshVar (wrapVar s).
