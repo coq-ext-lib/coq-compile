@@ -52,21 +52,6 @@ let extract (m: string) (t: string) =
       extracted_source;
     | _ -> failwith "Extraction failed."
 
-(*
-let _ = 
-  Arg.parse params anon usage_string;
-  match !input, !term with
-    | Some s, Some t -> Printf.printf "Input: %s\nTerm: %s\nOutput: %s\n----\n" s t !output;
-      (let source = extract s t in
-       print_string source;
-       match Compile.Compile.stringToAssembly (Compile.S (Compile.O)) !opt (explode source) with
-         | Compile.Inl s -> print_endline (implode s) 
-	 | Compile.Inr assembly -> 
-	   let out_ref = open_out !output in
-	   output_string out_ref (implode assembly))
-    | _, _ -> print_string "Missing input or term.\n"
-*)
-
 let _ = 
   Arg.parse params anon usage_string;
   match !input, !term with
