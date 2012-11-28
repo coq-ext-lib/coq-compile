@@ -158,6 +158,9 @@ Section cps_convert.
   Definition CPS_io (e:Lambda.exp) : exp :=
     let result := 
       evalState (cps e (fun x => ret (IO.runIO x))) 1%positive
-    in IO.wrapIO (wrapVar "$__IO_bind__") (wrapVar "$__IO_return__") (wrapVar "$__IO_printint__") result.
+    in IO.wrapIO (wrapVar "$__IO_bind__") 
+                 (wrapVar "$__IO_return__")
+                 (wrapVar "$__IO_printint__")
+                 result.
 
 End cps_convert.

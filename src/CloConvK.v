@@ -258,14 +258,21 @@ Module ClosureConvert.
   Import MonadNotation.
   Local Open Scope monad_scope.
   
-  Definition cloconv_exp (e : exp) : string + (list decl * exp) :=
-    let env_v := alist var in
-    let c := cloconv_exp' (env_v := env_v)
-      (m := readerT (env_v op) (readerT (env_v (var * var)%type) (writerT (@Monoid_list_app decl) (stateT positive (sum string))))) 
-      e in
-    res <- runStateT (runWriterT (runReaderT (runReaderT c Sets.empty) Maps.empty)) 1%positive ;;
-    let '(e', ds', _) := res in
-    ret (ds', e').
+
+  Section monadic.
+    Variable m : Type -> Type.
+    Context {Monad_m : Monad m}.
+    Context {MExc : MonadExc string m}.
+
+    Definition cloconv_exp (e : exp) : m (list decl * exp) :=
+      let env_v := alist var in
+      let c := cloconv_exp' (env_v := env_v)
+        (m := readerT (env_v op) (readerT (env_v (var * var)%type) (writerT (@Monoid_list_app decl) (stateT positive m)))) 
+        e in
+      res <- runStateT (runWriterT (runReaderT (runReaderT c Sets.empty) Maps.empty)) 1%positive ;;
+      let '(e', ds', _) := res in
+      ret (ds', e').
+  End monadic.
 
 
 (*

@@ -51,7 +51,7 @@ Definition fact_e := Parse.parse_topdecls
 (define fact (lambda (n)
   (match n
      ((O) `(S ,`(O)))
-     ((S n_) (@ mult n (fact n_))))))".
+     ((S n~) (@ mult n (fact n~))))))".
 
 Definition lambda2low (e:option Lambda.exp) : string.
 refine (
