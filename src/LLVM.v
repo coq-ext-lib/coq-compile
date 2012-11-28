@@ -1,11 +1,12 @@
-Require Import Lambda Cps.
 Require Import ZArith String List Bool.
+Require Import ExtLib.Core.ZDecidables.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Data.Monads.OptionMonad.
 Require Import ExtLib.Data.Monads.StateMonad.
 Require Import ExtLib.Structures.Folds.
 Require Import ExtLib.Data.Strings.
 Require Import ExtLib.Data.Char.
+Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Data.Option.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Tactics.Consider.
@@ -27,9 +28,7 @@ Module LLVM.
   Import MonadNotation String.
   Local Open Scope string_scope.
   Local Open Scope monad_scope.
-  Definition constructor := Lambda.constructor.
   Definition var := string.
-  Definition env_t := Lambda.env_t.
   Definition label := string.
 
   Inductive cconv : Type := 
@@ -412,8 +411,32 @@ Module LLVM.
     Definition show_conv(opcode:string)(ty1:type)(op:value)(ty2:type) : showM := 
       opcode << " " << show ty1 << " " << show op << " to " << show ty2.
 
+    Definition show_alloca (ty : type) (opttynum : option (type * nat)) (optalign : option nat) : showM := 
+      "alloca " << show ty <<
+      match opttynum return showM with 
+        | None => "" 
+        | Some (ty,n) => ", " << show ty << " " << show n
+      end <<
+      match optalign return showM with
+        | None => "" 
+        | Some n => ", align " << show n
+      end.
+    
+    Definition show_call (tail : bool) (conv : option cconv) (ret_attrs : list param_attr)
+      (ty : type) (fnptrty : option type) (fnptr : value) (args : list (type * value * list param_attr)) (fnattrs : list fn_attr) : showM :=
+      flag tail "tail " << "call " << option_show show conv << " " <<
+      sepBy " " (List.map show ret_attrs) << " " <<
+      show ty << " " << option_show show fnptrty << 
+      show fnptr << "(" <<
+      (sepBy ", " (List.map (fun x => match x with | (t,v,a) => 
+                                        (show t) << " " << (show v) << 
+                                        (sepBy " " (List.map show a))
+                                      end) args)) 
+      << ") " << sepBy " " (List.map show fnattrs).
+
+
     Global Instance Show_exp : Show exp :=
-      fun e =>
+    { show := fun e =>
         match e with 
           | Add_e nuw nsw ty op1 op2 => show_arith "add" nuw nsw ty op1 op2
           | Fadd_e ty op1 op2 => show_binop "fadd" ty op1 op2
@@ -440,18 +463,9 @@ Module LLVM.
             "insertvalue " << show ty1 << " " << show op1 << ", " <<
             show ty2 << " " << show op2 << ", " <<
             sepBy ", " (List.map show (n::ns))
-          | Alloca_e ty opttynum optalign => 
-            "alloca " << show ty <<
-            match opttynum return showM with 
-              | None => "" 
-              | Some (ty,n) => ", " << show ty << " " << show n
-            end <<
-            match optalign return showM with
-              | None => "" 
-              | Some n => ", align " << show n
-            end
+          | Alloca_e ty opttynum optalign => show_alloca ty opttynum optalign
           | Load_e atomic volatile ty pointer align nontemporal invariant singlethread => 
-        (* fixme: just doing the simple stuff here *)
+            (* fixme: just doing the simple stuff here *)
            "load " << flag atomic "atomic " << flag volatile "volatile " <<
             show ty << " " << show pointer << " " << flag singlethread "singlethread " <<
             match align return showM with
@@ -459,7 +473,7 @@ Module LLVM.
               | Some n => ", align " << show n
             end
           | Getelementptr_e inbounds ty v indexes =>
-    "getelementptr " << (flag inbounds "inbounds ") << (show ty) << " " << 
+            "getelementptr " << (flag inbounds "inbounds ") << (show ty) << " " << 
             (sepBy ", " ((show v)::
               (List.map (fun p => (show (fst p)) << " " << (show (snd p))) indexes)))
           | Trunc_e ty1 v ty2 => show_conv "trunc" ty1 v ty2 
@@ -486,16 +500,8 @@ Module LLVM.
             (show ty2) << " " << (show v2) << ", " << 
             (show ty3) << " " << (show v3)
           | Call_e tail conv ret_attrs ty fnptrty fnptr args fnattrs =>
-            flag tail "tail " << "call " << option_show show conv << " " <<
-            sepBy " " (List.map show ret_attrs) << " " <<
-            show ty << " " << option_show show fnptrty << 
-            show fnptr << "(" <<
-            (sepBy ", " (List.map (fun x => match x with | (t,v,a) => 
-                                            (show t) << " " << (show v) << 
-                                            (sepBy " " (List.map show a))
-                                          end) args)) 
-            << ") " << sepBy " " (List.map show fnattrs)
-        end.
+            show_call tail conv ret_attrs ty fnptrty fnptr args fnattrs
+        end }.
 
     Global Instance Show_instr : Show instr :=
       fun i => 
