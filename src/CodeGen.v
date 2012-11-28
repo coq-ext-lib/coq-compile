@@ -51,10 +51,10 @@ Section maps.
   Variable map_lbl : Type -> Type.
   Context {Map_lbl : DMap label map_lbl}.
   Context {Foldable_lbl : forall a, Foldable (map_lbl a) (label * a)}.
-  Definition CFG := map_lbl (lset (@eq (label * list LLVM.value))).
-  Context {DS: DSet (lset (@eq (label * list LLVM.value))) (@eq (label * list LLVM.value))}.
+  Definition CFG := map_lbl (list (label * list LLVM.value)).
+(*  Context {DS: DSet (lset (@eq (label * list LLVM.value))) (@eq (label * list LLVM.value))}. *)
   Definition Monoid_CFG : Monoid.Monoid CFG :=
-    {| Monoid.monoid_plus := fun x y => Maps.combine (K := label) (fun k l r => union (R:=@eq (label * list LLVM.value)) l r) x y
+    {| Monoid.monoid_plus := fun x y => Maps.combine (K := label) (fun k l r => l ++ r) x y
      ; Monoid.monoid_unit := Maps.empty |}.    
 
 Section globals.

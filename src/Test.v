@@ -51,7 +51,7 @@ Definition fact_e := Parse.parse_topdecls
 (define fact (lambda (n)
   (match n
      ((O) `(S ,`(O)))
-     ((S n~) (@ mult n (fact n~))))))".
+     ((S n_) (@ mult n (fact n_))))))".
 
 Definition lambda2low (e:option Lambda.exp) : string.
 refine (
@@ -79,7 +79,6 @@ Defined.
 Eval compute in lambda2low plus_e.
 Eval compute in lambda2low mult_e.
 Eval compute in lambda2low fact_e.
-*)
 
 Definition identity : string := "(define ident33 (lambda (x) x))"%string.
 Definition identity_e := Parse.parse_topdecls identity.
