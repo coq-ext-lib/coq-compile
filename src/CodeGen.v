@@ -49,9 +49,10 @@ Section maps.
   Variable map_lbl : Type -> Type.
   Context {Map_lbl : DMap label map_lbl}.
   Context {Foldable_lbl : forall a, Foldable (map_lbl a) (label * a)}.
-  Definition CFG := map_lbl (list (label * list LLVM.value)).
+  Definition CFG := map_lbl (lset (@eq (label * list LLVM.value))).
+  Context {DS: DSet (lset (@eq (label * list LLVM.value))) (@eq (label * list LLVM.value))}.
   Definition Monoid_CFG : Monoid.Monoid CFG :=
-    {| Monoid.monoid_plus := fun x y => Maps.combine (K := label) (fun k l r => l ++ r) x y
+    {| Monoid.monoid_plus := fun x y => Maps.combine (K := label) (fun k l r => union (R:=@eq (label * list LLVM.value)) l r) x y
      ; Monoid.monoid_unit := Maps.empty |}.    
 
 Section globals.
@@ -69,6 +70,11 @@ Section monadic.
   Context {State_blks : MonadState (list LLVM.block) m}.
   Context {State_isExit : MonadState (option LLVM.label) m}.
   Context {Writer_cfg : MonadWriter Monoid_CFG m}.
+  Context {State_trace : MonadState (list string) m}.
+
+  Definition trace (s : string) : m unit :=
+    ls <- get (MonadState := State_trace) ;;
+    put (MonadState := State_trace) (s::ls).
 
   Definition freshVar (v : Env.var) : m LLVM.var :=
     x <- get ;;
@@ -146,7 +152,6 @@ Section monadic.
     end.
   
   Definition emitExp (v : LLVM.var) (e : LLVM.exp) : m unit :=
-(*    x <- freshVar (Env.Named_v "_"%string None) ;; *)
     emitInstr (LLVM.Assign_i (Some (LLVM.Local v)) e).
 
   Definition emitExpFresh (e : LLVM.exp) : m LLVM.var :=
@@ -431,6 +436,8 @@ Section monadic.
         result <- extractResult UNIVERSAL 2%Z ;;
         (* Call the next continuation here *)
         withBaseLimit newBase newLimit (
+          from <- getLabel ;;
+          trace ("generateCall: addJump to " ++ lbl ++ " from " ++ from) ;;
           addJump lbl ((%result)::nil) ;;
           emitInstr (LLVM.Br_uncond_i lbl)
         )
@@ -473,6 +480,8 @@ Section monadic.
           | inl _ => raise "Multiple continuations not supported yet"%string
           | inr lbl =>
             newArgs <- mapM opgen args ;;
+            from <- getLabel ;;
+            trace ("Cont_tm: addJump to " ++ lbl ++ " from " ++ from) ;;
             addJump lbl newArgs ;;
             emitInstr (LLVM.Br_uncond_i lbl)
         end
@@ -483,6 +492,8 @@ Section monadic.
             tag <- pgen p ;;
             inFreshLabel (
               args <- mapM opgen args ;;
+              from <- getLabel ;;
+              trace ("Switch_tm: addJump to " ++ target ++ " from " ++ from) ;;
               addJump target args ;;
               emitInstr (LLVM.Br_uncond_i target) ;;
               ret tag
@@ -494,6 +505,8 @@ Section monadic.
                      | Some (target,args) =>
                        inFreshLabel (
                          args <- mapM opgen args ;;
+                         from <- getLabel ;;
+                         trace ("Switch_tm default: addJump to " ++ target ++ " from " ++ from) ;;
                          addJump target args ;;
                          emitInstr (LLVM.Br_uncond_i target) ;;
                          ret tt
@@ -508,14 +521,6 @@ Section monadic.
    newVars <- mapM freshVar args ;;
    newBase <- freshLLVMVar "base"%string ;;
    newLimit <- freshLLVMVar "limit"%string ;;
-(*
-   let withNewVars (k : m unit) := 
-     (fix recur args :=
-       match args with
-         | nil => k
-         | (a,v)::rest => withNewVar a v (recur rest)
-       end
-       ) (List.combine args newVars) in *)
    let block :=
       (fix recur instrs :=
         match instrs with
@@ -536,17 +541,17 @@ End monadic.
 
 Definition m : Type -> Type :=
     eitherT string (writerT (Monoid_CFG) (readerT (map_ctor Z) (readerT (LLVM.var * LLVM.var) (stateT (map_var lvar)
-(stateT (option LLVM.label) (stateT (list LLVM.block) (stateT LLVM.block (state (nat * nat))))))
+(stateT (option LLVM.label) (stateT (list LLVM.block) (stateT LLVM.block (stateT (nat * nat) (state (list string)))))))
 ))).
 
-Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : string + (T  * CFG * list LLVM.block) :=
-    let res := (runState (runStateT (runStateT (runStateT (evalStateT (runReaderT (runReaderT (runWriterT (unEitherT cmd)) ctor_m) ("base", "limit")%string) var_m) None) nil) (None, nil)) (0,0)) in
+Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : (string * list string) + (T  * CFG * list LLVM.block * list string) :=
+    let res := (runState (runStateT (runStateT (runStateT (runStateT (evalStateT (runReaderT (runReaderT (runWriterT (unEitherT cmd)) ctor_m) ("base", "limit")%string) var_m) None) nil) (None, nil)) (0,0)) nil) in
     match res with
-      | (((((inl e, _), _), _), _), _) => inl e
-      | (((((inr x, cfg), _), l), b), _) => inr (x, cfg, b :: l)
+      | ((((((inl e, _), _), _), _), _), t) => inl (e,t)
+      | ((((((inr x, cfg), _), l), b), _), t) => inr (x, cfg, b :: l,t)
     end.
 
-Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : string + ((list (label * list LLVM.var)) * CFG * list LLVM.block) :=
+Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : (string * list string) + ((list (label * list LLVM.var)) * CFG * list LLVM.block * list string) :=
   runM ctor_m var_m (genBlocks (m := m) blocks).
 
 Fixpoint combine_with {A B C} (f : A -> B -> C) (l : list A) (l' : list B) : option (list C) :=
@@ -587,7 +592,11 @@ refine (
                     | Some phi_recs =>
                       let phis := map (fun e => let '(f,a) := e in generatePhi f a) phi_recs in
                         ret (Some lbl,phis ++ intrs)
-                    | _ => raise "Control-flow graph inconsisent with Low.function: wrong number of args"%string
+                    | _ => raise ("Control-flow graph inconsisent with Low.function: wrong number of args\n" ++
+                                  "block: " ++ (to_string lbl) ++ " " ++
+                                  "formals: " ++ (to_string formals) ++ " " ++
+                                  "args: " ++ (to_string lblArgs) ++ " "
+                                 )%string
                   end
                 | _ => raise "Inconsistent formal counts"%string
               end
@@ -597,7 +606,7 @@ refine (
   end).
 Defined.
 
-Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + LLVM.topdecl :=
+Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : (string * list string) + LLVM.topdecl :=
   let f_params : list (LLVM.type * LLVM.var * list LLVM.param_attr) := 
     let formals :=
       Reducible.map (fun (x : Env.var) => (UNIVERSAL, runShow (show x) : string, nil : list LLVM.param_attr)) (f_args f) in
@@ -610,9 +619,14 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : string + 
   in  
   match runGenBlocks ctor_m locals (f_body f) with
     | inl e => inl e
-    | inr (formals,cfg,blocks) =>
-      finalBlocks <- mapM (rewriteBlock cfg formals) blocks ;;
-      ret (LLVM.Define_d header finalBlocks)
+    | inr (formals,cfg,blocks,t) =>
+      let addPhis :=
+        finalBlocks <- mapM (rewriteBlock cfg formals) blocks ;;
+        ret (LLVM.Define_d header finalBlocks) in
+      match addPhis with
+        | inl e => inl (e,t)
+        | inr p => inr p
+      end
   end.
 
 End globals.
@@ -630,6 +644,7 @@ End globals.
       LLVM.Declare_d header.
 
 End maps.
+
 End sized.
 
 Section program.
@@ -637,9 +652,16 @@ Variable map_ctor : Type -> Type.
 Context {M_ctor : forall x, Foldable (map_ctor x) (constructor * x)}.
 Context {FM_ctor : DMap constructor map_ctor}.
 
+(* XXX Need to resolve the missing context DSet (lset (@eq (label * list LLVM.value))) (@eq (label * list LLVM.value)) *)
+
 Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : string + LLVM.module :=
   let globals := generateGlobals word_size (p_topdecl p) in
-  decls <- mapM (generateFunction word_size globals mctor) (p_topdecl p) ;;
-  ret (coq_error_decl :: coq_done_decl word_size :: decls).
+  let program :=
+    decls <- mapM (generateFunction word_size globals mctor) (p_topdecl p) ;;
+    ret (coq_error_decl :: coq_done_decl word_size :: decls) in
+    match program with
+      | inl (e,t) => inl (e ++ "  " ++ to_string t)%string
+      | inr p => inr p
+    end.
 
 End program.
