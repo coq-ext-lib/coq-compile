@@ -1,0 +1,4 @@
+*.ll
+*.bc
+tmp_extr.*
+
