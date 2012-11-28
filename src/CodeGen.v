@@ -585,17 +585,17 @@ refine (
               | h::rest => foldM (fun elem acc => combine_with (fun e a => e::a) elem acc) (map (fun e => e::nil) h) rest
             end in
           match phi_args with
-            | Some (baseArgs::limitArgs::lblArgs) =>
+            | Some args =>
               match lookup lbl formals with
                 | Some formals =>
-                  match combine_with (fun f a => (f,a)) formals lblArgs with
+                  match combine_with (fun f a => (f,a)) formals args with
                     | Some phi_recs =>
                       let phis := map (fun e => let '(f,a) := e in generatePhi f a) phi_recs in
                         ret (Some lbl,phis ++ intrs)
                     | _ => raise ("Control-flow graph inconsisent with Low.function: wrong number of args\n" ++
                                   "block: " ++ (to_string lbl) ++ " " ++
                                   "formals: " ++ (to_string formals) ++ " " ++
-                                  "args: " ++ (to_string lblArgs) ++ " "
+                                  "args: " ++ (to_string args) ++ " "
                                  )%string
                   end
                 | _ => raise "Inconsistent formal counts"%string
