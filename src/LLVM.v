@@ -494,7 +494,7 @@ Module LLVM.
             (show v1) << ", " << (show v2)
           | Phi_e ty vls => 
             "phi " << show ty << " " << 
-            sepBy ", " (List.map (fun p => "[ " << show (fst p) << ", " << show (snd p) << " ]") vls)
+            sepBy ", " (List.map (fun p : (value * label) => "[ " << show (fst p) << ", %" << (snd p) << " ]") vls)
           | Select_e ty1 v1 ty2 v2 ty3 v3 => 
             "select " << (show ty1) << " " << (show v1) << ", " << 
             (show ty2) << " " << (show v2) << ", " << 
@@ -513,7 +513,7 @@ Module LLVM.
           | Br_cond_i v l1 l2 => 
             "br i1 " << show v << ", label %" << l1 << ", label %" << l2
           | Br_uncond_i l => 
-            "br label "<< l
+            "br label %"<< l
           | Switch_i t v def arms => 
             "switch " << show t << " " << show v << ", label %" << def << " [" <<
             sepBy " " (List.map (fun p : type * Z * label => 
