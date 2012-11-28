@@ -161,24 +161,30 @@ Section monadic.
     emitInstr (LLVM.Assign_i (Some (LLVM.Local x)) e) ;;
     ret x.
   
-  Definition castTo (ty : LLVM.type) (v : LLVM.value) : m LLVM.var :=
-    x <- freshVar (Env.Named_v "_"%string None) ;;
+  Definition castTo (x : LLVM.var) (ty : LLVM.type) (v : LLVM.value) : m unit :=
     match ty with
       | LLVM.Pointer_t _ _ => 
         emitExp x (LLVM.Inttoptr_e UNIVERSAL v ty)
       | _ => 
         emitExp x (LLVM.Bitcast_e UNIVERSAL v ty)
-    end ;;
+    end.
+
+  Definition castToFresh (ty : LLVM.type) (v : LLVM.value) : m LLVM.var :=
+    x <- freshVar (Env.Named_v "_"%string None) ;;
+    castTo x ty v ;;
     ret x.
   
-  Definition castFrom (ty : LLVM.type) (v : LLVM.value) : m LLVM.var :=
-    x <- freshVar (Env.Named_v "_"%string None) ;;
+  Definition castFrom (x : LLVM.var) (ty : LLVM.type) (v : LLVM.value) : m unit :=
     match ty with
       | LLVM.Pointer_t _ _ =>
         emitExp x (LLVM.Ptrtoint_e ty v UNIVERSAL)
       | _ =>
         emitExp x (LLVM.Bitcast_e ty v UNIVERSAL)
-    end ;;
+    end.
+
+  Definition castFromFresh (ty : LLVM.type) (v : LLVM.value) : m LLVM.var :=
+    x <- freshVar (Env.Named_v "_"%string None) ;;
+    castFrom x ty v ;;
     ret x.
 
   Definition opgen (op : op) : m LLVM.value :=
@@ -193,7 +199,7 @@ Section monadic.
                 withNewVar v v' ;;
                 ret (LLVM.Local v')
               | Some (v,t) => 
-                asLocal <- castFrom t v ;;
+                asLocal <- castFromFresh t v ;;
                 ret (%asLocal)
             end
           | Some v => ret (LLVM.Local v)
@@ -304,7 +310,7 @@ Section monadic.
     baseCasted <- emitExpFresh (LLVM.Ptrtoint_e PTR_TYPE (% base) UNIVERSAL) ;;
     limitCasted <- emitExpFresh (LLVM.Ptrtoint_e PTR_TYPE (% limit) UNIVERSAL) ;;
     newBase <- emitExpFresh (LLVM.Add_e true false UNIVERSAL (% baseCasted) (LLVM.Constant (LLVM.Int_c (Z_of_nat size)))) ;;
-    newBaseCasted <- castTo PTR_TYPE (% newBase) ;;
+    newBaseCasted <- castToFresh PTR_TYPE (% newBase) ;;
     test <- emitExpFresh (LLVM.Icmp_e LLVM.Ult UNIVERSAL (% newBase) (% limitCasted)) ;;
     labelSucc <- withBaseLimit newBaseCasted limit (succ base) ;;
     labelFail <- fail ;;
@@ -337,14 +343,12 @@ Section monadic.
         let size := sizeof t in
         len <- opgen (Int_o (Z.of_nat size)) ;;
         begin <- opgen (Int_o (Z.of_nat offset)) ;;
-        comment "Get a pointer to the header of the object" ;;
         hdr <- emitExpFresh (LLVM.Getelementptr_e false PTR_TYPE base ((UNIVERSAL,begin)::nil)) ;;
-        comment "Initialize the header with the size of the object" ;;
         emitInstr (LLVM.Store_i false false UNIVERSAL len PTR_TYPE (%hdr) None None false) ;;
         index <- opgen (Int_o (Z.of_nat 1)) ;;
-        comment "Get a pointer to the start of the object" ;;
-        addr <- forLocal v ;;
-        emitExp addr (LLVM.Getelementptr_e false PTR_TYPE (%hdr) ((UNIVERSAL,index)::nil)) ;;
+        addr <- emitExpFresh (LLVM.Getelementptr_e false PTR_TYPE (%hdr) ((UNIVERSAL,index)::nil)) ;;
+        x <- forLocal v ;;
+        castFrom x PTR_TYPE (%addr) ;;
         k (offset + size + 1)
       in inFreshLabel ((fix recur allocs :=
         match allocs with
@@ -357,7 +361,8 @@ Section monadic.
   Definition generateLoad T (dest : var) (t : primtyp) (index : Z) (ptr : op) (k : m T) : m T :=
     ptr <- opgen ptr ;;
     index <- opgen (Int_o index) ;;
-    let gep := LLVM.Getelementptr_e false PTR_TYPE ptr ((UNIVERSAL,index)::nil) in
+    ptr <- castToFresh PTR_TYPE ptr ;;
+    let gep := LLVM.Getelementptr_e false PTR_TYPE (%ptr) ((UNIVERSAL,index)::nil) in
     elem <- emitExpFresh gep ;;
     load <- forLocal dest ;;
     emitExp load (LLVM.Load_e false false PTR_TYPE (%elem) None None None false) ;;
@@ -368,7 +373,8 @@ Section monadic.
     ptr <- opgen ptr ;;
     index <- opgen (Int_o index) ;;
     value <- opgen v ;;
-    let gep := LLVM.Getelementptr_e false PTR_TYPE ptr ((UNIVERSAL,index)::nil) in
+    ptr <- castToFresh PTR_TYPE ptr ;;
+    let gep := LLVM.Getelementptr_e false PTR_TYPE (%ptr) ((UNIVERSAL,index)::nil) in      
     elem <- emitExpFresh gep ;;
     emitInstr (LLVM.Store_i false false UNIVERSAL value PTR_TYPE (%elem) None None false) ;;
     k.
@@ -402,40 +408,41 @@ Section monadic.
           ret c
       end.
 
+  Definition computeFunctionType (arity : nat) : LLVM.type :=
+    let argTypes := PTR_TYPE::PTR_TYPE::(Low.count_to (fun _ => UNIVERSAL) arity) in
+    LLVM.Pointer_t ADDR_SPACE (LLVM.Fn_t (RET_TYPE 1) argTypes false).
+
   Definition generateCall (retVal : var) (fptr : op) (args : list op) (conts : list cont) : m unit :=
     base <- getBase ;;
     limit <- getLimit ;;
     args <- mapM opgen args ;;
-    let args := (PTR_TYPE, % base, nil) ::
-                (PTR_TYPE, % limit, nil) ::
-                map (fun x => (UNIVERSAL, x, nil)) args in
+    let fnArgs := (PTR_TYPE, % base, nil) ::
+                  (PTR_TYPE, % limit, nil) ::
+                  map (fun x => (UNIVERSAL, x, nil)) args in
     f <- opgen fptr ;;
+    f <- castToFresh (computeFunctionType (length args)) f ;;
     (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
     let arity := 1 in
     match conts with
       | nil =>    
-        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None f args (LLVM.Noreturn :: nil) in
+        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (%f) fnArgs (LLVM.Noreturn :: nil) in
         let instr := LLVM.Assign_i None call in
         emitInstr instr ;;
         emitInstr LLVM.Unreachable_i
       | (inl 0)::nil =>
         (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
-        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
+        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None (%f) fnArgs nil in
         result <- emitExpFresh call ;;
         emitInstr (LLVM.Ret_i (Some (RET_TYPE arity,%result)))
       | (inr lbl)::nil =>
-        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None f args nil in
+        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None (%f) fnArgs nil in
         result <- emitExpFresh call ;;
         let extractResult type index :=
-          index <- opgen (Int_o index) ;;
-          let gep := LLVM.Getelementptr_e false (RET_TYPE arity) (%result) ((type,index)::nil) in
-          elem <- emitExpFresh gep ;;
-          value <- emitExpFresh (LLVM.Load_e false false type (%elem) None None None false) ;;
-          ret value
+          emitExpFresh (LLVM.Extractvalue_e (RET_TYPE arity) (%result) index nil)
         in
-        newBase <- extractResult PTR_TYPE 0%Z ;;
-        newLimit <- extractResult PTR_TYPE 1%Z ;;
-        result <- extractResult UNIVERSAL 2%Z ;;
+        newBase <- extractResult PTR_TYPE 0 ;;
+        newLimit <- extractResult PTR_TYPE 1 ;;
+        result <- extractResult UNIVERSAL 2 ;;
         (* Call the next continuation here *)
         withBaseLimit newBase newLimit (
           from <- getLabel ;;
@@ -534,7 +541,7 @@ Section monadic.
       | _ => raise "Entry block should take no arguments."%string
     end.
 
-  Definition generateBlock (l : label) (b : Low.block) : m (label * list LLVM.var) :=
+  Definition generateBlock (l : label) (b : Low.block) : m (label * list (LLVM.var * LLVM.type)) :=
    let args := b_args b in
    newVars <- mapM freshVar args ;;
    newBase <- freshLLVMVar "base"%string ;;
@@ -544,9 +551,9 @@ Section monadic.
        generateInstructions b
      )
    ) ;;
-   ret (l,newBase::newLimit::newVars).
+   ret (l,(newBase,PTR_TYPE)::(newLimit,PTR_TYPE)::(map (fun v => (v,UNIVERSAL)) newVars)).
 
-  Definition genBlocks (entryLbl : label) (blocks : alist label block) : m (list (label * list LLVM.var)) :=
+  Definition genBlocks (entryLbl : label) (blocks : alist label block) : m (list (label * list (LLVM.var * LLVM.type))) :=
     match lookup entryLbl blocks with
       | None => raise "Entry block not found"%string
       | Some entryBlock =>
@@ -569,7 +576,7 @@ Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : (st
       | ((((((inr x, cfg), _), l), b), _), t) => inr (x, cfg, b :: l,t)
     end.
 
-Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (entry : label) (blocks : alist label block) : (string * list string) + ((list (label * list LLVM.var)) * CFG * list LLVM.block * list string) :=
+Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (entry : label) (blocks : alist label block) : (string * list string) + ((list (label * list (LLVM.var * LLVM.type))) * CFG * list LLVM.block * list string) :=
   runM ctor_m var_m (genBlocks (m := m) entry blocks).
 
 Fixpoint combine_with {A B C} (f : A -> B -> C) (l : list A) (l' : list B) : option (list C) :=
@@ -584,10 +591,11 @@ Fixpoint combine_with {A B C} (f : A -> B -> C) (l : list A) (l' : list B) : opt
       None
   end.
 
-Definition generatePhi (v : LLVM.var) (vs : list (LLVM.value * label)) : LLVM.instr :=
-  LLVM.Assign_i (Some (%v)) (LLVM.Phi_e UNIVERSAL vs).
+Definition generatePhi (f : LLVM.var * LLVM.type) (vs : list (LLVM.value * label)) : LLVM.instr :=
+  let '(v,t) := f in
+  LLVM.Assign_i (Some (%v)) (LLVM.Phi_e t vs).
 
-Definition rewriteBlock (cfg : CFG) (formals : alist label (list LLVM.var)) (block : LLVM.block) : string + LLVM.block.
+Definition rewriteBlock (cfg : CFG) (formals : alist label (list (LLVM.var * LLVM.type))) (block : LLVM.block) : string + LLVM.block.
 refine (
   match block with
     | (None,_) => ret block
@@ -652,16 +660,15 @@ End globals.
   Definition generateGlobals (fs : list Low.function) : map_var (LLVM.value * LLVM.type) :=
     fold (fun f map =>
       let fname := f_name f in
-      let argTypes := PTR_TYPE::PTR_TYPE::(Low.count_to (fun _ => UNIVERSAL) (length (f_args f))) in
-      let type := LLVM.Pointer_t ADDR_SPACE (LLVM.Fn_t (RET_TYPE 1) argTypes false) in
-      Maps.add fname (LLVM.Global (runShow (show fname)),type) map) Maps.empty fs.
+      Maps.add fname (LLVM.Global (runShow (show fname)),computeFunctionType (length (f_args f))) map) Maps.empty fs.
 
   Definition coq_error_decl := 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_error"%string nil nil None None None in
       LLVM.Declare_d header.
   
   Definition coq_done_decl :=
-    let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string ((UNIVERSAL, "o", nil)::nil)%string nil None None None in
+    let formals := ((PTR_TYPE,"base",nil)::(PTR_TYPE,"limit",nil)::(UNIVERSAL,"o",nil)::nil)%string in
+    let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string formals nil None None None in
       LLVM.Declare_d header.
 
 End maps.
