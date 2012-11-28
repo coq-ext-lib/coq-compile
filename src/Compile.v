@@ -171,6 +171,22 @@ Module Compile.
           end
       end.
 *)
+
+    Definition topCompileFromStr (io : bool) (e:string) : string + string :=
+      match Parse.parse_topdecls e with
+        | None => inl "Failed to parse."%string
+        | Some e =>
+          mctor <- makeCtorMap e ;;
+          let cps_e := 
+            if io then CpsKConvert.CPS_io e else CpsKConvert.CPS_pure e 
+          in
+            opt_e <- phase "Optimize"%string cps_opt cps_e ;;
+            clo_conv_e <- phase "Closure Convert"%string CloConvK.ClosureConvert.cloconv_exp cps_e ;;
+            low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x))) (fun x => CoqCompile.CpsK2Low.cpsk2low _ (fst x) (snd x)) clo_conv_e ;;
+            ll <- phase "CodeGen" (CodeGen.generateProgram word_size mctor) low ;;
+            inr (LLVM.LLVM.string_of_module ll)
+      end.
+    
   End Driver.
 
 End Compile.

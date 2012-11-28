@@ -18,10 +18,10 @@ coq: Makefile.coq
 	$(MAKE) -f Makefile.coq
 
 extraction: coq
-	coqc $(ARGS) extraction.v	
+	coqc $(ARGS) Extraction.v	
 
 compiler: extraction
-	cd extraction/; ocamlbuild -lib unix Wrapper.byte
+	cd Extraction/; ocamlbuild -lib unix Wrapper.byte
 
 Makefile.coq: Makefile $(VS)
 	coq_makefile $(ARGS) $(VS) -o Makefile.coq
