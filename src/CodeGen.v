@@ -46,6 +46,8 @@ Section maps.
   Context {M_ctor : forall x, Foldable (map_ctor x) (constructor * x)}.
   Context {FM_ctor : DMap constructor map_ctor}.
 
+  Context {DMap_blocks : DMap label (alist label)}.
+
   Variable map_lbl : Type -> Type.
   Context {Map_lbl : DMap label map_lbl}.
   Context {Foldable_lbl : forall a, Foldable (map_lbl a) (label * a)}.
@@ -516,26 +518,42 @@ Section monadic.
         emitInstr (LLVM.Switch_i UNIVERSAL v (fst default) labels)
     end.
 
+  Definition generateInstructions (b : Low.block) : m unit :=
+    (fix recur instrs :=
+      match instrs with
+        | nil => generateTerm (b_term b)
+        | i::rest => generateInstr i (recur rest)
+      end) (b_insns b).
+
+  Definition generateEntry (b : Low.block) : m unit :=
+    match length (b_args b) with
+      | 0 =>
+        newBase <- ret "base"%string ;;
+        newLimit <- ret "limit"%string ;;
+        withBaseLimit newBase newLimit (generateInstructions b)
+      | _ => raise "Entry block should take no arguments."%string
+    end.
+
   Definition generateBlock (l : label) (b : Low.block) : m (label * list LLVM.var) :=
    let args := b_args b in
    newVars <- mapM freshVar args ;;
    newBase <- freshLLVMVar "base"%string ;;
    newLimit <- freshLLVMVar "limit"%string ;;
-   let block :=
-      (fix recur instrs :=
-        match instrs with
-          | nil => generateTerm (b_term b)
-          | i::rest => generateInstr i (recur rest)
-        end) (b_insns b) in
-      withLabel l (
-        withBaseLimit newBase newLimit (
-          block
-        )
-      ) ;;
-      ret (l,newBase::newLimit::newVars).
+   withLabel l (
+     withBaseLimit newBase newLimit (
+       generateInstructions b
+     )
+   ) ;;
+   ret (l,newBase::newLimit::newVars).
 
-  Definition genBlocks (blocks : alist label block) : m (list (label * list LLVM.var)) :=
-    mapM (fun block => let '(l,b) := block in generateBlock l b) blocks.
+  Definition genBlocks (entryLbl : label) (blocks : alist label block) : m (list (label * list LLVM.var)) :=
+    match lookup entryLbl blocks with
+      | None => raise "Entry block not found"%string
+      | Some entryBlock =>
+        entry <- generateEntry entryBlock ;;
+        let nonEntry := Maps.filter _ (fun l _ => negb (eq_dec l entryLbl)) blocks in
+        mapM (fun block => let '(l,b) := block in generateBlock l b) nonEntry
+    end.
 
 End monadic.
 
@@ -551,8 +569,8 @@ Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : (st
       | ((((((inr x, cfg), _), l), b), _), t) => inr (x, cfg, b :: l,t)
     end.
 
-Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (blocks : alist label block) : (string * list string) + ((list (label * list LLVM.var)) * CFG * list LLVM.block * list string) :=
-  runM ctor_m var_m (genBlocks (m := m) blocks).
+Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (entry : label) (blocks : alist label block) : (string * list string) + ((list (label * list LLVM.var)) * CFG * list LLVM.block * list string) :=
+  runM ctor_m var_m (genBlocks (m := m) entry blocks).
 
 Fixpoint combine_with {A B C} (f : A -> B -> C) (l : list A) (l' : list B) : option (list C) :=
   match l,l' with
@@ -617,7 +635,7 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : (string *
   let locals : map_var lvar := fold_left (fun (acc : map_var lvar) v => 
     let lv : LLVM.var := runShow (show v) in Maps.add v lv acc) (f_args f) Maps.empty
   in  
-  match runGenBlocks ctor_m locals (f_body f) with
+  match runGenBlocks ctor_m locals (f_entry f) (f_body f) with
     | inl e => inl e
     | inr (formals,cfg,blocks,t) =>
       let addPhis :=
