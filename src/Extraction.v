@@ -11,10 +11,13 @@ Extraction Blacklist String List.
    Instead we'll use Extraction to one monolithic file. *)
 
 (* This still has parameters, but obviously at some point we want to switch to this *)
-Require CoqCompile.Compile.
-(* Definition topcompile := Compile.Compile.topCompileFromStr 8 Compile.Compile.Opt.O0 false. *)
+Require Import CoqCompile.Compile.
 Definition topcompile := Compile.Compile.topCompileFromStr 8.
 Extraction "Extraction/Compile.ml" topcompile.
+
+Require Import CoqCompile.CpsKSemantics.
+Definition topeval := evalstr.
+Extraction "Extraction/CpsKSemantics.ml" topeval.
 
 (* Just for testing purposes. *)
 (*

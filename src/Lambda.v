@@ -11,7 +11,7 @@ Set Implicit Arguments.
 Set Strict Implicit.
 
 Module Lambda.
-  (** data constructors, such as "true", "false", "nil", "::", "0", "S", etc. *)
+  (** data constructors, such as "True", "False", "Nil", "::", "0", "S", etc. *)
   Definition constructor := string.
 
   (** environments -- naively as an association list *)
@@ -185,13 +185,13 @@ Module LambdaNotation.
     ret (Letrec_e ((fname,(x,fbody))::nil) e).
   Notation "'defrec' f [ x ] := E1 'in' E2" := (LETREC (fun f x => E1) (fun f => E2))
     (right associativity, at level 75, E2 at next level).
-  Definition true_c : Exp := ret (Con_e "true" nil).
-  Definition false_c : Exp := ret (Con_e "false" nil).
+  Definition true_c : Exp := ret (Con_e "True" nil).
+  Definition false_c : Exp := ret (Con_e "False" nil).
   Definition Z_c : Exp := ret (Con_e "0" nil).
   Definition S_c (E:Exp) : Exp := e <- E ;; ret (Con_e "S" (e::nil)).
   Definition IF_e (E1 E2 E3:Exp) : Exp :=
     e1 <- E1 ;; e2 <- E2 ;; e3 <- E3 ;;
-    ret (Match_e e1 ((Con_p "true" nil, e2)::(Con_p "false" nil, e3)::nil)).
+    ret (Match_e e1 ((Con_p "True" nil, e2)::(Con_p "False" nil, e3)::nil)).
   Notation "'If' E1 'then' E2 'else' E3" := (IF_e E1 E2 E3)
     (right associativity, at level 72, E3 at next level).
   Notation "'nat_match' E 'with' 'Z' => E1 | 'S' [ x2 ] => E2" :=

@@ -544,11 +544,19 @@ Section monadic.
       | _ => raise "Entry block should take no arguments."%string
     end.
 
+  Definition withNewVars (lows : list Env.var) (llvms : list LLVM.var) : m unit :=
+    (fix recur args :=
+      match args with
+        | nil => ret tt
+        | (a,v)::rest => withNewVar a v ;; (recur rest)
+      end) (List.combine lows llvms).    
+
   Definition generateBlock (l : label) (b : Low.block) : m (label * list (LLVM.var * LLVM.type)) :=
    let args := b_args b in
-   newVars <- mapM freshVar args ;;
+   newVars <- mapM forLocal args ;;
    newBase <- freshLLVMVar "base"%string ;;
    newLimit <- freshLLVMVar "limit"%string ;;
+   withNewVars args newVars ;;
    withLabel l (
      withBaseLimit newBase newLimit (
        generateInstructions b
