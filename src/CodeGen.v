@@ -655,13 +655,14 @@ Context {FM_ctor : DMap constructor map_ctor}.
 (* XXX Need to resolve the missing context DSet (lset (@eq (label * list LLVM.value))) (@eq (label * list LLVM.value)) *)
 
 Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : string + LLVM.module :=
-  let globals := generateGlobals word_size (p_topdecl p) in
-  let program :=
-    decls <- mapM (generateFunction word_size globals mctor) (p_topdecl p) ;;
-    ret (coq_error_decl :: coq_done_decl word_size :: decls) in
-    match program with
-      | inl (e,t) => inl (e ++ "  " ++ to_string t)%string
-      | inr p => inr p
-    end.
+  let globals := generateGlobals (FM := DMap_alist RelDec_var_eq) word_size (p_topdecl p) in
+  let program := 
+    decls <- mapM (M := Monad_either (string * list string)) (generateFunction word_size globals mctor) (p_topdecl p) ;;
+    ret (coq_error_decl :: coq_done_decl word_size :: decls) 
+  in
+  match program with
+    | inl (e,t) => inl (e ++ "  " ++ to_string t)%string
+    | inr p => inr p
+  end.
 
 End program.

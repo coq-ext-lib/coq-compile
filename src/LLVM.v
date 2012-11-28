@@ -181,6 +181,46 @@ Module LLVM.
 
   Definition module := list topdecl.
 
+  Fixpoint eq_constant x y : bool :=
+    match x , y with
+      | True_c , True_c
+      | False_c , False_c
+      | Null_c , Null_c
+      | Undef_c , Undef_c 
+      | Zero_c , Zero_c => true
+      | Int_c i1, Int_c i2 => eq_dec i1 i2
+      | Float_c c1, Float_c c2 => eq_dec c1 c2
+      | Global_c v , Global_c v' => eq_dec v v'
+      | Struct_c v , Struct_c v'
+      | Array_c v, Array_c v' 
+      | Vector_c v , Vector_c v' 
+      | Metadata_c v , Metadata_c v' => 
+        (fix rec xs ys : bool :=
+          match xs , ys with
+            | nil , nil => true
+            | x :: xs , y :: ys => 
+              eq_constant x y && rec xs ys
+            | _ , _ => false
+          end) v v'
+      | Metastring_c v , Metastring_c v' => eq_dec v v'
+      | _ , _ => false
+    end.
+
+  Global Instance RelDec_eq_constant : RelDec (@eq LLVM.constant) :=
+  { rel_dec := eq_constant }.
+
+  Global Instance RelDec_eq_value : RelDec (@eq value) :=
+  { rel_dec := fun x y => 
+    match x , y with
+      | Local v, Local v' => eq_dec v v'
+      | Global v , Global v' => eq_dec v v'
+      | AnonLocal v, AnonLocal v' => eq_dec v v'
+      | AnonGlobal v, AnonGlobal v' => eq_dec v v'
+      | Constant c, Constant c' => eq_dec c c'
+      | _ , _ => false
+    end }.
+
+
   Section Printing.
     Require Import ExtLib.Programming.Show.
     Import ShowNotation.
