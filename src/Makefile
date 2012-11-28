@@ -23,6 +23,9 @@ extraction: coq
 compiler: extraction
 	cd Extraction/; ocamlbuild -lib unix Wrapper.byte
 
+semantics : extraction
+	cd Extraction/; ocamlbuild -lib unix CpsKInterpTL.byte
+
 Makefile.coq: Makefile $(VS)
 	coq_makefile $(ARGS) $(VS) -o Makefile.coq
 

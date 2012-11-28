@@ -127,16 +127,16 @@ Section CPSEVAL.
   (** Evaluate the primops given closed values *)      
   Definition eval_primop (p:primop) (vs: list value) : m value :=
     match p, vs with 
-      | Eq_p, (Int_v i)::(Int_v j)::nil => ret (if eq_dec i j then (Con_v "true") else (Con_v "false"))
-      | Eq_p, (Con_v i)::(Con_v j)::nil => ret (if eq_dec i j then (Con_v "true") else (Con_v "false"))
-      | Neq_p, (Int_v i)::(Int_v j)::nil => ret (if eq_dec i j then (Con_v "false") else (Con_v "true"))
-      | Neq_p, (Con_v i)::(Con_v j)::nil => ret (if eq_dec i j then (Con_v "false") else (Con_v "true"))
-      | Lt_p, (Int_v i)::(Int_v j)::nil => ret (if Z.ltb i j then (Con_v "true") else (Con_v "false"))
+      | Eq_p, (Int_v i)::(Int_v j)::nil => ret (if eq_dec i j then (Con_v "True") else (Con_v "False"))
+      | Eq_p, (Con_v i)::(Con_v j)::nil => ret (if eq_dec i j then (Con_v "True") else (Con_v "False"))
+      | Neq_p, (Int_v i)::(Int_v j)::nil => ret (if eq_dec i j then (Con_v "False") else (Con_v "True"))
+      | Neq_p, (Con_v i)::(Con_v j)::nil => ret (if eq_dec i j then (Con_v "False") else (Con_v "True"))
+      | Lt_p, (Int_v i)::(Int_v j)::nil => ret (if Z.ltb i j then (Con_v "True") else (Con_v "False"))
       | Lte_p, (Int_v i)::(Int_v j)::nil => ret (if orb (Z.ltb i j) (eq_dec i j) 
-        then (Con_v "true") else (Con_v "false"))
-      | Ptr_p, ((Int_v _)::nil) => ret (Con_v "false")
-      | Ptr_p, ((Con_v _)::nil) => ret (Con_v "false")
-      | Ptr_p, ((Ptr_v _)::nil) => ret (Con_v "true")
+        then (Con_v "True") else (Con_v "False"))
+      | Ptr_p, ((Int_v _)::nil) => ret (Con_v "False")
+      | Ptr_p, ((Con_v _)::nil) => ret (Con_v "False")
+      | Ptr_p, ((Ptr_v _)::nil) => ret (Con_v "True")
       | Plus_p, ((Int_v i)::(Int_v j)::nil) => ret (Int_v (i+j))
       | Minus_p, ((Int_v i)::(Int_v j)::nil) => ret (Int_v (i-j))
       | Times_p, ((Int_v i)::(Int_v j)::nil) => ret (Int_v (i*j))
@@ -313,6 +313,14 @@ Section CPSEVAL.
 
   Definition eval (n:nat) (e:exp) : string + (list value * heap * list (mop * list value)) := 
     run (eval_exp n nil e) nil.
+
+  Require Import CoqCompile.Parse.
+  Require Import CoqCompile.CpsKConvert.
+  Definition evalstr (n:nat) (s:string) : string + (list value * heap * list (mop * list value)) := 
+    match Parse.parse_topdecls s with
+      | None => raise "Parsing failed."%string
+      | Some e => eval n (CPS_pure e)
+    end.
 
   (*
     Section TEST_EVAL.
