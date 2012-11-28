@@ -650,8 +650,11 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : (string *
 End globals.
 
   Definition generateGlobals (fs : list Low.function) : map_var (LLVM.value * LLVM.type) :=
-    fold (fun f map => let fname := f_name f in
-      Maps.add fname (LLVM.Global (runShow (show fname)),UNIVERSAL) map) Maps.empty fs.
+    fold (fun f map =>
+      let fname := f_name f in
+      let argTypes := PTR_TYPE::PTR_TYPE::(Low.count_to (fun _ => UNIVERSAL) (length (f_args f))) in
+      let type := LLVM.Pointer_t ADDR_SPACE (LLVM.Fn_t (RET_TYPE 1) argTypes false) in
+      Maps.add fname (LLVM.Global (runShow (show fname)),type) map) Maps.empty fs.
 
   Definition coq_error_decl := 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_error"%string nil nil None None None in
