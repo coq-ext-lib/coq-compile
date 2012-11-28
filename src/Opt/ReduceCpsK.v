@@ -1,4 +1,4 @@
-Require Import CoqCompile.Lambda CoqCompile.Cps CoqCompile.CpsUtil.
+Require Import CoqCompile.CpsK CoqCompile.CpsKUtil.
 Require Import ZArith String List Bool.
 Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Structures.Monads.
@@ -13,7 +13,7 @@ Set Implicit Arguments.
 Set Strict Implicit.
 
 Module Reduce.
-  Import MonadNotation CPS.
+  Import MonadNotation CPSK.
   Local Open Scope monad_scope.
 
   Section with_maps.
@@ -120,10 +120,25 @@ Module Reduce.
           | Int_p i => Int_o i
         end.
 
+      Definition reduce_k (k : cont) : m cont := ret k.
+
       Fixpoint reduce_exp (e:exp) : m exp :=
         match e with
-          | App_e v vs => 
-            liftM2 App_e (reduce_op v) (mapM reduce_op vs)
+          | AppK_e k vs => 
+            vs <- mapM reduce_op vs ;;
+            k <- reduce_k k ;;
+            ret (AppK_e k vs)
+          | LetK_e ks e =>
+            ks <- mapM (fun k => let '(k,xs,e) := k in
+              e <- reduce_exp e ;;
+              ret (k, xs, e)) ks ;;
+            e <- reduce_exp e ;;
+            ret (LetK_e ks e)
+          | App_e v ks vs => 
+            ks <- mapM reduce_k ks ;;
+            vs <- mapM reduce_op vs ;;
+            v <- reduce_op v ;;
+            ret (App_e v ks vs)
           | Let_e d e =>
             reduce_decl d (fun d => 
               match d with
@@ -184,13 +199,14 @@ Module Reduce.
           | Bind_d x w m vs =>
             vs' <- mapM reduce_op vs ;;
             k (Some (Bind_d x w m vs))
-          | Fn_d f xs e =>
+          | Fn_d f ks xs e =>
             e' <- reduce_exp e ;;
-              match match_etas xs e with
-                | None => k (Some (Fn_d f xs e))
-                | Some v => local (add f (Op_d f v)) (k None)
-              end
+            match match_etas ks xs e with
+              | None => k (Some (Fn_d f ks xs e))
+              | Some v => local (add f (Op_d f v)) (k None)
+            end
         end.
+
     End monadic.
 
     Require Import ExtLib.Data.Monads.ReaderMonad.

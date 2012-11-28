@@ -11,10 +11,10 @@ Import CPSK.
 
   (** returns the function name f if [fun x => e] is a simple eta expansion of the form
      [fun x => f x]. *)
-  Definition match_eta (x:var) (e:exp) : option op := 
+  Definition match_eta (k':cont) (x:var) (e:exp) : option op := 
     match e with 
-      | App_e op1 _ ((Var_o y)::nil) => 
-        if eq_dec y x then Some op1 else None
+      | App_e op1 (k::nil) ((Var_o y)::nil) => 
+        if eq_dec y x && eq_dec k k' then Some op1 else None
       | _ => None
     end.
   
@@ -27,10 +27,10 @@ Import CPSK.
   
   (** similar to the above, but for the general case of [fun (x1,...,xn) => e] being an
      eta-expansion of [fun (x1,...,xn) => f(x1,...,xn)]. *)
-  Definition match_etas (xs:list var) (e:exp) : option op := 
+  Definition match_etas (ks : list cont) (xs:list var) (e:exp) : option op := 
     match e with 
       | App_e op1 k ys =>
-        if eq_vars_ops xs ys then Some op1 else None
+        if eq_dec k ks && eq_vars_ops xs ys then Some op1 else None
       | _ => None
     end.
   
