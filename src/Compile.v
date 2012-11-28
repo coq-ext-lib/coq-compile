@@ -80,13 +80,14 @@ Module Compile.
 
   Module Opt.
     Require Import CoqCompile.Optimize.
-    Require CoqCompile.Opt.CseCps.
+    Require CoqCompile.Opt.CseCpsK.
     Require CoqCompile.Opt.DeadCodeCpsK.
 
     Definition optimization e : Type := Optimize.optimization e (sum string).
 
     Definition O0 : optimization CPSK.exp := fun x => ret x.
-    Definition O1 : optimization CPSK.exp := fun x => ret (DeadCodeCpsK.dce x).
+    Definition O1 : optimization CPSK.exp := fun x => 
+      ret (CseCpsK.Cse.cse (DeadCodeCpsK.dce x)).
 
     Definition runOpt {E} (o : optimization E) (e : E) : string + E := o e.
   End Opt.
