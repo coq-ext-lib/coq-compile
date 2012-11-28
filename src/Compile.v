@@ -81,13 +81,14 @@ Module Compile.
   Module Opt.
     Require Import CoqCompile.Optimize.
     Require CoqCompile.Opt.CseCps.
+    Require CoqCompile.Opt.DeadCodeCpsK.
 
-    Definition optimization : Type := Optimize.optimization CPS.exp (sum string).
-    Definition optimizationK : Type := Optimize.optimization CPSK.exp (sum string).
+    Definition optimization e : Type := Optimize.optimization e (sum string).
 
-    Definition O0 : optimizationK := fun x => ret x.
+    Definition O0 : optimization CPSK.exp := fun x => ret x.
+    Definition O1 : optimization CPSK.exp := fun x => ret (DeadCodeCpsK.dce x).
 
-    Definition runOpt (o : optimization) (e : CPS.exp) := o e.
+    Definition runOpt {E} (o : optimization E) (e : E) : string + E := o e.
   End Opt.
 
   Section Driver.
@@ -100,7 +101,7 @@ Module Compile.
 
     
     Variable word_size : nat.
-    Variable cps_opt :  Opt.optimizationK.
+    Variable cps_opt :  Opt.optimization CPSK.exp.
 
     Definition phase {T U} {S : Show U} (name : string) 
       (c : U -> string + T) (x : U)
@@ -203,7 +204,7 @@ Module CompileTest.
        ((S n~) (@ mult n (fact n~))))))"%string.
 
   Definition e_fact : Lambda.exp :=
-    Eval compute in 
+    Eval vm_compute in 
       match Parse.parse_topdecls fact with
         | None => Lambda.Var_e (Env.wrapVar ""%string)
         | Some o => o
