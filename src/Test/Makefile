@@ -45,5 +45,13 @@ False: runtime Even.v
 	llc false-opt.ll -o false-opt.s
 	clang false-opt.s -o false.native
 
+Compiler: runtime Compiler.v
+	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib Compiler.v
+	../Extraction/Wrapper.byte -O1 -i Compiler -t result -o compiler.ll
+	llvm-link rt.ll compiler.ll -S -o compiler-rt.ll
+	opt -O3 -S compiler-rt.ll -o compiler-opt.ll
+	llc compiler-opt.ll -o compiler-opt.s
+	clang compiler-opt.s -o compiler.native
+
 clean:
 	rm -f *.ll *.s *.native *.vo *.glob tmp_extr.*
