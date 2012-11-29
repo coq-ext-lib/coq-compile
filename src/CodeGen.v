@@ -1,5 +1,6 @@
 Require Import CoqCompile.Low.
 Require Import CoqCompile.LLVM.
+Require Import CoqCompile.TraceMonad.
 Require Import ZArith String List Bool.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Structures.Reducible.
@@ -73,11 +74,10 @@ Section monadic.
   Context {State_blks : MonadState (list LLVM.block) m}.
   Context {State_isExit : MonadState (option LLVM.label) m}.
   Context {Writer_cfg : MonadWriter Monoid_CFG m}.
-  Context {State_trace : MonadState (list string) m}.
+  Context {Trace : MonadTrace string m}.
 
   Definition trace (s : string) : m unit :=
-    ls <- get (MonadState := State_trace) ;;
-    put (MonadState := State_trace) (s::ls).
+    mlog s.
 
   Definition freshVar (v : Env.var) : m LLVM.var :=
     x <- get ;;
@@ -575,19 +575,22 @@ Section monadic.
 
 End monadic.
 
+Section generate.
+Variable m' : Type -> Type.
+Context {Monad : Monad m'}.
+Context {Exception : MonadExc string m'}.
+Context {Trace : MonadTrace string m'}.
+
 Definition m : Type -> Type :=
-    eitherT string (writerT (Monoid_CFG) (readerT (map_ctor Z) (readerT (LLVM.var * LLVM.var) (stateT (map_var lvar)
-(stateT (option LLVM.label) (stateT (list LLVM.block) (stateT LLVM.block (stateT (nat * nat) (state (list string)))))))
-))).
+    writerT (Monoid_CFG) (readerT (map_ctor Z) (readerT (LLVM.var * LLVM.var) (stateT (map_var lvar)
+(stateT (option LLVM.label) (stateT (list LLVM.block) (stateT LLVM.block (stateT (nat * nat) m'))))))).
 
-Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : (string * list string) + (T  * CFG * list LLVM.block * list string) :=
-    let res := (runState (runStateT (runStateT (runStateT (runStateT (evalStateT (runReaderT (runReaderT (runWriterT (unEitherT cmd)) ctor_m) ("base", "limit")%string) var_m) None) nil) (None, nil)) (0,0)) nil) in
-    match res with
-      | ((((((inl e, _), _), _), _), _), t) => inl (e,t)
-      | ((((((inr x, cfg), _), l), b), _), t) => inr (x, cfg, b :: l,t)
-    end.
+Definition runM T (ctor_m : map_ctor Z) (var_m : map_var lvar) (cmd : m T) : m' (T  * CFG * list LLVM.block) :=
+  res <- runStateT (runStateT (runStateT (runStateT (evalStateT (runReaderT (runReaderT (runWriterT cmd) ctor_m) ("base","limit")%string) var_m) None) nil) (None,nil)) (0,0) ;;
+  let '(r,cfg,_,blocks,entry,_) := res in
+  ret (r,cfg,entry::blocks).
 
-Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (entry : label) (blocks : alist label block) : (string * list string) + ((list (label * list (LLVM.var * LLVM.type))) * CFG * list LLVM.block * list string) :=
+Definition runGenBlocks (ctor_m : map_ctor Z) (var_m : map_var lvar) (entry : label) (blocks : alist label block) : m' ((list (label * list (LLVM.var * LLVM.type))) * CFG * list LLVM.block) :=
   runM ctor_m var_m (genBlocks (m := m) entry blocks).
 
 Fixpoint combine_with {A B C} (f : A -> B -> C) (l : list A) (l' : list B) : option (list C) :=
@@ -606,8 +609,7 @@ Definition generatePhi (f : LLVM.var * LLVM.type) (vs : list (LLVM.value * label
   let '(v,t) := f in
   LLVM.Assign_i (Some (%v)) (LLVM.Phi_e t vs).
 
-Definition rewriteBlock (cfg : CFG) (formals : alist label (list (LLVM.var * LLVM.type))) (block : LLVM.block) : string + LLVM.block.
-refine (
+Definition rewriteBlock (cfg : CFG) (formals : alist label (list (LLVM.var * LLVM.type))) (block : LLVM.block) : m' LLVM.block :=
   match block with
     | (None,_) => ret block
     | (Some lbl,intrs) =>
@@ -628,7 +630,7 @@ refine (
                   match combine_with (fun f a => (f,a)) formals args with
                     | Some phi_recs =>
                       let phis := map (fun e => let '(f,a) := e in generatePhi f a) phi_recs in
-                        ret (Some lbl,phis ++ intrs)
+                      ret (Some lbl,phis ++ intrs)
                     | _ => raise ("Control-flow graph inconsisent with Low.function: wrong number of args\n" ++
                                   "block: " ++ (to_string lbl) ++ " " ++
                                   "formals: " ++ (to_string formals) ++ " " ++
@@ -640,10 +642,9 @@ refine (
             | _ => raise "Inconsistent phi node argument counts"%string
           end
       end
-  end).
-Defined.
+  end.
 
-Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : (string * list string) + LLVM.topdecl :=
+Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : m' LLVM.topdecl :=
   let f_params : list (LLVM.type * LLVM.var * list LLVM.param_attr) := 
     let formals :=
       Reducible.map (fun (x : Env.var) => (UNIVERSAL, runShow (show x) : string, nil : list LLVM.param_attr)) (f_args f) in
@@ -654,18 +655,12 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : (string *
   let locals : map_var lvar := fold_left (fun (acc : map_var lvar) v => 
     let lv : LLVM.var := runShow (show v) in Maps.add v lv acc) (f_args f) Maps.empty
   in  
-  match runGenBlocks ctor_m locals (f_entry f) (f_body f) with
-    | inl e => inl e
-    | inr (formals,cfg,blocks,t) =>
-      let addPhis :=
-        finalBlocks <- mapM (rewriteBlock cfg formals) blocks ;;
-        ret (LLVM.Define_d header finalBlocks) in
-      match addPhis with
-        | inl e => inl (e,t)
-        | inr p => inr p
-      end
-  end.
+  runBlocks <- runGenBlocks ctor_m locals (f_entry f) (f_body f) ;;
+  let '(formals,cfg,blocks) := runBlocks in
+  finalBlocks <- mapM (rewriteBlock cfg formals) blocks ;;
+  ret (LLVM.Define_d header finalBlocks).
 
+End generate.
 End globals.
 
   Definition generateGlobals (fs : list Low.function) : map_var (LLVM.value * LLVM.type) :=
@@ -687,21 +682,18 @@ End maps.
 End sized.
 
 Section program.
+Variable m : Type -> Type.
+Context {Monad : Monad m}.
+Context {Exception : MonadExc string m}.
+Context {Trace : MonadTrace string m}.
+
 Variable map_ctor : Type -> Type.
 Context {M_ctor : forall x, Foldable (map_ctor x) (constructor * x)}.
 Context {FM_ctor : DMap constructor map_ctor}.
 
-(* XXX Need to resolve the missing context DSet (lset (@eq (label * list LLVM.value))) (@eq (label * list LLVM.value)) *)
-
-Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : string + LLVM.module :=
+Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : m LLVM.module :=
   let globals := generateGlobals (FM := DMap_alist RelDec_var_eq) word_size (p_topdecl p) in
-  let program := 
-    decls <- mapM (M := Monad_either (string * list string)) (generateFunction word_size globals mctor) (p_topdecl p) ;;
-    ret (coq_error_decl :: coq_done_decl word_size :: decls) 
-  in
-  match program with
-    | inl (e,t) => inl (e ++ "  " ++ to_string t)%string
-    | inr p => inr p
-  end.
+  decls <- mapM (generateFunction word_size globals mctor) (p_topdecl p) ;;
+  ret (coq_error_decl :: coq_done_decl word_size :: decls).
 
 End program.

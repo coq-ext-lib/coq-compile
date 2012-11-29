@@ -144,15 +144,12 @@ Module Compile.
       let _ : CPSK.exp := opt_e in
       clo_conv_e <- phase "Closure Convert"%string (@CloConvK.ClosureConvert.cloconv_exp _ _ _) cps_e ;;
       low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x))) (fun x => CoqCompile.CpsK2Low.cpsk2low _ (fst x) (snd x)) clo_conv_e ;;
-      phase "CodeGen" (fun x => match CodeGen.generateProgram word_size mctor x with
-                                  | inl x => raise x
-                                  | inr x => ret x
-                                end) low.
+      phase "Codegen" (CodeGen.generateProgram word_size mctor) low.
 
-    Definition topCompile_string (e : Lambda.exp) : (string + string) * list string :=
-      match unIdent (traceTraceT (unEitherT (topCompile true e))) with
-        | (inl e, t) => (inl e, t)
-        | (inr mod', t) => (inr (runShow (show mod') ""%string), t)
+    Definition topCompile_string (io : bool) (e : Lambda.exp) : (string + string) :=
+      match unIdent (traceTraceT (unEitherT (topCompile io e))) with
+        | (inl e, t) => inl (e ++ to_string t)%string
+        | (inr mod', t) => inr (runShow (show mod') ""%string)
       end.
     
     Definition stringToCPS (s : string) : string :=
@@ -197,16 +194,11 @@ Module Compile.
       end.
 *)
 
-    Definition topCompileFromStr (io : bool) (e:string) : (string + string) * list string :=
+    Definition topCompileFromStr (io : bool) (e:string) : (string + string) :=
       match Parse.parse_topdecls e with
-        | None => (inl "Failed to parse."%string, nil)
-        | Some e =>
-          match runM (topCompile io e) with
-            | (inl e, t) => (inl e, t)
-            | (inr m, t) => (inl (LLVM.LLVM.string_of_module m), t)
-          end
+        | None => inl "Failed to parse."%string
+        | Some e => topCompile_string io e
       end.
-    
   End Driver.
 
 End Compile.
