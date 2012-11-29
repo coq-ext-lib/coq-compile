@@ -14,7 +14,7 @@ Extraction Blacklist String List.
 Require Import CoqCompile.Compile.
 (* FIXME Replacing following definition because of issues with exposed monad parameter for optimization choices *)
 (* Definition topcompile := Compile.Compile.topCompileFromStr 8. *)
-Definition topcompile := Compile.Compile.topCompileFromStr 8 (@Compile.Opt.O0 Compile.m _).
+Definition topcompile := Compile.Compile.topCompileFromStr 8 Compile.Opt.O0.
 Extraction "Extraction/Compile.ml" topcompile.
 
 Require Import CoqCompile.CpsKSemantics.

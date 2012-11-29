@@ -67,26 +67,25 @@ Module Compile.
 
   End maps.
 
+  Definition m : Type -> Type :=
+    eitherT string (traceT string ident).
+
+  Definition runM {A} (c : m A) : (string + A) * list string :=
+    unIdent (traceTraceT (unEitherT c)).
+
 
   Module Opt.
     Require Import CoqCompile.Optimize.
     Require CoqCompile.Opt.CseCpsK.
     Require CoqCompile.Opt.DeadCodeCpsK.
 
-    Section monadic.
-      Variable m : Type -> Type.
-      Context {Monad_m : Monad m}.
-      Context {MonadExc_m : MonadExc string m}.
-      Context {MoandTrace_m : MonadTrace string m}.
-
-      Definition optimization e : Type := Optimize.optimization e m.
-
-      Definition O0 : optimization CPSK.exp := fun x => ret x.
-      Definition O1 : optimization CPSK.exp := fun x => 
-        ret (CseCpsK.Cse.cse (DeadCodeCpsK.dce x)).
-
-      Definition runOpt {E} (o : optimization E) (e : E) : m E := o e.
-    End monadic.
+    Definition optimization e : Type := Optimize.optimization e m.
+    
+    Definition O0 : optimization CPSK.exp := fun x => ret x.
+    Definition O1 : optimization CPSK.exp := fun x => 
+      ret (CseCpsK.Cse.cse (DeadCodeCpsK.dce x)).
+    
+    Definition runOpt {E} (o : optimization E) (e : E) : m E := o e.
   End Opt.
 
     (* Definition m : Type -> Type := *)
@@ -107,17 +106,11 @@ Module Compile.
     Local Open Scope monad_scope.
     Import ShowNotation.
 
-    Definition m : Type -> Type :=
-      eitherT string (traceT string ident).
-
-    Definition runM {A} (c : m A) : (string + A) * list string :=
-      unIdent (traceTraceT (unEitherT c)).
-
     Definition makeCtorMap (e:Lambda.exp) : m (alist Lambda.constructor Z) :=
       evalStateT (@makeCtorMap' (alist Lambda.constructor) _ (stateT _ m) _ _ _ e) 2%Z.
 
     Variable word_size : nat.
-    Variable cps_opt :  @Opt.optimization m CPSK.exp.
+    Variable cps_opt :  @Opt.optimization CPSK.exp.
 
     Definition phase {T U} {S : Show U} (name : string) 
       (c : U -> m T) (x : U)
@@ -249,7 +242,7 @@ Module CompileTest.
     Compile.stringToLow fact.
 
   Eval vm_compute in
-    match Compile.runM (Compile.topCompile 8 (@Compile.Opt.O0 Compile.m _) false e_fact) with
+    match Compile.runM (Compile.topCompile 8 Compile.Opt.O0 false e_fact) with
       | (inl err, t) => (err, t)
       | (inr mod', t) => (to_string mod', t)
     end.
