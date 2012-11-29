@@ -352,7 +352,7 @@ Section monadic2.
         | CPSK.Fn_d f ks args e => tl_decl2low f ks args binders e
         | _ => raise ("Decl other than function found in top-lvl")%string
       end) fs ;;
-    entry <- tl_decl2low (Named_v "main"%string None) nil nil binders e ;;
-    ret {| p_topdecl := entry::fs; p_entry := (Named_v "main"%string None) |}.
+    entry <- tl_decl2low (Named_v "coq_main"%string None) nil nil binders e ;;
+    ret {| p_topdecl := entry::fs; p_entry := (Named_v "coq_main"%string None) |}.
 
 End monadic2.

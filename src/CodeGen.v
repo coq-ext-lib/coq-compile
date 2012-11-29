@@ -291,13 +291,13 @@ Section monadic.
     match t with
       | Struct_t ts =>
         fold (fun t a => a + sizeof t) 0 ts
-      | _ => WORD_SIZE
+      | _ => 1
     end.
 
   Definition generateAlloca T (allocs : list (var * primtyp)) (k : m T) : m T :=
     let doAlloc alloc k :=
       let '(v,t) := alloc in
-      let size := WORD_SIZE + sizeof t in
+      let size := 1 + sizeof t in
       addr <- forLocal v ;;
       emitExp addr (LLVM.Alloca_e UNIVERSAL (Some (UNIVERSAL, size)) None) ;;
       k
@@ -310,12 +310,10 @@ Section monadic.
   Definition doMalloc {T} (size:nat) (succ:LLVM.var -> m (LLVM.label * T)) (fail:m LLVM.label) : m T :=
     base <- getBase ;;
     limit <- getLimit ;;
-    baseCasted <- emitExpFresh (LLVM.Ptrtoint_e PTR_TYPE (% base) UNIVERSAL) ;;
-    limitCasted <- emitExpFresh (LLVM.Ptrtoint_e PTR_TYPE (% limit) UNIVERSAL) ;;
-    newBase <- emitExpFresh (LLVM.Add_e true false UNIVERSAL (% baseCasted) (LLVM.Constant (LLVM.Int_c (Z_of_nat size)))) ;;
-    newBaseCasted <- castToFresh PTR_TYPE (% newBase) ;;
-    test <- emitExpFresh (LLVM.Icmp_e LLVM.Ult UNIVERSAL (% newBase) (% limitCasted)) ;;
-    labelSucc <- withBaseLimit newBaseCasted limit (succ base) ;;
+    size <- opgen (Int_o (Z.of_nat size)) ;;
+    newBase <- emitExpFresh (LLVM.Getelementptr_e false PTR_TYPE (%base) ((UNIVERSAL,size)::nil)) ;;
+    test <- emitExpFresh (LLVM.Icmp_e LLVM.Ult PTR_TYPE (%newBase) (%limit)) ;;
+    labelSucc <- withBaseLimit newBase limit (succ base) ;;
     labelFail <- fail ;;
     emitInstr (LLVM.Br_cond_i (% test) (fst labelSucc) labelFail) ;;
     ret (snd labelSucc).
@@ -327,7 +325,7 @@ Section monadic.
     match build with
       | None =>
         let m :=
-          let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (LLVM.Global ERROR_LABEL) nil (LLVM.Noreturn :: nil) in
+          let call := LLVM.Call_e true CALLING_CONV nil LLVM.Void_t None (LLVM.Global ERROR_LABEL) nil (LLVM.Noreturn :: nil) in
           let instr := LLVM.Assign_i None call in
             emitInstr instr ;;
             emitInstr LLVM.Unreachable_i
@@ -339,20 +337,38 @@ Section monadic.
     end.
 
   Definition generateMalloc {T} (allocs : list (var * primtyp)) (k : m T) : m T :=
-    let size := fold (fun alloc acc => let '(_,t) := alloc in acc + WORD_SIZE + sizeof t) 0 allocs in
+    let size := fold (fun alloc acc =>
+      let '(_,t) := alloc in 
+      match sizeof t with
+        | 0 => acc
+        | n => acc + 1 + n
+      end) 0 allocs in
     let doGeps base allocs k :=
       let doGep alloc k offset :=
         let '(v,t) := alloc in
         let size := sizeof t in
-        len <- opgen (Int_o (Z.of_nat size)) ;;
-        begin <- opgen (Int_o (Z.of_nat offset)) ;;
-        hdr <- emitExpFresh (LLVM.Getelementptr_e false PTR_TYPE base ((UNIVERSAL,begin)::nil)) ;;
-        emitInstr (LLVM.Store_i false false UNIVERSAL len PTR_TYPE (%hdr) None None false) ;;
-        index <- opgen (Int_o (Z.of_nat 1)) ;;
-        addr <- emitExpFresh (LLVM.Getelementptr_e false PTR_TYPE (%hdr) ((UNIVERSAL,index)::nil)) ;;
-        x <- forLocal v ;;
-        castFrom x PTR_TYPE (%addr) ;;
-        k (offset + size + 1)
+        match size with
+          | 0 => 
+            comment ("Don't allocate empty tuples")%string ;;
+            x <- forLocal v ;;
+            castFrom x PTR_TYPE (LLVM.Constant LLVM.Undef_c) ;;
+            k offset
+          | size =>
+            len <- opgen (Int_o (Z.of_nat size)) ;;
+            begin <- opgen (Int_o (Z.of_nat offset)) ;;
+            comment ("Allocating a tuple of size " ++ to_string len)%string ;;
+            comment ("At offset " ++ (to_string offset) ++ " of allocation")%string ;;
+            comment ("Get a pointer to the header")%string ;;
+            hdr <- emitExpFresh (LLVM.Getelementptr_e false PTR_TYPE base ((UNIVERSAL,begin)::nil)) ;;
+            comment ("Store the tuple size")%string ;;
+            emitInstr (LLVM.Store_i false false UNIVERSAL len PTR_TYPE (%hdr) None None false) ;;
+            index <- opgen (Int_o (Z.of_nat 1)) ;;
+            comment ("Get a pointer to the start of the object") ;;
+            addr <- emitExpFresh (LLVM.Getelementptr_e false PTR_TYPE (%hdr) ((UNIVERSAL,index)::nil)) ;;
+            x <- forLocal v ;;
+            castFrom x PTR_TYPE (%addr) ;;
+            k (offset + size + 1)
+        end
       in inFreshLabel ((fix recur allocs :=
         match allocs with
           | nil => (fun _ => k)
@@ -428,17 +444,17 @@ Section monadic.
     let arity := 1 in
     match conts with
       | nil =>    
-        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (%f) fnArgs (LLVM.Noreturn :: nil) in
+        let call := LLVM.Call_e true CALLING_CONV nil (RET_TYPE arity) None (%f) fnArgs (LLVM.Noreturn :: nil) in
         let instr := LLVM.Assign_i None call in
         emitInstr instr ;;
         emitInstr LLVM.Unreachable_i
       | (inl 0)::nil =>
         (* XXX NEED TO DEAL WITH OTHER ARITIES OF CONSTRUCTORS? CAST TO APPROPRIATE FUN TYPE? *)
-        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None (%f) fnArgs nil in
+        let call := LLVM.Call_e true CALLING_CONV nil (RET_TYPE arity) None (%f) fnArgs nil in
         result <- emitExpFresh call ;;
         emitInstr (LLVM.Ret_i (Some (RET_TYPE arity,%result)))
       | (inr lbl)::nil =>
-        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil (RET_TYPE arity) None (%f) fnArgs nil in
+        let call := LLVM.Call_e true CALLING_CONV nil (RET_TYPE arity) None (%f) fnArgs nil in
         result <- emitExpFresh call ;;
         let extractResult type index :=
           emitExpFresh (LLVM.Extractvalue_e (RET_TYPE arity) (%result) index nil)
@@ -463,7 +479,7 @@ Section monadic.
         let args := (PTR_TYPE, % base, nil) ::
                     (PTR_TYPE, % limit, nil) ::
                     (UNIVERSAL, o, nil) :: nil in
-        let call := LLVM.Call_e true (Some LLVM.Fast_cc) nil LLVM.Void_t None (LLVM.Global HALT_LABEL) args (LLVM.Noreturn :: nil) in
+        let call := LLVM.Call_e true CALLING_CONV nil LLVM.Void_t None (LLVM.Global HALT_LABEL) args (LLVM.Noreturn :: nil) in
         let instr := LLVM.Assign_i None call in
         emitInstr instr ;;
         emitInstr LLVM.Unreachable_i
