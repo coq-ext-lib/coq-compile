@@ -195,7 +195,7 @@ Module Compile.
   End Driver.
 
 End Compile.
-
+(*
 Module CompileTest.
   Import Lambda.
   Import LambdaNotation.
@@ -248,3 +248,4 @@ Module CompileTest.
     end.
 
 End CompileTest.
+*)

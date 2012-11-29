@@ -135,7 +135,7 @@ Module Cse.
   
   Definition cse (e : exp) : exp :=
     runReader (cse_exp e) (empty, empty).
-
+(*
   Section Tests.
     Import LambdaNotation.
     Require Import CoqCompile.CpsKConvert.
@@ -151,5 +151,5 @@ Module Cse.
     Eval compute in (exp2string (CPS_pure (gen cse2))).
     Eval compute in (exp2string (cse (CPS_pure (gen cse2)))).
   End Tests.
-
+*)
 End Cse.
