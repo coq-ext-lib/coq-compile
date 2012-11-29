@@ -53,10 +53,10 @@ Section maps.
   Variable map_lbl : Type -> Type.
   Context {Map_lbl : DMap label map_lbl}.
   Context {Foldable_lbl : forall a, Foldable (map_lbl a) (label * a)}.
-  Definition CFG := map_lbl (list (label * list LLVM.value)).
-(*  Context {DS: DSet (lset (@eq (label * list LLVM.value))) (@eq (label * list LLVM.value))}. *)
+  Context {DS_cfg : DSet (lset (@eq (label * list LLVM.value))) (@eq (label * list LLVM.value))}.
+  Definition CFG := map_lbl (lset (@eq (label * list LLVM.value))).
   Definition Monoid_CFG : Monoid.Monoid CFG :=
-    {| Monoid.monoid_plus := fun x y => Maps.combine (K := label) (fun k l r => l ++ r) x y
+    {| Monoid.monoid_plus := fun x y => Maps.combine (K := label) (fun k l r => union l r) x y
      ; Monoid.monoid_unit := Maps.empty |}.    
 
 Section globals.
@@ -448,8 +448,6 @@ Section monadic.
         result <- extractResult UNIVERSAL 2 ;;
         (* Call the next continuation here *)
         withBaseLimit newBase newLimit (
-          from <- getLabel ;;
-          trace ("generateCall: addJump to " ++ lbl ++ " from " ++ from) ;;
           addJump lbl ((%result)::nil) ;;
           emitInstr (LLVM.Br_uncond_i lbl)
         )
@@ -492,8 +490,6 @@ Section monadic.
           | inl _ => raise "Multiple continuations not supported yet"%string
           | inr lbl =>
             newArgs <- mapM opgen args ;;
-            from <- getLabel ;;
-            trace ("Cont_tm: addJump to " ++ lbl ++ " from " ++ from) ;;
             addJump lbl newArgs ;;
             emitInstr (LLVM.Br_uncond_i lbl)
         end
@@ -504,8 +500,6 @@ Section monadic.
             tag <- pgen p ;;
             inFreshLabel (
               args <- mapM opgen args ;;
-              from <- getLabel ;;
-              trace ("Switch_tm: addJump to " ++ target ++ " from " ++ from) ;;
               addJump target args ;;
               emitInstr (LLVM.Br_uncond_i target) ;;
               ret tag
@@ -517,8 +511,6 @@ Section monadic.
                      | Some (target,args) =>
                        inFreshLabel (
                          args <- mapM opgen args ;;
-                         from <- getLabel ;;
-                         trace ("Switch_tm default: addJump to " ++ target ++ " from " ++ from) ;;
                          addJump target args ;;
                          emitInstr (LLVM.Br_uncond_i target) ;;
                          ret tt
