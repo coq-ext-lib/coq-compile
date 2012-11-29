@@ -35,8 +35,8 @@ Section sized.
   Definition UNIVERSAL : LLVM.type := LLVM.I_t (8 * WORD_SIZE).
   Definition ADDR_SPACE : nat := 0.
 
-  Definition CALLING_CONV := Some LLVM.X86_fastcallcc.
-  Definition GC_NAME := Some "shadow-stack"%string.
+  Definition CALLING_CONV : option LLVM.cconv := None.
+  Definition GC_NAME : option string := None.
 
   Definition PTR_TYPE := LLVM.Pointer_t ADDR_SPACE UNIVERSAL.
 
