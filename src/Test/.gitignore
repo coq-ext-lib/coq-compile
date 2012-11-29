@@ -3,4 +3,4 @@
 *.s
 *.native
 tmp_extr.*
-
+*.dSYM
