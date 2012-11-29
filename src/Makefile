@@ -32,11 +32,16 @@ Makefile.coq: Makefile $(VS)
 Makefile.test.coq: Makefile $(TVS)
 	coq_makefile $(ARGS) $(TVS) -o Makefile.test.coq
 
-test: coq Makefile.test.coq
-	$(MAKE) -f Makefile.test.coq
+runtime:
+	$(MAKE) -C Runtime
+
+test: coq compiler runtime
+	$(MAKE) -C Test test
 
 clean:: Makefile.coq
 	$(MAKE) -f Makefile.coq clean
+	$(MAKE) -C Runtime clean
+	$(MAKE) -C Test clean
 	rm -f Makefile.coq .depend
 
 admit:
