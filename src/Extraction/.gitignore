@@ -1,4 +1,6 @@
 Compile.ml
 Compile.mli
+CpsKSemantics.ml
+CpsKSemantics.mli
 Wrapper.byte
 _build
