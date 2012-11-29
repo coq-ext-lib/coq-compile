@@ -1,5 +1,5 @@
 Require Import String.
-Require Import CoqCompile.Cps.
+Require Import CoqCompile.CpsK.
 Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Structures.Reducible.
@@ -8,7 +8,7 @@ Require Import ExtLib.Data.Monads.StateMonad.
 Require Import ExtLib.Data.Option.
 Require Import ExtLib.Programming.Show.
 
-Import Cps.CPS.
+Import CpsK.CPSK.
 
 Section AbstractDomain.
   
@@ -44,8 +44,8 @@ Section AbstractDomain.
   }.
 
   Class FnValue (V C D : Type) (exp : Type) : Type :=
-  { injFn  : C -> list var -> exp -> V 
-  ; applyA : forall {m} {_ : Monad m}, (C -> D -> exp -> m (V * D)%type) -> V -> list V -> m (V * D)%type
+  { injFn  : C -> list cont -> list var -> exp -> V 
+  ; applyA : forall {m} {_ : Monad m}, (C -> D -> exp -> m D%type) -> V -> list cont -> list V -> m D%type
   }.
 
   Class TplValue (V : Type) : Type :=
@@ -59,7 +59,7 @@ End AbstractDomain.
 Section AI.
   Variables D C V : Type.
   Context {AbsTime_C  : AbsTime C}.
-  Context {AbsValue_V : AbsDomain D V C var}.
+  Context {AbsValue_V : AbsDomain D V C (var + cont)}.
   Context {IntValue_V : IntValue V}.
   Context {BoolValue_V : BoolValue V}.
   Context {FnValue_V  : FnValue V C D exp}.
@@ -93,7 +93,7 @@ Section AI.
           | Var_o v =>
             domain <- get ;;
             ctx <- ask ;;
-            ret (lookup ctx v domain)
+            ret (lookup ctx (inl v) domain)
           | Con_o c => ret bottomA (** TODO: Not done **)
           | Int_o i => ret (injInt (Some i))
           | InitWorld_o => ret bottomA (** TODO: ?? **)
@@ -144,14 +144,15 @@ Section AI.
               ;;
               ret (v, vA)
 
-            | Fn_d v args body =>
+            | Fn_d v ks args body =>
               ctx <- ask ;;
-              ret (v, injFn ctx args body)
+              ret (v, injFn ctx ks args body)
 
             | Bind_d v1 v2 m os =>
+              ret (v1, topA)
+(*              
               argsA <- mapM eval_op os ;;
               admit
-(*
               r <- bindA aeval m argsA ;;
               match r with
                 | (a1,a2) =>
@@ -162,40 +163,47 @@ Section AI.
           end ;;
           let '(v, vA) := v_vA in
           ctx <- ask (T := C) ;;
-          modify (update ctx v vA) ;;
+          modify (update ctx (inl v) vA) ;;
           ret tt.
 
-        Definition aeval : C -> D -> exp -> m (V * D) :=
-          mfix3 _ (fun aeval => fix recur (ctx : C) (dom : D) (e : exp) : m (V * D) :=
-            match e return m (V * D) with
-              | App_e o os =>
+        Check @runM'.
+
+        Definition aeval : C -> D -> exp -> m D :=
+          mfix3 _ (fun aeval => fix recur (ctx : C) (dom : D) (e : exp) : m D :=
+            match e return m D with
+              | App_e o ks os =>
                 fA_argsA_d <- runM' (fA <- eval_op o ;;
                                      argsA <- mapM eval_op os ;;
                                      ret (fA, argsA)) ctx dom ;;
                 let '((fA, argsA), dom) := fA_argsA_d in
-                applyA aeval fA argsA 
+                applyA aeval fA ks argsA 
               | Let_e d e =>
                 v_dom <- runM' (eval_decl d) ctx dom ;;
                 let '(v, dom) := v_dom in
                 recur ctx dom e
+              | AppK_e k os =>
+                fA_argsA_d <- runM' (let fA := lookup ctx (inr k) dom in
+                                     argsA <- mapM eval_op os ;;
+                                     ret (fA, argsA)) ctx dom ;;
+                let _ : ((V * list V) * D) := fA_argsA_d in
+                let '((fA, argsA), dom)  := fA_argsA_d in
+                applyA aeval fA nil argsA 
+              | LetK_e ks e => admit
               | Letrec_e ds e =>
                 dom' <- runM' (iterM eval_decl ds) ctx dom ;;
                 recur ctx (snd dom') e
               | Switch_e o arms e =>
-                admit (*
-                s <- eval_op o ;;
-                armsR <- mapM (fun x => aeval (snd x)) arms ;;
-                let armsA := reduce bottomA (fun x => x) joinA armsR in
+                s <- runM' (eval_op o) ctx dom ;;
+                dom' <- foldM (fun x dom => 
+                  ctx <- ret ctx ;;
+                  recur ctx dom (snd x)) (ret dom) arms ;;
                 match e with
                   | Some e =>
-                    default <- recur e ;;
-                    ret (joinA armsA default)
-                  | None =>
-                    ret armsA
+                    recur ctx dom' e
+                  | None => ret dom'
                 end
-*)
               | Halt_e o1 o2 =>
-                admit (* eval_op o1 *)
+                ret dom
             end).
 
       End Transfer.
