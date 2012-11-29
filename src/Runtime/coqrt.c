@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/mman.h>
 
 #define DEFAULTHEAPSIZE 2097152 /* 2MB */
 #define UNIVERSAL uintptr_t
@@ -120,7 +121,7 @@ int main(int argc, char *argv[]) {
     usage(argv[0],-1);
 
   /* Initialize the heap */
-  UNIVERSAL *base = (UNIVERSAL *)sbrk((intptr_t)heapsize);
+  UNIVERSAL *base = (UNIVERSAL *)mmap(NULL, (intptr_t)heapsize, PROT_READ|PROT_WRITE, MAP_ANON|MAP_SHARED, -1, 0);
   if (base == (UNIVERSAL *)-1) {
     printf("Error: failed to initialize heap.\n");
     exit(-1);
