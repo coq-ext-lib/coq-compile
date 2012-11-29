@@ -22,7 +22,7 @@ let extract (m: string) (t: string) =
   flush extr;
   (* Run the extraction, then chop off the first 4 lines because
      the parser can't handle them *)
-  let status = Unix.system "coqc tmp_extr.v | tail -n +4 > tmp_extr.scheme" in
+  let status = Unix.system "coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib tmp_extr.v | tail -n +4 > tmp_extr.scheme" in
   match status with
     | Unix.WEXITED 0 -> 
       let scheme_file = open_in "tmp_extr.scheme" in

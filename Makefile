@@ -6,6 +6,9 @@ all: lib-update
 clean:
 	$(MAKE) -C src clean
 
+test:
+	$(MAKE) -C src test
+
 dist:
 	@ git archive HEAD -o $(PROJECT_NAME).tgz
 
