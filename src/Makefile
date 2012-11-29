@@ -12,7 +12,7 @@ TVS        := $(TESTS:%=%.v)
 
 ARGS :=-R . CoqCompile -R ../coq-ext-lib/theories ExtLib
 
-.PHONY: coq clean runtime
+.PHONY: coq clean runtime test
 
 coq: Makefile.coq
 	$(MAKE) -f Makefile.coq
