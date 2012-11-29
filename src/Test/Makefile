@@ -19,7 +19,7 @@ Ident: runtime Ident.v
 	llvm-link coqrt.ll ident.ll -S -o ident-coqrt.ll
 	opt -O3 -S ident-coqrt.ll -o ident-opt.ll
 	llc ident-opt.ll -o ident-opt.s
-	gcc -g ident-opt.s -o ident.native
+	clang ident-opt.s -o ident.native
 
 Fact: runtime Fact.v
 	coqc Fact.v
@@ -27,7 +27,7 @@ Fact: runtime Fact.v
 	llvm-link coqrt.ll fact.ll -S -o fact-coqrt.ll
 	opt -O3 -S fact-coqrt.ll -o fact-opt.ll
 	llc fact-opt.ll -o fact-opt.s
-	gcc -g fact-opt.s -o fact.native
+	clang fact-opt.s -o fact.native
 
 True: runtime Even.v
 	coqc Even.v
@@ -35,7 +35,7 @@ True: runtime Even.v
 	llvm-link coqrt.ll true.ll -S -o true-coqrt.ll
 	opt -O3 -S true-coqrt.ll -o true-opt.ll
 	llc true-opt.ll -o true-opt.s
-	gcc -g true-opt.s -o true.native
+	clang true-opt.s -o true.native
 
 False: runtime Even.v
 	coqc Even.v
@@ -43,7 +43,7 @@ False: runtime Even.v
 	llvm-link coqrt.ll false.ll -S -o false-coqrt.ll
 	opt -O3 -S false-coqrt.ll -o false-opt.ll
 	llc false-opt.ll -o false-opt.s
-	gcc -g false-opt.s -o false.native
+	clang false-opt.s -o false.native
 
 clean:
 	rm -f *.ll *.s *.native *.vo *.glob tmp_extr.*
