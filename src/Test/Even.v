@@ -8,3 +8,6 @@ with odd (n:nat) : bool :=
     | O => false
     | S n => even n
   end.
+
+Definition true := even 200.
+Definition false := even 201.
