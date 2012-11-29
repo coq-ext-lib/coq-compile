@@ -19,13 +19,13 @@ struct ret {
 extern struct ret coq_main(UNIVERSAL *base, UNIVERSAL *limit);
 
 bool debug = false;
-intptr_t heapsize = DEFAULTHEAPSIZE;
+size_t heapsize = DEFAULTHEAPSIZE;
 
 void coq_done(UNIVERSAL *base, UNIVERSAL *limit, UNIVERSAL o) {
   if (debug) {
     printf("Program terminated normally.\n");
     printf("Return value: %p\n", (void *)o);
-    intptr_t remaining = (intptr_t)((void *)limit - (void *)base);
+    size_t remaining = (void *)limit - (void *)base;
     printf("Bytes allocated: %ld\n", heapsize - remaining);
   }
   exit(0);
@@ -75,6 +75,7 @@ int main(int argc, char *argv[]) {
       }
       break;
     case 's':
+      /* FIXME: possible integer error? */
       heapsize = strtol(optarg, &rest, 0);
       if ((heapsize <= 0) || (strlen(rest) != 1))
 	usage(argv[0],-1);
@@ -82,7 +83,7 @@ int main(int argc, char *argv[]) {
       switch (*rest) {
       case 'k':
       case 'K':
-	if (heapsize > (INTPTR_MAX/1024)) {
+	if (heapsize > (SIZE_MAX/1024)) {
 	  printf("Heap size too large.\n");
 	  exit(-1);
 	}
@@ -90,7 +91,7 @@ int main(int argc, char *argv[]) {
 	break;
       case 'm':
       case 'M':
-	if (heapsize > (INTPTR_MAX/1048576)) {
+	if (heapsize > (SIZE_MAX/1048576)) {
 	  printf("Heap size too large.\n");
 	  exit(-1);
 	}
@@ -98,7 +99,7 @@ int main(int argc, char *argv[]) {
 	break;
       case 'g':
       case 'G':
-	if (heapsize > (INTPTR_MAX/1073741824)) {
+	if (heapsize > (SIZE_MAX/1073741824)) {
 	  printf("Heap size too large.\n");
 	  exit(-1);
 	}
@@ -121,20 +122,12 @@ int main(int argc, char *argv[]) {
     usage(argv[0],-1);
 
   /* Initialize the heap */
-  UNIVERSAL *base = (UNIVERSAL *)mmap(NULL, (intptr_t)heapsize, PROT_READ|PROT_WRITE, MAP_ANON|MAP_SHARED, -1, 0);
+  UNIVERSAL *base = (UNIVERSAL *)mmap(NULL, (size_t)heapsize, PROT_READ|PROT_WRITE, MAP_ANON|MAP_SHARED, -1, 0);
   if (base == (UNIVERSAL *)-1) {
     printf("Error: failed to initialize heap.\n");
     exit(-1);
   }
-  UNIVERSAL *limit = (UNIVERSAL *)sbrk(0);
-  if (((void *)limit - (void *)base) != heapsize) {
-    printf("Error: failed to initialize heap to required size.\n");
-    if (debug) {
-      printf("Requested: %lu\n", (uintptr_t) heapsize);
-      printf("Allocated: %lu\n", (uintptr_t)((void *)limit - (void *)base));
-    }
-    exit(-1);
-  }
+  UNIVERSAL *limit = (UNIVERSAL *)((void *)base + heapsize);
 
   /* Invoke the Coq program */
   coq_main(base,limit);
