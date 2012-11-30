@@ -122,8 +122,8 @@ int main(int argc, char *argv[]) {
     usage(argv[0],-1);
 
   /* Initialize the heap */
-  UNIVERSAL *base = (UNIVERSAL *)mmap(NULL, (size_t)heapsize, PROT_READ|PROT_WRITE, MAP_ANON|MAP_SHARED, -1, 0);
-  if (base == (UNIVERSAL *)-1) {
+  UNIVERSAL *base = (UNIVERSAL *)mmap(NULL, (size_t)heapsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+  if (base == (UNIVERSAL *)MAP_FAILED) {
     printf("Error: failed to initialize heap.\n");
     exit(-1);
   }
