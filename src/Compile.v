@@ -135,7 +135,7 @@ Module Compile.
       let _ : CPSK.exp := cps_e in
       opt_e <- phase "Optimize"%string cps_opt cps_e ;;
       let _ : CPSK.exp := opt_e in
-      clo_conv_e <- phase "Closure Convert"%string (@CloConvK.ClosureConvert.cloconv_exp _ _ _) cps_e ;;
+      clo_conv_e <- phase "Closure Convert"%string (@CloConvK.ClosureConvert.cloconv_exp _ _ _) opt_e ;;
       low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x))) (fun x => CoqCompile.CpsK2Low.cpsk2low _ (fst x) (snd x)) clo_conv_e ;;
       phase "Codegen" (CodeGen.generateProgram word_size mctor) low.
 
