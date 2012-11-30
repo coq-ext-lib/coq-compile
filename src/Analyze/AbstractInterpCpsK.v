@@ -16,6 +16,8 @@ Section AbstractDomain.
   { (** What does this have? 
      ** - there should be a way to refine a context to include some pure fact, e.g.
      **   "assume this equality"
+     ** - there should also be a way to record a stack of call sites for context
+     **   analysis
      **)
   }.
   
@@ -23,7 +25,8 @@ Section AbstractDomain.
   { lookup  : Context -> ProgramPoint -> Domain -> Value
   ; update  : Context -> ProgramPoint -> Value -> Domain -> Domain
   ; joinA   : Value -> Value -> Value
-  ; bottomA : Value (** this means nothing **)
+  ; uninitA : Value (** this mean uninitialized **)
+  ; bottomA : Value (** this means empty, i.e. never has a value **)
   ; topA    : Value (** this means anything of any type **)
   }.
 
@@ -138,7 +141,7 @@ Section AI.
                   | Minus_p , l :: r :: nil => ret (minusA l r)
                   | Times_p , l :: r :: nil => ret (timesA l r)
                   | MkTuple_p , argsA => ret (injTuple argsA)
-                  | Proj_p , l :: r :: nil => admit
+                  | Proj_p , l :: r :: nil => ret (projA l r)
                   | _ , _ => lift (lift (illFormed_decl (Prim_d v p os)))
                 end
               ;;
@@ -166,8 +169,6 @@ Section AI.
           modify (update ctx (inl v) vA) ;;
           ret tt.
 
-        Check @runM'.
-
         Definition aeval : C -> D -> exp -> m D :=
           mfix3 _ (fun aeval => fix recur (ctx : C) (dom : D) (e : exp) : m D :=
             match e return m D with
@@ -190,6 +191,7 @@ Section AI.
                 applyA aeval fA nil argsA 
               | LetK_e ks e => admit
               | Letrec_e ds e =>
+                (** TODO: we aren't tying the knot correctly **)
                 dom' <- runM' (iterM eval_decl ds) ctx dom ;;
                 recur ctx (snd dom') e
               | Switch_e o arms e =>
