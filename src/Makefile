@@ -3,7 +3,7 @@ CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKSemantics Low LLVM \
 	      CpsKIO CpsKConvert \
 	      Optimize
 OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK
-ANALYSIS   := OccurCps AbstractInterpCps # SimpleAnalysis
+ANALYSIS   := OccurCps AbstractInterpCpsK # SimpleAnalysis
 COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGen CloConvK CpsK2Low Compile
 MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE)
 TESTS      :=
