@@ -15,7 +15,7 @@ Import CpsK.CPSK.
 
 Section AbstractDomain.
   
-  Class AbsTime (C : Type) : Type :=
+  Class AbsTime (C : Type): Type :=
   { (** What does this have? 
      ** - there should be a way to refine a context to include some pure fact, e.g.
      **   "assume this equality"
@@ -213,6 +213,7 @@ Module CFA0.
 
 End CFA0.
 
+Axiom RelDec_exp : RelDec (@eq exp).
 
 (** NOTE: This is poorly coded
  ** Don't use a random second monad to be cool
@@ -225,6 +226,7 @@ Section AI.
   Context {BoolValue_V : BoolValue V}.
   Context {FnValue_V  : FnValue V C D exp}.
   Context {TplValue_V : TplValue V}.
+  Context {RelDec_c : RelDec (@eq C)}.
 
   Import MonadNotation.
   Local Open Scope monad_scope.
@@ -235,7 +237,7 @@ Section AI.
       Context {Monad_m : Monad m}.
       Context {Exc_m : MonadExc string m}.
       Context {Fix_m : MonadFix m}.
-      (** BFS **)
+      (** DFS **)
       Context {State_m : MonadState (alist (C * exp) D) m}.
 
       Definition m' : Type -> Type := 
@@ -325,6 +327,62 @@ Section AI.
           ret tt.
 
         Definition aeval : C -> D -> exp -> m D :=
+          mfix3 _ (fun aeval => 
+            fun (ctx : C) (dom : D) (e : exp) =>
+              memo <- gets (Maps.lookup (ctx, e)) ;;
+              let _ : option D := memo in
+              let stop :=
+                false
+              in
+              if stop then ret dom
+              else
+                (fix recur (ctx : C) (dom : D) (e : exp) : m D :=
+                  match e return m D with
+                    | App_e o ks os =>
+                      let argsK := List.map (fun k => lookup ctx (inr k) dom) ks in
+                        fA_argsA_d <- runM' (fA <- eval_op o ;;
+                          argsA <- mapM eval_op os ;;
+                          ret (fA, argsK, argsA)) ctx dom ;;
+                        let '((fA, argsK, argsA), dom) := fA_argsA_d in
+                          applyA aeval dom fA argsK argsA 
+                    | Let_e d e =>
+                      v_dom <- runM' (eval_decl d) ctx dom ;;
+                      let '(v, dom) := v_dom in
+                        recur ctx dom e
+                    | AppK_e k os =>
+                      fA_argsA_d <- runM' (let fA := lookup ctx (inr k) dom in
+                        argsA <- mapM eval_op os ;;
+                        ret (fA, argsA)) ctx dom ;;
+                      let _ : ((V * list V) * D) := fA_argsA_d in
+                        let '((fA, argsA), dom)  := fA_argsA_d in
+                          applyA aeval dom fA nil argsA 
+                    | LetK_e ks e =>
+                      dom' <- runM' 
+                      (iterM (fun kxse => let '(k,xs,e) := kxse in
+                        modify (update ctx (inr k) (injFn ctx nil xs e)) ;;
+                        ret tt) ks) ctx dom ;;
+                      recur ctx (snd dom') e
+                    | Letrec_e ds e =>
+                      dom' <- runM' 
+                      (iterM init_decl ds ;;
+                        iterM eval_decl ds) ctx dom ;;
+                      recur ctx (snd dom') e
+                    | Switch_e o arms e =>
+                      s <- runM' (eval_op o) ctx dom ;;
+                      dom' <- foldM (fun x dom => 
+                        ctx <- ret ctx ;;
+                        recur ctx dom (snd x)) (ret dom) arms ;;
+                      match e with
+                        | Some e =>
+                          recur ctx dom' e
+                        | None => ret dom'
+                      end
+                    | Halt_e o1 o2 =>
+                      ret dom
+                  end) ctx dom e).
+
+(*
+        Definition aeval : C -> D -> exp -> m D :=
           mfix3 _ (fun aeval => fix recur (ctx : C) (dom : D) (e : exp) : m D :=
             match e return m D with
               | App_e o ks os =>
@@ -369,6 +427,7 @@ Section AI.
               | Halt_e o1 o2 =>
                 ret dom
             end).
+*)
 
       End Transfer.
 
