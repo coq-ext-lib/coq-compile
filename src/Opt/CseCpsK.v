@@ -98,7 +98,7 @@ Module Cse.
           | Letrec_e ds e =>
             (fix go ds acc k :=
               match ds with
-                | nil => k ds
+                | nil => k acc
                 | d :: ds => 
                   cse_decl d (fun d =>
                     go ds (d :: acc) k)
@@ -135,6 +135,7 @@ Module Cse.
   
   Definition cse (e : exp) : exp :=
     runReader (cse_exp e) (empty, empty).
+
 (*
   Section Tests.
     Import LambdaNotation.
@@ -150,6 +151,10 @@ Module Cse.
     
     Eval compute in (exp2string (CPS_pure (gen cse2))).
     Eval compute in (exp2string (cse (CPS_pure (gen cse2)))).
+
+    Eval compute in (exp2string (CPS_pure (gen e8))).
+    Eval compute in (exp2string (cse (CPS_pure (gen e8)))).
   End Tests.
 *)
+
 End Cse.
