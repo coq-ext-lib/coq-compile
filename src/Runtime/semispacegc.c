@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/mman.h>
 
 universal_t *tobot, *totop;
@@ -11,6 +12,23 @@ universal_t *frombot, *fromtop;
 universal_t *curbot, *curtop;
 universal_t *queueptr, *endptr;
 size_t heapsize;
+
+static void segfault_handler(int sig, siginfo_t *si, void *unused) {
+  universal_t *fault = (universal_t *)si->si_addr;
+  printf("SIGSEGV at %p\n", fault);
+  universal_t *bot, *top;
+  if (curbot == frombot) {
+    bot = tobot;
+    top = totop;
+  } else {
+    bot = frombot;
+    top = fromtop;
+  }
+  if (bot <= fault && fault < top) {
+    printf("Fault in unused space\n");
+  }
+  exit(-1);
+}
 
 void gc_stats(bumpptr_t bumpptrs) {
   size_t remaining = (size_t)bumpptrs.limit - (size_t)bumpptrs.base;
@@ -58,6 +76,14 @@ bumpptr_t gc_init(size_t capacity) {
   if (debug) {
     if (mprotect((void *)tobot,heapsize,PROT_NONE) != 0) {
       printf("Warning: failed to mprotect unused space\n");
+    }
+
+    struct sigaction sa;
+    sa.sa_flags = SA_SIGINFO;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_sigaction = segfault_handler;
+    if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+      printf("Warning: failed to initialize segfault handler\n");
     }
   }
 
