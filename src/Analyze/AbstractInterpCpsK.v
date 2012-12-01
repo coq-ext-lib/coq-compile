@@ -13,10 +13,13 @@ Require Import ExtLib.Data.Map.FMapAList.
 
 Import CpsK.CPSK.
 
+Axiom RelDec_exp : RelDec (@eq exp).
+
 Section AbstractDomain.
   
-  Class AbsTime (C : Type): Type :=
-  { (** What does this have? 
+  Class AbsTime (C : Type) (RD : RelDec (@eq C)) : Type :=
+  {
+    (** What does this have? 
      ** - there should be a way to refine a context to include some pure fact, e.g.
      **   "assume this equality"
      ** - there should also be a way to record a stack of call sites for context
@@ -30,6 +33,7 @@ Section AbstractDomain.
   ; joinA   : Value -> Value -> Value
   ; bottomA : Value (** this means empty, i.e. never has a value **)
   ; topA    : Value (** this means anything of any type **)
+  ; dom_leq   : Domain -> Domain -> bool
   }.
 
   Class IntValue (V : Type) : Type :=
@@ -65,6 +69,8 @@ Module CFA0.
   
   Section Context_aware.
     Variable Context : Type.
+    Context {RelDec_c : RelDec (@eq Context)}.
+    Context {AbsTime_c : AbsTime Context RelDec_c}.
 
     Definition AbstractLocation : Type := var.
     Inductive PtValue : Type :=
@@ -74,7 +80,39 @@ Module CFA0.
     | Clo : Context -> list cont -> list var -> exp -> PtValue
     with Value := 
     | Values : list PtValue -> Value (** use set **)
-    | Any    : Value. 
+    | Any    : Value.
+
+    Fixpoint val_leq (v1 v2:Value) : bool :=
+      match v1, v2 with
+        | Any, Any => true
+        | Values vs1, Values vs2 =>
+          List.fold_left (fun acc x => 
+            match find (fun y => ptval_leq x y) vs2 with
+              | None => false
+              | Some _ => acc
+            end) vs1 true
+        | _, Any => true
+        | _, _ => false
+      end
+    with ptval_leq (v1 v2:PtValue) : bool :=
+      match v1, v2 with
+        | Int _, Int _ => true
+        | Tpl vs1, Tpl vs2 => 
+          (fix fold_left2 acc ls1 ls2 :=
+            match ls1, ls2 with
+              | nil, nil => acc
+              | x1::ls1, x2::ls2 =>
+                if val_leq x1 x2 then acc else false
+              | _, _ => false
+            end) true vs1 vs2
+        | Clo c1 ks1 xs1 e1, Clo c2 ks2 xs2 e2 =>
+          rel_dec c1 c2 &&
+          rel_dec ks1 ks2 &&
+          rel_dec xs1 xs2 &&
+          rel_dec e1 e2   
+        | _, _ => false
+      end.
+
     Definition Domain : Type := alist (var + cont) Value.
     Definition ProgramPoint : Type := (var + cont)%type.
 
@@ -101,6 +139,13 @@ Module CFA0.
     ; joinA   := joinValue
     ; bottomA := bottomValue
     ; topA    := Any
+    ; dom_leq   := fun dom1 dom2 => 
+      fold_alist (fun k v acc => 
+        match Maps.lookup k dom2 with
+          | None => false
+          | Some v' => val_leq v v'
+        end
+        ) true dom1
     }.
 
     Global Instance IntValue_Value : IntValue Value :=
@@ -199,34 +244,23 @@ Module CFA0.
               ret acc) (ret dom) clos
       end
     }.
-(*
-    refine (
-      aks axs = values from memo table ;;
-      if ks <= aks && vs' <= axs then 
-        ret dom
-      else
-        aeval c dom' e
-    ).
-*)
 
   End Context_aware.
 
 End CFA0.
-
-Axiom RelDec_exp : RelDec (@eq exp).
 
 (** NOTE: This is poorly coded
  ** Don't use a random second monad to be cool
  **)
 Section AI.
   Variables D C V : Type.
-  Context {AbsTime_C  : AbsTime C}.
+  Context {Context_dec : RelDec (@eq C)}.
+  Context {AbsTime_C  : AbsTime C Context_dec}.
   Context {AbsValue_V : AbsDomain D V C (var + cont)}.
   Context {IntValue_V : IntValue V}.
   Context {BoolValue_V : BoolValue V}.
   Context {FnValue_V  : FnValue V C D exp}.
   Context {TplValue_V : TplValue V}.
-  Context {RelDec_c : RelDec (@eq C)}.
 
   Import MonadNotation.
   Local Open Scope monad_scope.
@@ -330,9 +364,11 @@ Section AI.
           mfix3 _ (fun aeval => 
             fun (ctx : C) (dom : D) (e : exp) =>
               memo <- gets (Maps.lookup (ctx, e)) ;;
-              let _ : option D := memo in
               let stop :=
-                false
+                match memo with
+                  | None => false
+                  | Some dom' => dom_leq dom dom'
+                end
               in
               if stop then ret dom
               else
@@ -434,3 +470,5 @@ Section AI.
     End Monadic.
 End AI.
 
+Print Assumptions aeval.
+(* QED biatch but not really *)
