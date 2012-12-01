@@ -123,6 +123,23 @@ Section decidables.
     consider (string_dec c c0); intuition congruence.
     Transparent Env.RelDec_var_eq RelDec_zeq.
   Qed.
+
+  Global Instance RelDec_pattern_eq : RelDec (@eq pattern) :=
+  { rel_dec l r := match l , r with
+                     | Int_p i , Int_p i' => eq_dec i i'
+                     | Con_p c , Con_p c' => eq_dec c c'
+                     | _ , _ => false
+                   end }.
+
+  Global Instance RelDecCorrect_pattern_eq : RelDec_Correct RelDec_pattern_eq.
+  Proof.
+    Opaque Env.RelDec_var_eq RelDec_zeq.
+    constructor. destruct x ; destruct y ; simpl ; unfold eq_dec ; try congruence;
+    try rewrite rel_dec_correct ; intuition try congruence.
+    consider (string_dec c c0) ; intuition congruence.
+    consider (string_dec c c0) ; intuition congruence.
+    Transparent Env.RelDec_var_eq RelDec_zeq.
+  Qed.
 End decidables.
 
 Section Printing.

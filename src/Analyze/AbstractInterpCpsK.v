@@ -13,8 +13,6 @@ Require Import ExtLib.Data.Map.FMapAList.
 
 Import CpsK.CPSK.
 
-Axiom RelDec_exp : RelDec (@eq exp).
-
 Section AbstractDomain.
   
   Class AbsTime (C : Type) (RD : RelDec (@eq C)) : Type :=
@@ -469,6 +467,3 @@ Section AI.
 
     End Monadic.
 End AI.
-
-Print Assumptions aeval.
-(* QED biatch but not really *)
