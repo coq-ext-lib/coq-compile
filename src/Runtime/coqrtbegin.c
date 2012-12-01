@@ -1,32 +1,36 @@
+#include "coqrt.h"
+#include "gc.h"
+
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <stdint.h>
-#include <stdbool.h>
 #include <string.h>
-#include <sys/mman.h>
 
 #define DEFAULTHEAPSIZE 2097152 /* 2MB */
-#define UNIVERSAL uintptr_t
-
-struct ret {
-  UNIVERSAL *base;
-  UNIVERSAL *limit;
-  UNIVERSAL val;
-};
-
-extern struct ret coq_main(UNIVERSAL *base, UNIVERSAL *limit);
 
 bool debug = false;
-size_t heapsize = DEFAULTHEAPSIZE;
 
-void coq_done(UNIVERSAL *base, UNIVERSAL *limit, UNIVERSAL o) {
+bool is_ptr(universal_t *ptr) {
+  return ((universal_t)ptr & 0x1) == 0; 
+}
+
+universal_t *hdr(universal_t *ptr) {
+  return ptr - 1;
+}
+
+universal_t rec_len(universal_t *ptr) {
+  return *hdr(ptr);
+}
+
+bool is_rec(universal_t *ptr) {
+  return (rec_len(ptr) != 0);
+}
+
+void coq_done(bumpptr_t bumpptrs, universal_t o) {
   if (debug) {
     printf("Program terminated normally.\n");
     printf("Return value: %p\n", (void *)o);
-    size_t remaining = (void *)limit - (void *)base;
-    printf("Bytes allocated: %ld\n", heapsize - remaining);
+    gc_stats(bumpptrs);
   }
   exit(0);
 }
@@ -44,6 +48,8 @@ void usage(char *program, int exit_code) {
 }
 
 int main(int argc, char *argv[]) {
+  size_t heapsize = DEFAULTHEAPSIZE;
+
   /* Process command line options */
   while (1) {
     static struct option long_options[] = {
@@ -122,14 +128,9 @@ int main(int argc, char *argv[]) {
     usage(argv[0],-1);
 
   /* Initialize the heap */
-  UNIVERSAL *base = (UNIVERSAL *)mmap(NULL, (size_t)heapsize, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-  if (base == (UNIVERSAL *)MAP_FAILED) {
-    printf("Error: failed to initialize heap.\n");
-    exit(-1);
-  }
-  UNIVERSAL *limit = (UNIVERSAL *)((void *)base + heapsize);
+  bumpptr_t heap = gc_init(heapsize);
 
   /* Invoke the Coq program */
-  coq_main(base,limit);
+  coq_main(heap);
   return 0;
 }

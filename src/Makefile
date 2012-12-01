@@ -38,6 +38,9 @@ runtime:
 test: coq compiler runtime
 	$(MAKE) -C Test test
 
+test-gc: coq compiler runtime
+	$(MAKE) -C Test test-gc
+
 clean:: Makefile.coq
 	$(MAKE) -f Makefile.coq clean
 	$(MAKE) -C Runtime clean

@@ -1,6 +1,8 @@
 all: Ident Fact True False
 
-test: Ident Fact True False
+.PHONY: runtime
+
+test: Ident Fact True False GC
 	echo Running Ident testcase...
 	./ident.native -d
 	echo Running Ident testcase...
@@ -9,9 +11,15 @@ test: Ident Fact True False
 	./true.native -d
 	echo Running even 201 testcase...
 	./false.native -d
+	echo Runnint gc testcase...
+	./gc.native -d
+
+test-gc: GC
+	./gc.native -d --Xms=2k
 
 runtime:
 	cp ../Runtime/coqrt.ll coqrt.ll
+	cp ../Runtime/shadowstack.o shadowstack.o
 
 Ident: runtime Ident.v
 	coqc Ident.v
@@ -19,7 +27,7 @@ Ident: runtime Ident.v
 	llvm-link coqrt.ll ident.ll -S -o ident-coqrt.ll
 	opt -O3 -S ident-coqrt.ll -o ident-opt.ll
 	llc ident-opt.ll -o ident-opt.s
-	clang ident-opt.s -o ident.native
+	clang ident-opt.s shadowstack.o -o ident.native
 
 Fact: runtime Fact.v
 	coqc Fact.v
@@ -27,7 +35,7 @@ Fact: runtime Fact.v
 	llvm-link coqrt.ll fact.ll -S -o fact-coqrt.ll
 	opt -O3 -S fact-coqrt.ll -o fact-opt.ll
 	llc fact-opt.ll -o fact-opt.s
-	clang fact-opt.s -o fact.native
+	clang fact-opt.s shadowstack.o -o fact.native
 
 True: runtime Even.v
 	coqc Even.v
@@ -35,7 +43,7 @@ True: runtime Even.v
 	llvm-link coqrt.ll true.ll -S -o true-coqrt.ll
 	opt -O3 -S true-coqrt.ll -o true-opt.ll
 	llc true-opt.ll -o true-opt.s
-	clang true-opt.s -o true.native
+	clang true-opt.s shadowstack.o -o true.native
 
 False: runtime Even.v
 	coqc Even.v
@@ -43,7 +51,15 @@ False: runtime Even.v
 	llvm-link coqrt.ll false.ll -S -o false-coqrt.ll
 	opt -O3 -S false-coqrt.ll -o false-opt.ll
 	llc false-opt.ll -o false-opt.s
-	clang false-opt.s -o false.native
+	clang false-opt.s shadowstack.o -o false.native
+
+GC: runtime Even.v
+	coqc Even.v
+	../Extraction/Wrapper.byte -O1 -i Even -t gc_test -o gc.ll
+	llvm-link coqrt.ll gc.ll -S -o gc-coqrt.ll
+	opt -O3 -S gc-coqrt.ll -o gc-opt.ll
+	llc gc-opt.ll -o gc-opt.s
+	clang gc-opt.s shadowstack.o -o gc.native
 
 Compiler: runtime Compiler.v
 	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib Compiler.v
@@ -51,7 +67,7 @@ Compiler: runtime Compiler.v
 	llvm-link rt.ll compiler.ll -S -o compiler-rt.ll
 	opt -O3 -S compiler-rt.ll -o compiler-opt.ll
 	llc compiler-opt.ll -o compiler-opt.s
-	clang compiler-opt.s -o compiler.native
+	clang compiler-opt.s shadowstack.o -o compiler.native
 
 clean:
-	rm -f *.ll *.s *.native *.vo *.glob tmp_extr.*
+	rm -f *.ll *.s *.o *.native *.vo *.glob tmp_extr.*
