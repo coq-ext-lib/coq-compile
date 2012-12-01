@@ -147,15 +147,15 @@ Module Compile.
     
     Definition stringToCPS (s : string) : string :=
       match Parse.parse_topdecls s with
-        | None => "Failed to parse."%string
-        | Some e =>
+        | inl e => e
+        | inr e =>
           CpsK.CPSK.exp2string (CpsKConvert.CPS_pure e)
       end.
 
     Definition stringToClos (s : string) : string :=
       match Parse.parse_topdecls s with
-        | None => "Failed to parse."%string
-        | Some e =>
+        | inl e => e
+        | inr e =>
           match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
             | inr (ds,e) => to_string (CPSK.Letrec_e ds e)
@@ -164,8 +164,8 @@ Module Compile.
 
     Definition stringToLow (s : string) : string :=
        match Parse.parse_topdecls s with
-        | None => "Failed to parse."%string
-        | Some e =>
+        | inl e => e
+        | inr e =>
           match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
             | inr (decls,main) =>
@@ -188,10 +188,9 @@ Module Compile.
 *)
 
     Definition topCompileFromStr (io : bool) (e:string) : (string + string) :=
-      match Parse.parse_topdecls e with
-        | None => inl "Failed to parse."%string
-        | Some e => topCompile_string io e
-      end.
+      parse <- Parse.parse_topdecls e ;;
+      topCompile_string io parse.
+
   End Driver.
 
 End Compile.
