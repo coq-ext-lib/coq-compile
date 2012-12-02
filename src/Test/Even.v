@@ -15,4 +15,6 @@ Definition false := even 201.
 Definition gc_test :=
   let a := even 20 in
   let b := even 21 in
-  andb a b.
+  let c := even 22 in
+  let d := even 23 in
+  andb a (andb b (andb c d)).
