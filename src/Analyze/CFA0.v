@@ -12,14 +12,13 @@ Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Programming.Show.
 Require Import ExtLib.Data.Map.FMapAList.
-Require Import CoqCompile.Analyze.AbstractInterpCpsK.
+Require Import CoqCompile.Analyze.AbstractDomains.
 
 Import CpsK.CPSK.
 
 Section Context_aware.
   Variable Context : Type.
-  Context {RelDec_c : RelDec (@eq Context)}.
-  Context {AbsTime_c : AbsTime Context RelDec_c}.
+  Context {AbsTime_c : AbsTime Context}.
   
   Definition AbstractLocation : Type := var.
   Inductive PtValue : Type :=
@@ -174,7 +173,7 @@ Section Context_aware.
         | _ => None
       end) ls.
   
-  Global Instance FnValue_Value : FnValue Value Context Domain exp :=
+  Global Instance FnValue_Value : FnValue Value Context Domain :=
   { injFn := fun c ks xs e => Values (Clo c ks xs e :: nil)
   ; applyA := fun _ _ aeval dom v ks vs' =>
     match v with
@@ -192,18 +191,5 @@ Section Context_aware.
               ret acc) (ret dom) clos
     end
   }.
-  
-  Set Printing All.
-  Print aeval.
-
-  Local Open Scope monad_scope.
-
-  Print eitherT.
-
-  Definition cfa_0 : Domain.
-  refine (
-    let m := eitherT string (stateT (alist (Context*exp) Domain) (fuel (sum string))) in
-    let blah := aeval Domain Context _ in _
-  ).
 
 End Context_aware.
