@@ -187,25 +187,23 @@ Section monadic.
     Defined.
   End TOKENIZE.
 
-  (** Parsing *)
-  Fixpoint parse (ts:list token) (fuel:nat) : m (list (var * exp)) :=
-    match fuel with
-      | O => raise "Ran out of fuel during parse"
-      | S fuel =>
-        match ts with
-          | nil => ret nil
-          | LPAREN::DEFINE::(ID x)::ts1 =>
-            res <- parse_exp' ts1 fuel ;;
-            match res with
-              | (e,RPAREN::ts2) =>
-                es <- parse ts2 fuel ;;
-                ret ((Env.wrapVar x,e)::es)
-              | _ => raise "Parse error while parsing define"
-            end
-          | _ => raise "Parse error while parsing definitions"
-        end
-    end
-  with parse_exp' (ts:list token) (fuel:nat) : m (exp * (list token)) :=
+  Section parse_list.
+    Variable A : Type.
+    Variable p : list token -> m (A * list token).
+
+    Fixpoint parse_list (ts:list token) (fuel:nat) : m ((list A) * (list token)) :=
+      match fuel with
+        | O => raise "Ran out of fuel during parse_exp'list"
+        | S fuel =>
+          res <- p ts ;;
+          let '(e,ts2) := res in
+          res <- parse_list ts2 fuel ;;
+          let '(es,ts3) := res in
+          ret (e::es,ts3)
+      end.
+  End parse_list.
+
+  Fixpoint parse_exp' (ts:list token) (fuel:nat) : m (exp * (list token)) :=
     match fuel with
       | O => raise "Ran out of fuel during parse_exp'"
       | S fuel =>
@@ -245,7 +243,7 @@ Section monadic.
             res <- parse_exp' ts2 fuel ;;
             match res with
               | (e1,ts3) =>
-                res <- parse_exp'list ts3 fuel ;;
+                res <- parse_list (fun x => parse_exp' x fuel) ts3 (S fuel) ;;
                 match res with
                   | (es,RPAREN::ts4) =>
                     ret (fold_left App_e es e1,ts4)
@@ -305,17 +303,6 @@ Section monadic.
           | t::ts => raise ("Error parsing expression, unexpected token " ++ (to_string t) ++ " while trying to parse " ++ to_string (t::ts))%string
           | nil => raise "Error parsing expression, unexpected EOF"
         end
-    end
-
-  with parse_exp'list (ts:list token) (fuel:nat) : m ((list exp) * (list token)) :=
-    match fuel with
-      | O => raise "Ran out of fuel during parse_exp'list"
-      | S fuel =>
-        res <- parse_exp' ts fuel ;;
-        let '(e,ts2) := res in
-        res <- parse_exp'list ts2 fuel ;;
-        let '(es,ts3) := res in
-        ret (e::es,ts3)
     end
 
   with parse_conarglist (ts:list token) (fuel:nat) : m ((list exp) * (list token)) :=
@@ -402,6 +389,26 @@ Section monadic.
               | _ => raise "Error parsing declaration list, expecting lambda term"
             end
           | _ => ret (nil,ts)
+        end
+    end.
+
+
+  (** Parsing *)
+  Fixpoint parse (ts:list token) (fuel:nat) : m (list (var * exp)) :=
+    match fuel with
+      | O => raise "Ran out of fuel during parse"
+      | S fuel =>
+        match ts with
+          | nil => ret nil
+          | LPAREN::DEFINE::(ID x)::ts1 =>
+            res <- parse_exp' ts1 fuel ;;
+            match res with
+              | (e,RPAREN::ts2) =>
+                es <- parse ts2 fuel ;;
+                ret ((Env.wrapVar x,e)::es)
+              | _ => raise "Parse error while parsing define"
+            end
+          | _ => raise "Parse error while parsing definitions"
         end
     end.
 

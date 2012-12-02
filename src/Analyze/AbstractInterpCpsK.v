@@ -15,8 +15,8 @@ Import CpsK.CPSK.
 
 Section AbstractDomain.
   
-  Class AbsTime (C : Type) (RD : RelDec (@eq C)) : Type :=
-  {
+  Class AbsTime (C : Type) : Type :=
+  { ED :> RelDec (@eq C)
     (** What does this have? 
      ** - there should be a way to refine a context to include some pure fact, e.g.
      **   "assume this equality"
@@ -67,8 +67,7 @@ End AbstractDomain.
  **)
 Section AI.
   Variables D C V : Type.
-  Context {Context_dec : RelDec (@eq C)}.
-  Context {AbsTime_C  : AbsTime C Context_dec}.
+  Context {AbsTime_C  : AbsTime C}.
   Context {AbsValue_V : AbsDomain D V C (var + cont)}.
   Context {IntValue_V : IntValue V}.
   Context {BoolValue_V : BoolValue V}.
