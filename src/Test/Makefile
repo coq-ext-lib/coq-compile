@@ -1,12 +1,14 @@
-all: Ident Fact True False
+all: Ident Fact TRFact True False GC
 
 .PHONY: runtime
 
-test: Ident Fact True False GC
+test: Ident Fact TRFact True False GC
 	echo Running Ident testcase...
 	./ident.native -d
-	echo Running Ident testcase...
+	echo Running Factorial testcase...
 	./fact.native -d
+	echo Running Tail-recursive Factorial testcase...
+	./trfact.native -d
 	echo Running even 200 testcase...
 	./true.native -d
 	echo Running even 201 testcase...
@@ -15,7 +17,7 @@ test: Ident Fact True False GC
 	./gc.native -d
 
 test-gc: GC
-	./gc.native -d --Xms=2k
+	./gc.native -d --Xms=4k
 
 runtime:
 	cp ../Runtime/coqrt.ll coqrt.ll
@@ -36,6 +38,14 @@ Fact: runtime Fact.v
 	opt -O3 -S fact-coqrt.ll -o fact-opt.ll
 	llc fact-opt.ll -o fact-opt.s
 	clang fact-opt.s shadowstack.o -o fact.native
+
+TRFact: runtime Fact.v
+	coqc Fact.v
+	../Extraction/Wrapper.byte -O1 -i Fact -t tr_fact6 -o fact.ll
+	llvm-link coqrt.ll trfact.ll -S -o trfact-coqrt.ll
+	opt -O3 -S trfact-coqrt.ll -o trfact-opt.ll
+	llc trfact-opt.ll -o trfact-opt.s
+	clang trfact-opt.s shadowstack.o -o trfact.native
 
 True: runtime Even.v
 	coqc Even.v
