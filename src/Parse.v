@@ -165,9 +165,9 @@ Section monadic.
         the length of the input string.  That is, we must argue that the string
         is getting smaller each time around the loop. *)
     Program Fixpoint tokenize (s:string) (ts : list token) {measure (length s)} :
-      option (list token) :=
+      ascii + (list token) :=
       match s with
-        | EmptyString => Some (rev ts)
+        | EmptyString => inr (rev ts)
         | String c s' =>
           if member c white then tokenize s' ts
           else if eq_dec c "(" then tokenize s' (LPAREN::ts)
@@ -179,7 +179,7 @@ Section monadic.
             match token_id s' (c::nil) with
               | (t,s'') => tokenize s'' (t::ts)
             end
-          else None
+          else inl c
       end.
     Next Obligation.
       clear tokenize. generalize (token_id_lt s' [c]). rewrite <- Heq_anonymous. simpl.
@@ -188,42 +188,53 @@ Section monadic.
   End TOKENIZE.
 
   Section parse_list.
-    Variable A : Type.
+    Context {A : Type}.
     Variable p : list token -> m (A * list token).
 
+    (** parse_list<p> -> p parse_list<p> | epsilon **)
     Fixpoint parse_list (ts:list token) (fuel:nat) : m ((list A) * (list token)) :=
       match fuel with
         | O => raise "Ran out of fuel during parse_exp'list"
         | S fuel =>
-          res <- p ts ;;
-          let '(e,ts2) := res in
-          res <- parse_list ts2 fuel ;;
-          let '(es,ts3) := res in
-          ret (e::es,ts3)
+          catch (res <- p ts ;;
+                 let '(e,ts2) := res in
+                 res <- parse_list ts2 fuel ;;
+                 let '(es,ts3) := res in
+                 ret (e::es,ts3))
+                (fun _ => ret (nil, ts))
       end.
+
   End parse_list.
 
-  Fixpoint parse_exp' (ts:list token) (fuel:nat) : m (exp * (list token)) :=
-    match fuel with
+  Definition parse_arglist : list token -> nat -> m ((list var) * list token) := 
+    parse_list (fun ts =>
+      match ts with
+        | (ID x) :: ts =>
+          ret (Env.wrapVar x, ts)
+        | _ => raise "non-arg"
+      end).
+
+  Fixpoint parse_exp' (ts:list token) (fuel:nat) {struct fuel} : m (exp * (list token)) :=
+    match fuel return m (exp * list token) with
       | O => raise "Ran out of fuel during parse_exp'"
       | S fuel =>
-        match ts with
+        match ts return m _ with
         (* EXP -> <ID> *)
           | (ID x)::ts2 => ret (Var_e (Env.wrapVar x), ts2)
         (* EXP -> (lambda (<ID>) <EXP>) *)
           | LPAREN::LAMBDA::LPAREN::(ID x)::RPAREN::ts2 =>
             res <- parse_exp' ts2 fuel ;;
-            match res with
+            match res return m _ with
               | (e,RPAREN::ts3) => ret (Lam_e (Env.wrapVar x) e,ts3)
               | _ => raise "Error parsing lambda, expecting expression"
             end
           (* EXP -> (lambdas (<ARGLIST>) <EXP>) *)
           | LPAREN::LAMBDAS::LPAREN::ts2 =>
             res <- parse_arglist ts2 fuel ;;
-            match res with
+            match res return m _ with
               | (xs,RPAREN::ts3) =>
                 res <- parse_exp' ts3 fuel ;;
-                match res with
+                match res return m _ with
                   | (e,RPAREN::ts4) =>
                     ret (fold_right Lam_e e xs,ts4)
                   | _ => raise "Error parsing lambda, expecting expression"
@@ -232,8 +243,13 @@ Section monadic.
             end
           (* EXP -> `(<ID> <CONARGLIST>) *)
           | QUOTE::LPAREN::(ID c)::ts2 =>
-            res <- parse_conarglist ts2 fuel ;;
-            match res with
+            res <- parse_list (fun ts => 
+              match ts return m (exp * list token) with
+                | COMMA :: ts1 =>
+                  parse_exp' ts1 fuel
+                | _ => raise "can not parse exp"
+              end) ts2 (S fuel) ;;
+            match res return m (exp * list token) with
               | (es,RPAREN::ts3) =>
                 ret (Con_e c es,ts3)
               | _ => raise "Error parsing constructor"
@@ -241,10 +257,10 @@ Section monadic.
           (* EXP -> (@ <EXPLIST>) *)
           | LPAREN::AT::ts2 =>
             res <- parse_exp' ts2 fuel ;;
-            match res with
+            match res return m _ with
               | (e1,ts3) =>
                 res <- parse_list (fun x => parse_exp' x fuel) ts3 (S fuel) ;;
-                match res with
+                match res return m _ with
                   | (es,RPAREN::ts4) =>
                     ret (fold_left App_e es e1,ts4)
                   | _ => raise "Error parsing unquote, expecting expression list"
@@ -253,10 +269,25 @@ Section monadic.
           (* EXP -> (match <EXP> <ARMLIST>) *)
           | LPAREN::MATCH::ts1 =>
             res <- parse_exp' ts1 fuel ;;
-            match res with
+            match res return m _ with
               | (e,ts2) =>
-                res <- parse_armlist ts2 fuel ;;
-                match res with
+                res <- parse_list (fun ts => 
+                  match ts return m _ with
+                    | LPAREN :: LPAREN :: (ID c) :: ts1 =>
+                      res <- parse_arglist ts1 fuel ;;
+                      match res return m _ with
+                        | (xs, RPAREN :: ts2) =>
+                          res <- parse_exp' ts2 fuel ;;
+                          match res return m _ with
+                            | (e, RPAREN :: ts3) =>
+                              ret ((Con_p c xs, e), ts3)
+                            | _ => raise "error parsing arm"
+                          end
+                        | _ => raise "error parsing arm"
+                      end
+                    | _ => raise "error parsing arm"
+                  end) ts2 (S fuel) ;;
+                match res return m _ with
                   | (arms,RPAREN::ts3) =>
                     ret (Match_e e arms,ts3)
                   | _ => raise "Error parsing match, expecting arm list"
@@ -265,10 +296,10 @@ Section monadic.
           (* EXP -> (letrec (<DECLLIST>) <EXP>) *)
           | LPAREN::LETREC::LPAREN::ts1 =>
             res <- parse_decllist ts1 fuel ;;
-            match res with
+            match res return m _ with
               | (ds,RPAREN::ts2) =>
                 res <- parse_exp' ts2 fuel ;;
-                match res with
+                match res return m _ with
                   | (e,RPAREN::ts3) =>
                     ret (Letrec_e ds e,ts3)
                   | _ => raise "Error parsing letrec, expecting expression"
@@ -278,10 +309,10 @@ Section monadic.
           (* EXP -> (let (<DECL>) <EXP>) *)
           | LPAREN::LET::LPAREN::ts1 =>
             res <- parse_decl ts1 fuel ;;
-            match res with
+            match res return m _ with
               | ((v,d),RPAREN::ts2) =>
                 res <- parse_exp' ts2 fuel ;;
-                match res with
+                match res return m _ with
                   | (e,RPAREN::ts3) =>
                     ret (Let_e v d e,ts3)
                   | _ => raise "Error parsing let, expecting expression"
@@ -291,10 +322,10 @@ Section monadic.
           (* EXP -> (<EXP> <EXP>) *)
           | LPAREN::ts2 =>
             res <- parse_exp' ts2 fuel ;;
-            match res with
+            match res return m _ with
               | (e1,ts3) =>
                 res <- parse_exp' ts3 fuel ;;
-                match res with
+                match res return m _ with
                   | (e2,RPAREN::ts4) =>
                     ret (App_e e1 e2,ts4)
                   | _ => raise "Error parsing application, expecting expression"
@@ -305,67 +336,14 @@ Section monadic.
         end
     end
 
-  with parse_conarglist (ts:list token) (fuel:nat) : m ((list exp) * (list token)) :=
-    match fuel with
-      | O => raise "Ran out of fuel during parse_conarglist"
-      | S fuel =>
-        match ts with
-          | COMMA::ts1 =>
-            res <- parse_exp' ts1 fuel ;;
-            let '(e,ts2) := res in
-            res <- parse_conarglist ts2 fuel ;;
-            let '(es,ts3) := res in
-            ret (e::es,ts3)
-          | _ => ret (nil,ts)
-        end
-    end
-
-  with parse_arglist (ts:list token) (fuel:nat) : m ((list var) * (list token)) :=
-    match fuel with
-      | O => raise "Ran out of fuel during parse_arglist"
-      | S fuel =>
-      (* ARGLIST -> <ID> <ARGLIST> | epsilon *)
-        match ts with
-          | (ID x)::ts2 =>
-            res <- parse_arglist ts2 fuel ;;
-            let '(xs,ts3) := res in
-            ret (Env.wrapVar x::xs,ts3)
-          | _ => ret (nil,ts)
-        end
-    end
-
-  with parse_armlist (ts:list token) (fuel:nat) : m ((list (pattern*exp)) * (list token)) :=
-    match fuel with
-      | O => raise "Ran out of fuel during parse_armlist"
-      | S fuel =>
-      (* ARMLIST -> ((<ID> <ARGLIST>) <EXP>) ARMLIST | epsilon *)
-        match ts with
-          | LPAREN::LPAREN::(ID c)::ts1 =>
-            res <- parse_arglist ts1 fuel ;;
-            match res with
-              | (xs,RPAREN::ts2) =>
-                res <- parse_exp' ts2 fuel ;;
-                match res with
-                  | (e,RPAREN::ts3) =>
-                    res <- parse_armlist ts3 fuel ;;
-                    let '(arms,ts4) := res in
-                    ret ((Con_p c xs,e)::arms,ts4)
-                  | _ => raise "Error parsing arm list"
-                end
-              | _ => raise "Error parsing arm list"
-            end
-          | _ => ret (nil,ts)
-        end
-    end
-
-  with parse_decl (ts:list token) (fuel:nat) : m ((var * exp) * (list token)) :=
-    match fuel with
+  with parse_decl (ts:list token) (fuel:nat) {struct fuel} : m ((var * exp) * (list token)) :=
+    match fuel return m _ with
       | O => raise "Ran out of fuel during parse_decl"
       | S fuel =>
-        match ts with
+        match ts return m _ with
           | LPAREN::(ID v)::ts1 =>
             res <- parse_exp' ts1 fuel ;;
-            match res with
+            match res return m _ with
               | (e,RPAREN::ts2) =>
                 ret ((Env.wrapVar v,e),ts2)
               | _ => raise "Error parsing declaration, expecting expression"
@@ -374,14 +352,14 @@ Section monadic.
         end 
     end
 
-  with parse_decllist (ts:list token) (fuel:nat) : m ((list (var*(var*exp))) * (list token)) :=
-    match fuel with
+  with parse_decllist (ts:list token) (fuel:nat) {struct fuel} : m ((list (var*(var*exp))) * (list token)) :=
+    match fuel return m _ with
       | O => raise "Ran out of fuel during parse_decllist"
       | S fuel =>
-        match ts with
+        match ts return m _ with
           | LPAREN::(ID f)::ts1 =>
             res <- parse_exp' ts1 fuel ;;
-            match res with
+            match res return m _ with
               | (Lam_e x e,RPAREN::ts2) =>
                 res <- parse_decllist ts2 fuel ;;
                 let '(ds,ts3) := res in
@@ -417,8 +395,8 @@ End monadic.
   (** A parser for expresions *)
   Definition parse_exp (s:string) : string + (exp * list token) :=
     match tokenize s nil with
-      | None => inl "Parse error: tokenizer failed"%string
-      | Some ts => parse_exp' ts (List.length ts) 
+      | inl c => inl ("Parse error: tokenizer failed. unknown character '" ++ String c "'")%string
+      | inr ts => parse_exp' ts (List.length ts) 
     end.
 
   (** Some test cases -- should turn these into real unit tests. *)
@@ -466,18 +444,18 @@ End monadic.
       unit as an argument... *)
   Definition parse_topdecls (s:string) : string + exp :=
     match tokenize s nil with
-      | None => inl "Parse error: tokenizer failed"%string
-      | Some ts => match parse ts (List.length ts) with
-                     | inl e => inl e
-                     | inr ds =>
-                       let body := 
-                         match lastDecl ds with
-                           | None => Con_e "Tt"%string nil
-                           | Some v => Var_e v
-                           end
-                       in
-                       inr (collapse_decls ds nil body)
-                   end
+      | inl c => inl ("Parse error: tokenizer failed. unknown '" ++ (String c "'"))%string
+      | inr ts => match parse ts (1 + 2 * (List.length ts)) with
+                    | inl e => inl e
+                    | inr ds =>
+                      let body := 
+                        match lastDecl ds with
+                          | None => Con_e "Tt"%string nil
+                          | Some v => Var_e v
+                        end
+                      in
+                      inr (collapse_decls ds nil body)
+                  end
     end.
 
   (** A relatively big test case that I got by extracting some real code using

@@ -72,8 +72,8 @@ GC: runtime Even.v
 	clang gc-opt.s shadowstack.o -o gc.native
 
 Compiler: runtime Compiler.v
-	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib Compiler.v
-	../Extraction/Wrapper.byte -O1 -i Compiler -t result -o compiler.ll
+#	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib Compiler.v
+	../Extraction/Wrapper.byte -O1 -e compile.scheme -q -o compiler.ll
 	llvm-link rt.ll compiler.ll -S -o compiler-rt.ll
 	opt -O3 -S compiler-rt.ll -o compiler-opt.ll
 	llc compiler-opt.ll -o compiler-opt.s
