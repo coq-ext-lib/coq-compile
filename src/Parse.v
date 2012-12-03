@@ -49,7 +49,7 @@ Section monadic.
 
   Variable m : Type -> Type.
   Context {Monad_m : Monad m}.
-  Context {MonadExc_m : MonadExc string m}.
+  Context {MonadExc_m : MonadExc unit m}.
 
   (** Lexing *)
   Inductive token :=
@@ -194,7 +194,7 @@ Section monadic.
     (** parse_list<p> -> p parse_list<p> | epsilon **)
     Fixpoint parse_list (ts:list token) (fuel:nat) : m ((list A) * (list token)) :=
       match fuel with
-        | O => raise "Ran out of fuel during parse_exp'list"
+        | O => raise tt (* "Ran out of fuel during parse_exp'list" *)
         | S fuel =>
           catch (res <- p ts ;;
                  let '(e,ts2) := res in
@@ -211,12 +211,14 @@ Section monadic.
       match ts with
         | (ID x) :: ts =>
           ret (Env.wrapVar x, ts)
-        | _ => raise "non-arg"
+        | _ => raise tt (* "non-arg" *)
       end).
 
-  Fixpoint parse_exp' (ts:list token) (fuel:nat) {struct fuel} : m (exp * (list token)) :=
+  Definition raiseM (* (s : string) *) {a} : m a := raise tt.
+
+  Fixpoint parse_exp' (ts:list token) (fuel:nat) : m (exp * (list token)) :=
     match fuel return m (exp * list token) with
-      | O => raise "Ran out of fuel during parse_exp'"
+      | O => raiseM (* "Ran out of fuel during parse_exp'" *)
       | S fuel =>
         match ts return m _ with
         (* EXP -> <ID> *)
@@ -226,7 +228,7 @@ Section monadic.
             res <- parse_exp' ts2 fuel ;;
             match res return m _ with
               | (e,RPAREN::ts3) => ret (Lam_e (Env.wrapVar x) e,ts3)
-              | _ => raise "Error parsing lambda, expecting expression"
+              | _ => raiseM (* "Error parsing lambda, expecting expression" *)
             end
           (* EXP -> (lambdas (<ARGLIST>) <EXP>) *)
           | LPAREN::LAMBDAS::LPAREN::ts2 =>
@@ -237,9 +239,9 @@ Section monadic.
                 match res return m _ with
                   | (e,RPAREN::ts4) =>
                     ret (fold_right Lam_e e xs,ts4)
-                  | _ => raise "Error parsing lambda, expecting expression"
+                  | _ => raiseM (* "Error parsing lambda, expecting expression" *)
                 end
-              | _ => raise "Error parsing lambda, expecting arguments"
+              | _ => raiseM (* "Error parsing lambda, expecting arguments" *)
             end
           (* EXP -> `(<ID> <CONARGLIST>) *)
           | QUOTE::LPAREN::(ID c)::ts2 =>
@@ -247,12 +249,12 @@ Section monadic.
               match ts return m (exp * list token) with
                 | COMMA :: ts1 =>
                   parse_exp' ts1 fuel
-                | _ => raise "can not parse exp"
+                | _ => raiseM (* "can not parse exp" *)
               end) ts2 (S fuel) ;;
             match res return m (exp * list token) with
               | (es,RPAREN::ts3) =>
                 ret (Con_e c es,ts3)
-              | _ => raise "Error parsing constructor"
+              | _ => raiseM (* "Error parsing constructor" *)
             end
           (* EXP -> (@ <EXPLIST>) *)
           | LPAREN::AT::ts2 =>
@@ -263,7 +265,7 @@ Section monadic.
                 match res return m _ with
                   | (es,RPAREN::ts4) =>
                     ret (fold_left App_e es e1,ts4)
-                  | _ => raise "Error parsing unquote, expecting expression list"
+                  | _ => raiseM (* "Error parsing unquote, expecting expression list" *)
                 end
             end
           (* EXP -> (match <EXP> <ARMLIST>) *)
@@ -281,43 +283,53 @@ Section monadic.
                           match res return m _ with
                             | (e, RPAREN :: ts3) =>
                               ret ((Con_p c xs, e), ts3)
-                            | _ => raise "error parsing arm"
+                            | _ => raiseM (* "error parsing arm" *)
                           end
-                        | _ => raise "error parsing arm"
+                        | _ => raiseM (* "error parsing arm" *)
                       end
-                    | _ => raise "error parsing arm"
+                    | _ => raiseM (* "error parsing arm" *)
                   end) ts2 (S fuel) ;;
                 match res return m _ with
                   | (arms,RPAREN::ts3) =>
                     ret (Match_e e arms,ts3)
-                  | _ => raise "Error parsing match, expecting arm list"
+                  | _ => raiseM (* "Error parsing match, expecting arm list" *)
                 end
             end
           (* EXP -> (letrec (<DECLLIST>) <EXP>) *)
           | LPAREN::LETREC::LPAREN::ts1 =>
-            res <- parse_decllist ts1 fuel ;;
+            res <- parse_list (fun ts => 
+              match ts return m _ with
+                | LPAREN::(ID f)::ts1 =>
+                  res <- parse_exp' ts1 fuel ;;
+                  match res return m _ with
+                    | (Lam_e x e,RPAREN::ts2) =>
+                      ret ((Env.wrapVar f,(x,e)),ts2)
+                    | _ => raiseM (* "Error parsing declaration list, expecting lambda term" *)
+                  end
+                | _ => raiseM (* "Error parsing decl" *)
+              end) ts1 (S fuel) ;;
             match res return m _ with
               | (ds,RPAREN::ts2) =>
                 res <- parse_exp' ts2 fuel ;;
                 match res return m _ with
                   | (e,RPAREN::ts3) =>
                     ret (Letrec_e ds e,ts3)
-                  | _ => raise "Error parsing letrec, expecting expression"
+                  | _ => raiseM (* "Error parsing letrec, expecting expression" *)
                 end
-              | _ => raise "Error parsing letrec, expecting declaration list"
+              | _ => raiseM (* "Error parsing letrec, expecting declaration list" *)
             end
           (* EXP -> (let (<DECL>) <EXP>) *)
-          | LPAREN::LET::LPAREN::ts1 =>
-            res <- parse_decl ts1 fuel ;;
+          | LPAREN::LET::LPAREN::LPAREN::(ID v)::ts1 =>
+            res <- parse_exp' ts1 fuel ;;
             match res return m _ with
-              | ((v,d),RPAREN::ts2) =>
+              | (e,RPAREN::ts2) =>
                 res <- parse_exp' ts2 fuel ;;
                 match res return m _ with
-                  | (e,RPAREN::ts3) =>
-                    ret (Let_e v d e,ts3)
-                  | _ => raise "Error parsing let, expecting expression"
+                  | (e',RPAREN::ts3) =>
+                    ret (Let_e (Env.wrapVar v) e e',ts3)
+                  | _ => raiseM (* "Error parsing let, expecting )" *)
                 end
-              | _ => raise "Error parsing let, expecting declaration"
+              | _ => raiseM (* "Error parsing let, expecting expression" *)
             end
           (* EXP -> (<EXP> <EXP>) *)
           | LPAREN::ts2 =>
@@ -328,75 +340,45 @@ Section monadic.
                 match res return m _ with
                   | (e2,RPAREN::ts4) =>
                     ret (App_e e1 e2,ts4)
-                  | _ => raise "Error parsing application, expecting expression"
+                  | _ => raiseM (* "Error parsing application, expecting expression" *)
                 end
             end
-          | t::ts => raise ("Error parsing expression, unexpected token " ++ (to_string t) ++ " while trying to parse " ++ to_string (t::ts))%string
-          | nil => raise "Error parsing expression, unexpected EOF"
-        end
-    end
-
-  with parse_decl (ts:list token) (fuel:nat) {struct fuel} : m ((var * exp) * (list token)) :=
-    match fuel return m _ with
-      | O => raise "Ran out of fuel during parse_decl"
-      | S fuel =>
-        match ts return m _ with
-          | LPAREN::(ID v)::ts1 =>
-            res <- parse_exp' ts1 fuel ;;
-            match res return m _ with
-              | (e,RPAREN::ts2) =>
-                ret ((Env.wrapVar v,e),ts2)
-              | _ => raise "Error parsing declaration, expecting expression"
-            end
-          | _ => raise "Error parsing declaration, expecting id"
-        end 
-    end
-
-  with parse_decllist (ts:list token) (fuel:nat) {struct fuel} : m ((list (var*(var*exp))) * (list token)) :=
-    match fuel return m _ with
-      | O => raise "Ran out of fuel during parse_decllist"
-      | S fuel =>
-        match ts return m _ with
-          | LPAREN::(ID f)::ts1 =>
-            res <- parse_exp' ts1 fuel ;;
-            match res return m _ with
-              | (Lam_e x e,RPAREN::ts2) =>
-                res <- parse_decllist ts2 fuel ;;
-                let '(ds,ts3) := res in
-                ret ((Env.wrapVar f,(x,e))::ds,ts3)
-              | _ => raise "Error parsing declaration list, expecting lambda term"
-            end
-          | _ => ret (nil,ts)
+          | t::ts => raiseM (* ("Error parsing expression, unexpected token " ++ (to_string t) ++ " while trying to parse " ++ to_string (t::ts))%string *)
+          | nil => raiseM (* "Error parsing expression, unexpected EOF" *)
         end
     end.
 
-
   (** Parsing *)
   Fixpoint parse (ts:list token) (fuel:nat) : m (list (var * exp)) :=
-    match fuel with
-      | O => raise "Ran out of fuel during parse"
+    match fuel return m _ with
+      | O => raiseM (* "Ran out of fuel during parse" *)
       | S fuel =>
-        match ts with
+        match ts return m _ with
           | nil => ret nil
           | LPAREN::DEFINE::(ID x)::ts1 =>
             res <- parse_exp' ts1 fuel ;;
-            match res with
+            match res return m _ with
               | (e,RPAREN::ts2) =>
                 es <- parse ts2 fuel ;;
                 ret ((Env.wrapVar x,e)::es)
-              | _ => raise "Parse error while parsing define"
+              | _ => raiseM (* "Parse error while parsing define" *)
             end
-          | _ => raise "Parse error while parsing definitions"
+          | _ => raiseM (* "Parse error while parsing definitions" *)
         end
     end.
 
 End monadic.
 
+Definition failed_to_parse : string := "failed to parse"%string.
+
   (** A parser for expresions *)
   Definition parse_exp (s:string) : string + (exp * list token) :=
     match tokenize s nil with
       | inl c => inl ("Parse error: tokenizer failed. unknown character '" ++ String c "'")%string
-      | inr ts => parse_exp' ts (List.length ts) 
+      | inr ts => match parse_exp' ts (List.length ts) with
+                    | inl _ => inl failed_to_parse
+                    | inr e => inr e
+                  end
     end.
 
   (** Some test cases -- should turn these into real unit tests. *)
@@ -445,8 +427,8 @@ End monadic.
   Definition parse_topdecls (s:string) : string + exp :=
     match tokenize s nil with
       | inl c => inl ("Parse error: tokenizer failed. unknown '" ++ (String c "'"))%string
-      | inr ts => match parse ts (1 + 2 * (List.length ts)) with
-                    | inl e => inl e
+      | inr ts => match parse ts (List.length ts) with
+                    | inl e => inl failed_to_parse
                     | inr ds =>
                       let body := 
                         match lastDecl ds with
