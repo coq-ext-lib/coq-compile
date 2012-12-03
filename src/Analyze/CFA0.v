@@ -3,18 +3,20 @@ Require Import CoqCompile.CpsK.
 Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Structures.Reducible.
-Require Import ExtLib.Data.Monads.Fuel.
-Require Import ExtLib.Data.Monads.EitherMonad.
-Require Import ExtLib.Data.Monads.ReaderMonad.
-Require Import ExtLib.Data.Monads.StateMonad.
 Require Import ExtLib.Data.Option.
 Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Core.RelDec.
-Require Import ExtLib.Programming.Show.
 Require Import ExtLib.Data.Map.FMapAList.
 Require Import CoqCompile.Analyze.AbstractDomains.
 
 Import CpsK.CPSK.
+
+Section CFA0.
+
+  Global Instance AbsTime_unit : AbsTime unit :=
+  { ED := _ }.
+
+End CFA0.
 
 Section Context_aware.
   Variable Context : Type.
