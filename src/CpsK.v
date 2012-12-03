@@ -111,7 +111,7 @@ Section decidables.
           | _ , _ => false
         end
       | Halt_e o1 o2 , Halt_e o1' o2' =>
-        eq_dec o1 o2 && eq_dec o1' o2'
+        eq_dec o1 o1' && eq_dec o2 o2'
       | AppK_e k os , AppK_e k' os' =>
         eq_dec k k' && eq_dec os os'
       | LetK_e ks e , LetK_e ks' e' =>
@@ -145,7 +145,12 @@ Section decidables.
   Global Instance RelDec_decl_eq : RelDec (@eq decl) :=
   { rel_dec l r := decl_eq l r }.
 
-  (* TODO: RelDec_Correct instances *)
+  (*
+  Global Instance RelDec_exp_eq_correct : RelDec_Correct RelDec_exp_eq.
+  constructor; intros. split. intros.
+  generalize y. unfold rel_dec in H. unfold RelDec_exp_eq in H. induction x; destruct y; intuition.
+  unfold RelDec_exp_eq. 
+  *)
 
 End decidables.
 

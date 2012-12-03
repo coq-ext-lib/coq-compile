@@ -7,6 +7,7 @@ Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Programming.Show.
 Require Import ExtLib.Data.Map.FMapAList.
+Require Import CoqCompile.TraceMonad.
 
 Import CpsK.CPSK.
 
@@ -17,8 +18,11 @@ Section AI.
   Context {IntValue_V : IntValue V}.
   Context {BoolValue_V : BoolValue V}.
   Context {CtorValue_V  : CtorValue V constructor}.
-  Context {FnValue_V  : FnValue V C D}.
+  Context {FnValue_V  : FnValue (var + cont) V C D}.
   Context {TplValue_V : TplValue V}.
+  Context {Show_C : Show C}.
+  Context {Show_D : Show D}.
+  Context {Show_V : Show V}.
 
   Import MonadNotation.
   Local Open Scope monad_scope.
@@ -31,12 +35,13 @@ Section AI.
     Context {Fix_m : MonadFix m}.
     (** DFS **)
     Context {State_m : MonadState (alist (C * exp) D) m}.
+    Context {Trace_m : MonadTrace string m}.
 
     Definition eval_op (o : op) (ctx : C) (dom : D) : m V :=
       match o with
         | Var_o v =>
           ret (lookup ctx (inl v) dom)
-        | Con_o c => ret bottomA (** TODO: Not done **)
+        | Con_o c => ret (injCtor c) 
         | Int_o i => ret (injInt (Some i))
         | InitWorld_o => ret bottomA (** TODO: ?? **)
       end.
@@ -73,7 +78,7 @@ Section AI.
           ret ((v, vA) :: nil)
 
         | Fn_d v ks args body =>
-          ret ((v, injFn ctx ks args body) :: nil)
+          ret ((v, injFn ctx (inl v) ks args body) :: nil)
           
         | Bind_d v1 v2 m os =>
           ret ((v1, topA) :: (v2, topA) :: nil)
@@ -92,7 +97,9 @@ Section AI.
           let dom := update ctx (inl v1) bottomA dom in
             update ctx (inl v2) bottomA dom
       end.
-      
+
+    Local Open Scope string_scope.
+
     Definition aeval_exp : C -> D -> exp -> m D :=
       mfix3 _ (fun aeval => fun (ctx : C) (dom : D) (e : exp) =>
         memo <- gets (Maps.lookup (ctx, e)) ;;
@@ -102,14 +109,33 @@ Section AI.
             | Some dom' => dom_leq dom dom'
           end
         in
-        if stop then ret dom
+        mlog ("call to aeval " ++ to_string stop ++ (String Char.chr_newline EmptyString) ++
+              "dom = " ++ to_string dom ++ (String Char.chr_newline EmptyString) ++
+              "dom' = " ++ match memo with
+                             | None => "NONE"
+                             | Some memo => to_string memo
+                           end ++ (String Char.chr_newline EmptyString))%string ;;
+        if stop then 
+          match memo with
+            | None => mlog "bug"%string ;; ret dom
+            | Some dom' => ret dom'
+          end
         else
+          let dom := match memo with
+                       | None => dom
+                       | Some dom' => joinA dom dom'
+                     end in
+          modify (Maps.add (ctx, e) dom) ;;
+          MAP <- get ;;
+          let len : nat := length MAP in
+          mlog ("adding shit to map " ++ to_string (len)) ;;
           (fix recur (ctx : C) (dom : D) (e : exp) : m D :=
             match e return m D with
               | App_e o ks os =>
                 let argsK := List.map (fun k => lookup ctx (inr k) dom) ks in
                 fA <- eval_op o ctx dom ;;
                 argsA <- mapM (fun x => eval_op x ctx dom) os ;;
+                mlog ("applying " ++ to_string fA) ;;
                 applyA aeval dom fA argsK argsA 
               | Let_e d e =>
                 dom' <- eval_decl d ctx dom ;;
@@ -117,11 +143,12 @@ Section AI.
               | AppK_e k os =>
                 let fA := lookup ctx (inr k) dom in
                 argsA <- mapM (fun x => eval_op x ctx dom) os ;;
+                mlog ("applying K " ++ to_string fA) ;;
                 applyA aeval dom fA nil argsA 
               | LetK_e ks e =>
                 let dom' := 
                   fold_left (fun dom kxse => let '(k,xs,e) := kxse in
-                    update ctx (inr k) (injFn ctx nil xs e) dom) ks dom in
+                    update ctx (inr k) (injFn ctx (inr k) nil xs e) dom) ks dom in
                 recur ctx dom' e
               | Letrec_e ds e =>
                 let dom_init := 
@@ -139,6 +166,7 @@ Section AI.
                   | None => ret dom'
                 end
               | Halt_e o1 o2 =>
+                mlog "got to halt"%string ;;
                 ret dom
             end) ctx dom e).
     
@@ -147,17 +175,24 @@ Section AI.
   Require Import ExtLib.Data.Monads.EitherMonad.
   Require Import ExtLib.Data.Monads.StateMonad.
   Require Import ExtLib.Data.Monads.FuelMonad.
+  Require Import ExtLib.Data.Monads.IdentityMonad.
 
+  Arguments aeval_exp {m} {_ _ _ _ _} ctx dom e.
+  
   Section interface.
     Variable m : Type -> Type.
     Context {Monad_m : Monad m}.
-    Context {MonadFix_m : MonadFix m}.
+    Context {MonadTrace_m : MonadTrace string m}.
 
-    Arguments aeval_exp {m} {_ _ _ _} ctx dom e.
-
-    Definition aeval (ctx : C) (dom : D) (e : exp) : m (string + D) :=
-      let c := aeval_exp (m := eitherT string (stateT (alist (C * exp) D) m)) ctx dom e in 
-      evalStateT (unEitherT c) Maps.empty.
+    Require Import BinNums.
+    Definition aeval (ctx : C) (dom : D) (e : exp) (fuel : N) : m (string + D) :=
+      let c := aeval_exp (m := GFixT (eitherT string (stateT (alist (C * exp) D) m))) ctx dom e in 
+      bind (evalStateT (unEitherT (runGFixT c fuel)) Maps.empty) (fun res => 
+      match res with
+        | inl err => ret (inl err)
+        | inr None => ret (inl "aeval: out of fuel")%string
+        | inr (Some dom) => ret (inr dom)
+      end).
   End interface.
 
 End AI.

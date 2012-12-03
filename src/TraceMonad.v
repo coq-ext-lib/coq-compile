@@ -10,6 +10,7 @@ Require Import ExtLib.Data.Monads.StateMonad.
 Require Import ExtLib.Data.Monads.ReaderMonad.
 Require Import ExtLib.Data.Monads.WriterMonad.
 Require Import ExtLib.Data.Monads.EitherMonad.
+Require Import ExtLib.Data.Monads.FuelMonad.
 
 Section traceT.
   Variables (T : Type) (m : Type -> Type).
@@ -66,6 +67,10 @@ Section traceT.
     : MonadZero traceT :=
   { mzero := fun _ => lift mzero }.
 
+  Global Instance MonadFix_traceT {MF : MonadFix m}
+    : MonadFix traceT :=
+  { mfix := fun _ _ r x => mkTraceT (mfix (fun g y => runTraceT (r (fun z => mkTraceT (g z)) y)) x) }.
+
 End traceT.
 
 Section instances.
@@ -85,6 +90,10 @@ Section instances.
 
   Global Instance MonadTrace_eitherT {T S} {MT : MonadTrace T m} {Mo : Monad m}
     : MonadTrace T (eitherT S m) :=
+  { mlog := fun x => lift (mlog x) }.
+  
+  Global Instance MonadTrace_GFixT {T} {MT : MonadTrace T m} {Mo : Monad m}
+    : MonadTrace T (GFixT m) :=
   { mlog := fun x => lift (mlog x) }.
 
 End instances.

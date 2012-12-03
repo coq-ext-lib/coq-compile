@@ -8,6 +8,7 @@ Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Data.Map.FMapAList.
 Require Import CoqCompile.Analyze.AbstractDomains.
+Require Import ExtLib.Programming.Show.
 
 Import CpsK.CPSK.
 
@@ -24,19 +25,42 @@ Section Context_aware.
   
   Definition AbstractLocation : Type := var.
   Inductive PtValue : Type :=
+  | Ctor : constructor -> PtValue
   | Int : BinNums.Z -> PtValue
   | Tpl : list Value -> PtValue
-  | Clo : Context -> list cont -> list var -> exp -> PtValue
+  | Clo : Context -> (var + cont) -> list cont -> list var -> exp -> PtValue
   with Value := 
   | Values : list PtValue -> Value (** use set **)
   | Any    : Value.
-  
+
+  Section hide_notation.
+    Import ShowNotation.
+    Local Open Scope show_scope.
+    Local Open Scope string_scope.
+    
+    Fixpoint show_ptval (pv:PtValue) : showM :=
+      match pv with
+        | Ctor c => c
+        | Int z => show z
+        | Tpl vs => "<" << sepBy_f show_val "," vs << ">"
+        | Clo c v ks xs e => "<closure>" << show v
+      end
+    with show_val (v:Value) : showM :=
+      match v with
+        | Values vs => "{" << sepBy_f show_ptval "," vs << "}"
+        | Any => "any"
+      end.
+    Global Instance Show_Value : Show Value := show_val.
+    Global Instance Show_PtValue : Show PtValue := show_ptval.
+
+  End hide_notation.
+
   Fixpoint val_leq (v1 v2:Value) : bool :=
     match v1, v2 with
       | Any, Any => true
       | Values vs1, Values vs2 =>
         List.fold_left (fun acc x => 
-          match find (fun y => ptval_leq x y) vs2 with
+          match List.find (fun y => ptval_leq x y) vs2 with
             | None => false
             | Some _ => acc
           end) vs1 true
@@ -45,6 +69,7 @@ Section Context_aware.
     end
   with ptval_leq (v1 v2:PtValue) : bool :=
     match v1, v2 with
+      | Ctor c1, Ctor c2 => eq_dec c1 c2
       | Int _, Int _ => true
       | Tpl vs1, Tpl vs2 => 
         (fix fold_left2 acc ls1 ls2 :=
@@ -54,14 +79,14 @@ Section Context_aware.
               if val_leq x1 x2 then acc else false
             | _, _ => false
           end) true vs1 vs2
-      | Clo c1 ks1 xs1 e1, Clo c2 ks2 xs2 e2 =>
-        rel_dec c1 c2 &&
-        rel_dec ks1 ks2 &&
-        rel_dec xs1 xs2 &&
-        rel_dec e1 e2   
+      | Clo c1 v1 ks1 xs1 e1, Clo c2 v2 ks2 xs2 e2 =>
+        eq_dec c1 c2 &&
+        eq_dec ks1 ks2 &&
+        eq_dec xs1 xs2 &&
+        eq_dec e1 e2   
       | _, _ => false
     end.
-  
+
   Definition Domain : Type := alist (var + cont) Value.
   Definition ProgramPoint : Type := (var + cont)%type.
   
@@ -89,12 +114,13 @@ Section Context_aware.
   ; bottomA := bottomValue
   ; topA    := Any
   ; dom_leq   := fun dom1 dom2 => 
-    fold_alist (fun k v acc => 
-      match Maps.lookup k dom2 with
-        | None => false
-        | Some v' => val_leq v v'
-      end
-    ) true dom1
+    fold_alist (fun k v (acc : bool) => 
+      if acc then 
+        match Maps.lookup k dom2 with
+          | None => false
+          | Some v' => val_leq v v'
+        end
+      else false) true dom1
   }.
   
   Global Instance IntValue_Value : IntValue Value :=
@@ -108,6 +134,12 @@ Section Context_aware.
   ; timesA := fun x y => Any
   ; eqA    := fun _ _ => None
   ; ltA    := fun _ _ => None
+  }.
+
+  Global Instance CtorValue_Value : CtorValue Value constructor :=
+  { injCtor := fun x => Any (* Values (Ctor x :: nil) *)
+  ; isPtrA := fun _ => None
+  ; ceqA := fun _ _ => None
   }.
 
   Global Instance BoolValue_Value : BoolValue Value :=
@@ -171,26 +203,32 @@ Section Context_aware.
   Definition getClos (ls : list PtValue) : list (Context * list cont * list var * exp) :=
     filter_map (fun x =>
       match x with
-        | Clo c xs vs e => Some (c, xs, vs, e)
+        | Clo c v xs vs e => Some (c, xs, vs, e)
         | _ => None
       end) ls.
+
+  Local Open Scope monad_scope.
+  Import MonadNotation.
+  Require Import CoqCompile.TraceMonad.
   
-  Global Instance FnValue_Value : FnValue Value Context Domain :=
-  { injFn := fun c ks xs e => Values (Clo c ks xs e :: nil)
-  ; applyA := fun _ _ aeval dom v ks vs' =>
+  Global Instance FnValue_Value : FnValue (var + cont) Value Context Domain :=
+  { injFn := fun c v ks xs e => Values (Clo c v ks xs e :: nil)
+  ; applyA := fun _ _ _ aeval dom v ks vs' =>
     match v with
-      | Any => ret dom (** TODO : think more about this! **)
+      | Any => 
+        mlog "YIKES"%string ;; ret dom (** TODO : think more about this! **)
       | Values vs =>
         let clos := getClos vs in
-          foldM (fun x acc => let '(c, ks', xs', e) := x in
+        foldM (fun x acc => let '(c, ks', xs', e) := x in
           if eq_dec (List.length ks') (List.length ks) &&
-             eq_dec (List.length xs') (List.length vs) then
+             eq_dec (List.length xs') (List.length vs') then
             let ext := List.combine (List.map (fun x => inr x) ks') ks 
                     ++ List.combine (List.map (fun x => inl x) xs') vs' in
-            let dom' := fold_left (fun acc x => update c (fst x) (snd x) acc) ext dom in 
-              aeval c dom' e
-            else
-              ret acc) (ret dom) clos
+            let dom' := fold_left (fun acc x => update c (fst x) (snd x) acc) ext acc in 
+            aeval c dom' e
+          else
+            mlog ("HERE " ++ (to_string (ks, ks')) ++ " " ++ (to_string (vs, xs')))%string ;;
+            ret acc) (ret dom) clos
     end
   }.
 
@@ -200,13 +238,88 @@ Require Import CoqCompile.Analyze.AbstractInterpCpsK.
 Require Import ExtLib.Data.Monads.EitherMonad.
 Require Import ExtLib.Data.Monads.FuelMonad.
 Require Import ExtLib.Data.Monads.IdentityMonad.
-
-Definition cfa_0 (e:exp) (fuel:nat) : sum string (Domain unit).
-refine (let pcfa := aeval (Domain unit) unit _ (GFixT ident) tt in _).
+Require Import CoqCompile.TraceMonad.
+Require Import BinNums.
+Definition cfa_0 (e:exp) (fuel:N) : ((string + Domain unit) * list string).
+refine (let pcfa := aeval (Domain unit) unit _ (traceT string ident) tt in _).
 unfold Domain in *.
-set (D := unIdent (runGFixT ((pcfa Maps.empty) e) fuel)).
-refine (match D with
-          | None => inl "out of fuel"%string
-          | Some D => D
-        end).
+refine (unIdent (traceTraceT (pcfa Maps.empty e fuel))).
 Defined.
+
+  Global Instance Show_Domain_unit : Show (Domain unit) :=
+  { show := _ }.
+  unfold Domain. eauto with typeclass_instances.
+  Defined.
+
+
+Module CFA0_test.
+  Require Import String List Bool.
+  Require Import CoqCompile.Parse.
+  Require CoqCompile.CpsKConvert.
+
+  Definition f := fun (x:nat) => x.
+
+  Definition test1 := 
+    f 1.
+
+  Extraction Language Scheme.
+  Recursive Extraction test1.
+
+  Definition test1_s := 
+    "(define f (lambda (x) x))
+
+    (define test1 (f `(S ,`(O))))"%string.
+
+  Definition test1_lam :=
+    Eval vm_compute in 
+      Parse.parse_topdecls test1_s.
+
+  Definition test1_cpsk : CPSK.exp :=
+    Eval vm_compute in
+      match test1_lam as plus_e return match plus_e with
+                                        | inl _ => unit
+                                        | inr x => CPSK.exp
+                                      end with
+        | inl _ => tt
+        | inr e => CpsKConvert.CPS_pure e 
+      end.
+  
+  Definition g := fun (x y:nat) => x.
+  Definition h := fun (x : nat) => S x.
+  Definition test2 := g (h 1) 1.
+
+  Recursive Extraction test2.
+  Definition test2_s :=
+    "(define g (lambdas (x y) x))
+
+(define h (lambda (x) `(S ,x)))
+
+(define test2 (@ g (h (h `(S ,`(O)))) `(S ,`(O))))"%string.
+  
+  Definition test2_lam :=
+    Eval vm_compute in 
+      Parse.parse_topdecls test2_s.
+
+  Definition test2_cpsk : CPSK.exp :=
+    Eval vm_compute in
+      match test2_lam as plus_e return match plus_e with
+                                        | inl _ => unit
+                                        | inr x => CPSK.exp
+                                      end with
+        | inl _ => tt
+        | inr e => CpsKConvert.CPS_pure e 
+      end.
+
+  Require Import CpsKExamples.
+
+  Import ShowNotation.
+  Local Open Scope show_scope.
+  Global Instance Show_showM : Show showM :=
+    fun x => x.
+
+  Eval vm_compute in
+    let '(r,tr) := (cfa_0 test2_cpsk 4) in
+      to_string (sepBy Char.chr_newline (List.map show tr)).
+  Eval vm_compute in to_string test2_cpsk.
+
+End CFA0_test.

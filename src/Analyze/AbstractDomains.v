@@ -1,6 +1,8 @@
 Require Import CoqCompile.CpsK.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Core.RelDec.
+Require Import String.
+Require Import CoqCompile.TraceMonad.
 
 Import CpsK.CPSK.
 
@@ -47,9 +49,9 @@ Section AbstractDomain.
   ; orA : V -> V -> V
   }.
 
-  Class FnValue (V C D : Type) : Type :=
-  { injFn  : C -> list cont -> list var -> exp -> V 
-  ; applyA : forall {m} {_ : Monad m}, (C -> D -> exp -> m D%type) -> D -> V -> list V -> list V -> m D%type
+  Class FnValue (P V C D : Type) : Type :=
+  { injFn  : C -> P -> list cont -> list var -> exp -> V 
+  ; applyA : forall {m} {_ : Monad m} {_ : MonadTrace string m}, (C -> D -> exp -> m D%type) -> D -> V -> list V -> list V -> m D%type
   }.
 
   Class TplValue (V : Type) : Type :=
