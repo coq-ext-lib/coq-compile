@@ -195,3 +195,18 @@ Section Context_aware.
   }.
 
 End Context_aware.
+
+Require Import CoqCompile.Analyze.AbstractInterpCpsK.
+Require Import ExtLib.Data.Monads.EitherMonad.
+Require Import ExtLib.Data.Monads.FuelMonad.
+Require Import ExtLib.Data.Monads.IdentityMonad.
+
+Definition cfa_0 (e:exp) (fuel:nat) : sum string (Domain unit).
+refine (let pcfa := aeval (Domain unit) unit _ (GFixT ident) tt in _).
+unfold Domain in *.
+set (D := unIdent (runGFixT ((pcfa Maps.empty) e) fuel)).
+refine (match D with
+          | None => inl "out of fuel"%string
+          | Some D => D
+        end).
+Defined.
