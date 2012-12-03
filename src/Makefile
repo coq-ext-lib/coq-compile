@@ -1,5 +1,5 @@
 CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKSemantics Low LLVM \
-	      CpsUtil CpsKUtil AlphaEquivCps AlphaEquivCpsK CpsIO \
+	      CpsUtil CpsKUtil AlphaEquivCps AlphaEquivCpsK \
 	      CpsKIO CpsKConvert \
 	      Optimize TraceMonad
 OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK
