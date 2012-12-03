@@ -83,7 +83,7 @@ Section Context_aware.
       | None => Maps.add p v d
       | Some v_old => Maps.add p (joinValue v_old v) d
     end
-  ; joinA   := joinValue
+  ; joinA   := Maps.combine (fun _ => joinValue) 
   ; bottomA := bottomValue
   ; topA    := Any
   ; dom_leq   := fun dom1 dom2 => 
@@ -120,7 +120,7 @@ Section Context_aware.
       | nil , ls' => ls'
       | ls , nil => ls
       | l :: ls , l' :: ls' =>
-        joinA l l' :: list_join_lenAny ls ls'
+        joinValue l l' :: list_join_lenAny ls ls'
     end.
   
   Fixpoint filter_map {A B} (f : A -> option B) (ls : list A) : list B :=
@@ -153,7 +153,7 @@ Section Context_aware.
             | _ => acc
           end) vs nil in
         match n with
-          | Any => List.fold_left joinA ptwise_tuple bottomA 
+          | Any => List.fold_left joinValue ptwise_tuple bottomA
           | Values v => 
             let nats := getNats v in
             let all := List.map (fun n => 
@@ -161,7 +161,7 @@ Section Context_aware.
                 | None => bottomA
                 | Some x => x
               end) nats in
-            List.fold_left joinA all bottomA
+            List.fold_left joinValue all bottomA
         end
     end
   }.

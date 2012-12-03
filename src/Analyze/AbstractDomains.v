@@ -19,10 +19,10 @@ Section AbstractDomain.
   Class AbsDomain (Domain Value Context ProgramPoint : Type) : Type :=
   { lookup  : Context -> ProgramPoint -> Domain -> Value
   ; update  : Context -> ProgramPoint -> Value -> Domain -> Domain
-  ; joinA   : Value -> Value -> Value
+  ; joinA   : Domain -> Domain -> Domain
   ; bottomA : Value (** this means empty, i.e. never has a value **)
   ; topA    : Value (** this means anything of any type **)
-  ; dom_leq   : Domain -> Domain -> bool
+  ; dom_leq : Domain -> Domain -> bool
   }.
 
   Class IntValue (V : Type) : Type :=
