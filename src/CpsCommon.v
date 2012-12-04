@@ -1,5 +1,6 @@
 Require Import CoqCompile.Env CoqCompile.Lambda.
 Require Import BinNums List.
+Require Import ExtLib.Core.RelDec.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -39,7 +40,8 @@ Inductive primop : Type :=
 
 (** Monadic operations **)
 Inductive mop : Type := 
-| PrintInt_m : mop. (* First argument is the world, second is a Z *)
+| PrintInt_m : mop (* First argument is the world, second is a Z *)
+| PrintChar_m : mop.
 
 Section sanity.
   Definition primop_sane (p : primop) (ls : list op) : bool :=
@@ -56,12 +58,14 @@ Section sanity.
                  end
       | MkTuple_p => true
     end.
+
   Definition mop_sane (m : mop) (ls : list op) : bool :=
     match m with 
-      | PrintInt => match ls with
+      | PrintInt_m => match ls with
                       | _::_::nil => true
                       | _ => false
                     end
+      | PrintChar_m => eq_dec 8 (List.length ls)        
     end.
 
 End sanity.
@@ -97,12 +101,14 @@ Section decidables.
 
   Global Instance RelDec_mop_eq : RelDec (@eq mop) :=
   { rel_dec l r := match l , r with
-                     | PrintInt_m, PrintInt_m => true
+                     | PrintInt_m , PrintInt_m => true
+                     | PrintChar_m , PrintChar_m => true
+                     | _ , _ => false
                    end }.
 
   Global Instance RelDecCorrect_mop_eq : RelDec_Correct RelDec_mop_eq.
   Proof.
-    constructor. destruct x. destruct y. intuition.
+    constructor. destruct x; destruct y; simpl in *; intuition; try congruence.
   Qed.
 
   Global Instance RelDec_op_eq : RelDec (@eq op) :=
@@ -151,7 +157,8 @@ Section Printing.
 
   Global Instance Show_mop : Show mop :=
   { show m := match m with 
-              | PrintInt_m => "PrintInt"
+                | PrintInt_m => "PrintInt"
+                | PrintChar_m => "PrintChar"
               end }.
     
   Global Instance Show_op : Show op :=

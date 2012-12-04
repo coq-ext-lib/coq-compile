@@ -36,4 +36,7 @@ void coq_error(void);
 alloc_t coq_alloc(bumpptr_t bumpptrs, universal_t words) __attribute((always_inline));
 bumpptr_t coq_gc(void);
 
+
+void coq_printchar(char) __attribute((always_inline));
+
 #endif /* COQRT_H */
