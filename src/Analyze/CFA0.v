@@ -23,11 +23,12 @@ Section Context_aware.
   Variable Context : Type.
   Context {AbsTime_c : AbsTime Context}.
   
-  Definition AbstractLocation : Type := var.
+  Definition aLoc : Type := var.
+
   Inductive PtValue : Type :=
   | Ctor : constructor -> PtValue
   | Int : BinNums.Z -> PtValue
-  | Tpl : list Value -> PtValue
+  | Tpl : aLoc -> PtValue
   | Clo : Context -> (var + cont) -> list cont -> list var -> exp -> PtValue
   with Value := 
   | Values : list PtValue -> Value (** use set **)
@@ -42,7 +43,7 @@ Section Context_aware.
       match pv with
         | Ctor c => c
         | Int z => show z
-        | Tpl vs => "<" << sepBy_f show_val "," vs << ">"
+        | Tpl l => show l
         | Clo c v ks xs e => "<closure>" << show v
       end
     with show_val (v:Value) : showM :=
@@ -71,7 +72,8 @@ Section Context_aware.
     match v1, v2 with
       | Ctor c1, Ctor c2 => eq_dec c1 c2
       | Int _, Int _ => true
-      | Tpl vs1, Tpl vs2 => 
+      | Tpl l1, Tpl l2 => eq_dec l1 l2
+        (*
         (fix fold_left2 acc ls1 ls2 :=
           match ls1, ls2 with
             | nil, nil => acc
@@ -79,6 +81,7 @@ Section Context_aware.
               if val_leq x1 x2 then acc else false
             | _, _ => false
           end) true vs1 vs2
+        *)
       | Clo c1 v1 ks1 xs1 e1, Clo c2 v2 ks2 xs2 e2 =>
         eq_dec c1 c2 &&
         eq_dec ks1 ks2 &&
@@ -174,10 +177,15 @@ Section Context_aware.
         | Int (BinNums.Zpos n) => Some (BinPos.Pos.to_nat n)
         | _ => None
       end) ls.
-  
-  Global Instance TplValue_Value : TplValue Value :=
-  { injTuple := fun ls => Values (Tpl ls :: nil)
-  ; projA    := fun n t =>
+
+  Import MonadNotation.
+  Local Open Scope monad_scope.
+  Require Import ExtLib.Data.Monads.StateMonad.
+
+  Global Instance TplValue_Value : TplValue Value (list Value) :=
+  { injTuple := fun _ _ _ v ls => Values (Tpl v :: nil) (* Values (Tpl ls :: nil) *)
+  ; projA    := fun _ _ _ n t => _
+    (*
     match t with
       | Any => Any
       | Values vs =>
@@ -198,7 +206,26 @@ Section Context_aware.
             List.fold_left joinValue all bottomA
         end
     end
-  }.
+    *)
+  }.  
+  refine (
+    match t with
+      | Any => Any
+      | Values vs =>
+        let alocs := List.fold_left (fun acc x => 
+          match x with
+            | Tpl l => l::acc
+            | _ => acc
+          end) vs nil in
+        match n with
+          | Any => _ (* TODO : lookup from the abstract heap the joins of all the alocs *)
+          | Values v => 
+            let nats := getNats v in _
+              (* TODO : lookup from the abstract heap the join of all the alocs at the nth position *)
+        end
+    end
+  ).
+  (* wtf monad troubles ... *)
 
   Definition getClos (ls : list PtValue) : list (Context * list cont * list var * exp) :=
     filter_map (fun x =>
@@ -211,6 +238,8 @@ Section Context_aware.
   Import MonadNotation.
   Require Import CoqCompile.TraceMonad.
   
+  Check @foldM.
+
   Global Instance FnValue_Value : FnValue (var + cont) Value Context Domain :=
   { injFn := fun c v ks xs e => Values (Clo c v ks xs e :: nil)
   ; applyA := fun _ _ _ aeval dom v ks vs' =>

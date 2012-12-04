@@ -54,9 +54,10 @@ Section AbstractDomain.
   ; applyA : forall {m} {_ : Monad m} {_ : MonadTrace string m}, (C -> D -> exp -> m D%type) -> D -> V -> list V -> list V -> m D%type
   }.
 
-  Class TplValue (V : Type) : Type :=
-  { injTuple : list V -> V
-  ; projA    : V -> V -> V
+  Require Import ExtLib.Data.Map.FMapAList.
+  Class TplValue (V : Type) (HV : Type) : Type :=
+  { injTuple : forall {m} {a : Monad m} {b : MonadState (alist var HV) m}, var -> list V -> V
+  ; projA    : forall {m} {a : Monad m} {b : MonadState (alist var HV) m}, V -> V -> V
   }.
 
 End AbstractDomain.

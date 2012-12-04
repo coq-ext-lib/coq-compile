@@ -19,7 +19,7 @@ Section AI.
   Context {BoolValue_V : BoolValue V}.
   Context {CtorValue_V  : CtorValue V constructor}.
   Context {FnValue_V  : FnValue (var + cont) V C D}.
-  Context {TplValue_V : TplValue V}.
+  Context {TplValue_V : TplValue V (list V)}.
   Context {Show_C : Show C}.
   Context {Show_D : Show D}.
   Context {Show_V : Show V}.
@@ -35,6 +35,7 @@ Section AI.
     Context {Fix_m : MonadFix m}.
     (** DFS **)
     Context {State_m : MonadState (alist (C * exp) D) m}.
+    Context {Aheap_m : MonadState (alist var (list V)) m}.
     Context {Trace_m : MonadTrace string m}.
 
     Definition eval_op (o : op) (ctx : C) (dom : D) : m V :=
@@ -48,6 +49,17 @@ Section AI.
     
     Definition illFormed_decl {A} (d : decl) : m A :=
       raise ("Ill-formed declaration " ++ runShow (show d))%string.
+
+    (*
+    Definition abs_alloc (v : var) : m V.
+    refine(
+      hv <- gets (MS := Aheap_m) (Maps.lookup v) ;;
+      match hv with
+        | None => _
+        | Some hv => _
+      end
+      ).
+    *)
 
     Definition eval_decl (d : decl) (ctx : C) (dom : D) : m D :=
       v_vA <- 
@@ -71,7 +83,8 @@ Section AI.
                   | Plus_p , l :: r :: nil => ret (plusA l r)
                   | Minus_p , l :: r :: nil => ret (minusA l r)
                   | Times_p , l :: r :: nil => ret (timesA l r)
-                  | MkTuple_p , argsA => ret (injTuple argsA)
+                  | MkTuple_p , argsA => 
+                    ret (injTuple v argsA)
                   | Proj_p , l :: r :: nil => ret (projA l r)
                   | _ , _ => illFormed_decl (Prim_d v p os)
                 end ;;
@@ -169,6 +182,8 @@ Section AI.
                 mlog "got to halt"%string ;;
                 ret dom
             end) ctx dom e).
+
+    Print aeval_exp.
     
   End Monadic.
 
@@ -177,7 +192,7 @@ Section AI.
   Require Import ExtLib.Data.Monads.FuelMonad.
   Require Import ExtLib.Data.Monads.IdentityMonad.
 
-  Arguments aeval_exp {m} {_ _ _ _ _} ctx dom e.
+  Arguments aeval_exp {m} {_ _ _ _ _ _} ctx dom e.
   
   Section interface.
     Variable m : Type -> Type.
@@ -186,8 +201,8 @@ Section AI.
 
     Require Import BinNums.
     Definition aeval (ctx : C) (dom : D) (e : exp) (fuel : N) : m (string + D) :=
-      let c := aeval_exp (m := GFixT (eitherT string (stateT (alist (C * exp) D) m))) ctx dom e in 
-      bind (evalStateT (unEitherT (runGFixT c fuel)) Maps.empty) (fun res => 
+      let c := aeval_exp (m := GFixT (eitherT string (stateT (alist (C * exp) D) (stateT (alist var (list V)) m)))) ctx dom e in 
+      bind (evalStateT (evalStateT (unEitherT (runGFixT c fuel)) Maps.empty) Maps.empty) (fun res => 
       match res with
         | inl err => ret (inl err)
         | inr None => ret (inl "aeval: out of fuel")%string
