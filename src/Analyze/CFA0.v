@@ -8,6 +8,7 @@ Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Data.Map.FMapAList.
 Require Import CoqCompile.Analyze.AbstractDomains.
+Require Import ExtLib.Data.Set.ListSet.
 Require Import ExtLib.Programming.Show.
 
 Import CpsK.CPSK.
@@ -28,10 +29,25 @@ Section Context_aware.
   Inductive PtValue : Type :=
   | Ctor : constructor -> PtValue
   | Int : BinNums.Z -> PtValue
-  | Tpl : aLoc -> PtValue
-  | Clo : Context -> (var + cont) -> list cont -> list var -> exp -> PtValue
-  with Value := 
-  | Values : list PtValue -> Value (** use set **)
+  | Ptr : aLoc -> PtValue
+  | Clo : Context -> (var + cont) -> list cont -> list var -> exp -> PtValue.
+
+  Global Instance RelDec_PtValue : RelDec (@eq PtValue) :=
+  { rel_dec := fun v1 v2 => match v1, v2 with
+                              | Ctor c1, Ctor c2 => eq_dec c1 c2
+                              | Int i1, Int i2 => eq_dec i1 i2
+                              | Ptr l1, Ptr l2 => eq_dec l1 l2
+                              | Clo c1 v1 ks1 xs1 e1, Clo c2 v2 ks2 xs2 e2 =>
+                                eq_dec c1 c2 &&
+                                eq_dec v1 v2 &&
+                                eq_dec ks1 ks2 &&
+                                eq_dec xs1 xs2 &&
+                                eq_dec e1 e2
+                              | _, _ => false
+                            end}.
+
+  Inductive Value : Type := 
+  | Values : lset (@eq PtValue) -> Value (** use set **)
   | Any    : Value.
 
   Section hide_notation.
@@ -39,24 +55,46 @@ Section Context_aware.
     Local Open Scope show_scope.
     Local Open Scope string_scope.
     
-    Fixpoint show_ptval (pv:PtValue) : showM :=
+    Global Instance Show_ptval : Show PtValue :=
+    { show := fun (pv:PtValue) =>
       match pv with
         | Ctor c => c
         | Int z => show z
-        | Tpl l => show l
-        | Clo c v ks xs e => "<closure>" << show v
-      end
-    with show_val (v:Value) : showM :=
+        | Ptr aLoc => show aLoc
+        | Clo c v ks xs e => "<closure " << show v << ">"
+      end }.
+
+    Global Instance Show_val : Show Value :=
+    { show := fun (v:Value) =>
       match v with
-        | Values vs => "{" << sepBy_f show_ptval "," vs << "}"
+        | Values vs => "{" << sepBy_f show "," vs << "}"
         | Any => "any"
-      end.
-    Global Instance Show_Value : Show Value := show_val.
-    Global Instance Show_PtValue : Show PtValue := show_ptval.
+      end }.
 
   End hide_notation.
 
-  Fixpoint val_leq (v1 v2:Value) : bool :=
+  Definition ptval_leq (v1 v2:PtValue) : bool :=
+    match v1, v2 with
+      | Ctor c1, Ctor c2 => eq_dec c1 c2
+      | Int i1, Int i2 => eq_dec i1 i2
+      | Ptr l1, Ptr l2 => eq_dec l1 l2
+      | Clo c1 v1 ks1 xs1 e1, Clo c2 v2 ks2 xs2 e2 =>
+        eq_dec c1 c2 &&
+        eq_dec ks1 ks2 &&
+        eq_dec xs1 xs2 &&
+        eq_dec e1 e2
+      | _, _ => false
+    end.
+
+  Fixpoint all2 {A} (f : A -> A -> bool) (ls ls' : list A) : bool :=
+    match ls , ls' with
+      | nil , ls' => true
+      | ls , nil => false
+      | l :: ls , l' :: ls' =>
+        if f l l' then all2 f ls ls' else false
+    end.
+
+  Definition val_leq (v1 v2:Value) : bool :=
     match v1, v2 with
       | Any, Any => true
       | Values vs1, Values vs2 =>
@@ -67,30 +105,12 @@ Section Context_aware.
           end) vs1 true
       | _, Any => true
       | _, _ => false
-    end
-  with ptval_leq (v1 v2:PtValue) : bool :=
-    match v1, v2 with
-      | Ctor c1, Ctor c2 => eq_dec c1 c2
-      | Int _, Int _ => true
-      | Tpl l1, Tpl l2 => eq_dec l1 l2
-        (*
-        (fix fold_left2 acc ls1 ls2 :=
-          match ls1, ls2 with
-            | nil, nil => acc
-            | x1::ls1, x2::ls2 =>
-              if val_leq x1 x2 then acc else false
-            | _, _ => false
-          end) true vs1 vs2
-        *)
-      | Clo c1 v1 ks1 xs1 e1, Clo c2 v2 ks2 xs2 e2 =>
-        eq_dec c1 c2 &&
-        eq_dec ks1 ks2 &&
-        eq_dec xs1 xs2 &&
-        eq_dec e1 e2   
-      | _, _ => false
     end.
 
-  Definition Domain : Type := alist (var + cont) Value.
+  (* heap and environment *)
+  Record Domain : Type := 
+  { heap : alist var (list Value)
+  ; env  : alist (var + cont) Value }.
   Definition ProgramPoint : Type := (var + cont)%type.
   
   Definition bottomValue : Value := Values nil.
@@ -99,31 +119,59 @@ Section Context_aware.
     match v1 , v2 with
       | Any , _ => Any
       | _ , Any => Any
-      | Values x , Values y => Values (x ++ y)
+      | Values x , Values y => Values (Sets.union x y)
     end.
   
-  Global Instance AbsDomain_CFA0 : AbsDomain Domain Value Context ProgramPoint :=
-  { lookup  := fun c p d => 
-    match Maps.lookup p d with
-      | None => bottomValue
-      | Some v => v
-    end
-  ; update  := fun c p v d =>
-    match Maps.lookup p d with
-      | None => Maps.add p v d
-      | Some v_old => Maps.add p (joinValue v_old v) d
-    end
-  ; joinA   := Maps.combine (fun _ => joinValue) 
-  ; bottomA := bottomValue
-  ; topA    := Any
-  ; dom_leq   := fun dom1 dom2 => 
+  Definition dom_env_leq (dom1 dom2 : Domain) : bool :=
+    let dom1 := env dom1 in
+    let dom2 := env dom2 in
     fold_alist (fun k v (acc : bool) => 
       if acc then 
         match Maps.lookup k dom2 with
           | None => false
           | Some v' => val_leq v v'
         end
-      else false) true dom1
+        else false) true dom1.
+
+  Definition dom_heap_leq (dom1 dom2 : Domain) : bool :=
+    let dom1 := heap dom1 in
+    let dom2 := heap dom2 in
+    fold_alist (fun k v (acc : bool) => 
+      if acc then 
+        match Maps.lookup k dom2 with
+          | None => false
+          | Some v' => all2 val_leq v v'
+        end
+        else false) true dom1.
+
+  Fixpoint list_join_lenAny (ls ls' : list Value) : list Value :=
+    match ls , ls' with
+      | nil , ls' => ls'
+      | ls , nil => ls
+      | l :: ls , l' :: ls' =>
+        joinValue l l' :: list_join_lenAny ls ls'
+    end.
+
+  Global Instance AbsDomain_CFA0 : AbsDomain Context Domain ProgramPoint Value :=
+  { lookup  := fun c p d => 
+    match Maps.lookup p (env d) with
+      | None => bottomValue
+      | Some v => v
+    end
+  ; update  := fun c p v d =>
+    {| heap := heap d ;
+       env :=
+       match Maps.lookup p (env d) with
+         | None => Maps.add p v (env d)
+         | Some v_old => 
+           Maps.add p (joinValue v_old v) (env d)
+       end |}
+  ; joinA   := fun d1 d2 =>
+    {| heap := Maps.combine (fun _ => list_join_lenAny) (heap d1) (heap d2);
+       env := Maps.combine (fun _ => joinValue) (env d1) (env d2) |} 
+  ; bottomA := bottomValue
+  ; topA    := Any
+  ; dom_leq   := fun dom1 dom2 => dom_env_leq dom1 dom2 && dom_heap_leq dom1 dom2
   }.
   
   Global Instance IntValue_Value : IntValue Value :=
@@ -140,7 +188,7 @@ Section Context_aware.
   }.
 
   Global Instance CtorValue_Value : CtorValue Value constructor :=
-  { injCtor := fun x => Any (* Values (Ctor x :: nil) *)
+  { injCtor := fun x => Values (Ctor x :: nil)
   ; isPtrA := fun _ => None
   ; ceqA := fun _ _ => None
   }.
@@ -151,14 +199,6 @@ Section Context_aware.
   ; must := fun _ _ => false
   ; orA := fun _ _ => Any      
   }.
-
-  Fixpoint list_join_lenAny (ls ls' : list Value) : list Value :=
-    match ls , ls' with
-      | nil , ls' => ls'
-      | ls , nil => ls
-      | l :: ls , l' :: ls' =>
-        joinValue l l' :: list_join_lenAny ls ls'
-    end.
   
   Fixpoint filter_map {A B} (f : A -> option B) (ls : list A) : list B :=
     match ls with
@@ -178,20 +218,25 @@ Section Context_aware.
         | _ => None
       end) ls.
 
-  Import MonadNotation.
-  Local Open Scope monad_scope.
-  Require Import ExtLib.Data.Monads.StateMonad.
-
-  Global Instance TplValue_Value : TplValue Value (list Value) :=
-  { injTuple := fun h v ls => Values (Tpl v :: nil) (* Values (Tpl ls :: nil) *)
-  ; projA    := fun h n t => _
-    (*
+  Global Instance TplValue_Value : TplValue Context Domain Value :=
+  { injTuple := fun dom ctx v ls =>
+    {| env := env (update ctx (inl v) (Values (Sets.singleton (Ptr v))) dom);
+       heap :=
+       match Maps.lookup v (heap dom) with
+         | None => Maps.add v ls (heap dom)
+         | Some ls_old => 
+           Maps.add v (list_join_lenAny ls_old ls) (heap dom)
+       end |}
+  ; projA    := fun dom n t =>
     match t with
       | Any => Any
       | Values vs =>
         let ptwise_tuple := List.fold_left (fun acc x => 
           match x with
-            | Tpl vs => list_join_lenAny vs acc
+            | Ptr l => match Maps.lookup l (heap dom) with
+                         | None => acc
+                         | Some vs => list_join_lenAny vs acc
+                       end
             | _ => acc
           end) vs nil in
         match n with
@@ -206,25 +251,7 @@ Section Context_aware.
             List.fold_left joinValue all bottomA
         end
     end
-    *)
   }.  
-  refine (
-    match t with
-      | Any => Any
-      | Values vs =>
-        let alocs := List.fold_left (fun acc x => 
-          match x with
-            | Tpl l => l::acc
-            | _ => acc
-          end) vs nil in
-        match n with
-          | Any => _ (* TODO : lookup from the abstract heap the joins of all the alocs *)
-          | Values v => 
-            let nats := getNats v in _
-              (* TODO : lookup from the abstract heap the join of all the alocs at the nth position *)
-        end
-    end
-  ).
 
   Definition getClos (ls : list PtValue) : list (Context * list cont * list var * exp) :=
     filter_map (fun x =>
@@ -236,10 +263,8 @@ Section Context_aware.
   Local Open Scope monad_scope.
   Import MonadNotation.
   Require Import CoqCompile.TraceMonad.
-  
-  Check @foldM.
-
-  Global Instance FnValue_Value : FnValue (var + cont) Value Context Domain :=
+ 
+  Global Instance FnValue_Value : FnValue Context Domain (var + cont) Value :=
   { injFn := fun c v ks xs e => Values (Clo c v ks xs e :: nil)
   ; applyA := fun _ _ _ aeval dom v ks vs' =>
     match v with
@@ -262,24 +287,21 @@ Section Context_aware.
 
 End Context_aware.
 
+Global Instance Show_Domain C (SC : Show C) : Show (Domain C) :=
+{ show d := show (heap _ d, env _ d) }.
+
 Require Import CoqCompile.Analyze.AbstractInterpCpsK.
 Require Import ExtLib.Data.Monads.EitherMonad.
 Require Import ExtLib.Data.Monads.FuelMonad.
 Require Import ExtLib.Data.Monads.IdentityMonad.
 Require Import CoqCompile.TraceMonad.
 Require Import BinNums.
-Definition cfa_0 (e:exp) (fuel:N) : ((string + Domain unit) * list string).
-refine (let pcfa := aeval (Domain unit) unit _ (traceT string ident) tt in _).
-unfold Domain in *.
-refine (unIdent (traceTraceT (pcfa Maps.empty e fuel))).
-Defined.
+Definition cfa_0 (e:exp) (fuel:N) : ((string + Domain unit) * list string) :=
+  let pcfa := aeval (D := Domain unit) (C := unit) (V := Value unit) (m := (traceT string ident)) tt 
+    {| heap := Maps.empty ; env := Maps.empty |} e fuel in 
+  unIdent (traceTraceT pcfa).
 
-  Global Instance Show_Domain_unit : Show (Domain unit) :=
-  { show := _ }.
-  unfold Domain. eauto with typeclass_instances.
-  Defined.
-
-
+(*
 Module CFA0_test.
   Require Import String List Bool.
   Require Import CoqCompile.Parse.
@@ -314,7 +336,7 @@ Module CFA0_test.
   
   Definition g := fun (x y:nat) => x.
   Definition h := fun (x : nat) => S x.
-  Definition test2 := g (h 1) 1.
+  Definition test2 := g (h (h 1)) 1.
 
   Recursive Extraction test2.
   Definition test2_s :=
@@ -345,9 +367,14 @@ Module CFA0_test.
   Global Instance Show_showM : Show showM :=
     fun x => x.
 
-  Eval vm_compute in
-    let '(r,tr) := (cfa_0 test2_cpsk 4) in
-      to_string (sepBy Char.chr_newline (List.map show tr)).
+  Time Eval vm_compute in
+    let '(r,tr) := (cfa_0 test2_cpsk 10) in to_string r.
+  
   Eval vm_compute in to_string test2_cpsk.
 
+  Eval vm_compute in
+    let '(r,tr) := (cfa_0 test2_cpsk 10) in
+      to_string (sepBy Char.chr_newline (List.map show tr)).
+
 End CFA0_test.
+*)
