@@ -121,13 +121,14 @@ Section cps_convert.
         cps e1 (fun v1 =>
           x' <- freshFor x ;;
           e2' <- withVar x x' (cps e2 k) ; 
-          ret (Let_e (Op_d x v1) e2'))
+          ret (Let_e (Op_d x' v1) e2'))
       | Lambda.Lam_e x e => 
-        f <- freshVar (Some "f") ;; 
+        x' <- freshFor x ;;
+        f <- freshVar (Some "f") ;;
         c <- freshCont "K" ;; 
-        e' <- cps e (fun v => ret (AppK_e c (v::nil))) ; 
+        e' <- withVar x x' (cps e (fun v => ret (AppK_e c (v::nil)))) ; 
         e0 <- k (Var_o f) ; 
-        ret (Let_e (Fn_d f (c::nil) (x::nil) e') e0)
+        ret (Let_e (Fn_d f (c::nil) (x'::nil) e') e0)
       | Lambda.Letrec_e fs e => 
         fs' <- mapM (fun fn => 
           match fn with 
