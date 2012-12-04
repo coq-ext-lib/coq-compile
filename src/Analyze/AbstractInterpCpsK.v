@@ -16,7 +16,7 @@ Set Strict Implicit.
 
 Section AI.
   Variables D C V : Type.
-  Context {AbsTime_C  : AbsTime C}.
+  Context {AbsTime_C  : AbsTime C (var + cont)}.
   Context {AbsValue_V : AbsDomain C D (var + cont) V}.
   Context {IntValue_V : IntValue V}.
   Context {BoolValue_V : BoolValue V}.
@@ -26,6 +26,9 @@ Section AI.
   Context {Show_C : Show C}.
   Context {Show_D : Show D}.
   Context {Show_V : Show V}.
+  Instance RelDec_C : RelDec (@eq C).
+    eapply ED. eassumption.
+  Defined.
 
   Import MonadNotation.
   Local Open Scope monad_scope.
@@ -79,7 +82,7 @@ Section AI.
                       | Plus_p , l :: r :: nil => ret (plusA l r)
                       | Minus_p , l :: r :: nil => ret (minusA l r)
                       | Times_p , l :: r :: nil => ret (timesA l r)
-                      | Proj_p , l :: r :: nil => ret (projA dom l r)
+                      | Proj_p , l :: r :: nil => ret (projA dom ctx l r)
                       | _ , _ => illFormed_decl (Prim_d v p os)
                     end ;;
               ret ((v, vA) :: nil)

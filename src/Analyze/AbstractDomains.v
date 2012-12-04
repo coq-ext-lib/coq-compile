@@ -24,7 +24,9 @@ Section AbstractDomain.
      ** - there should also be a way to record a stack of call sites for context
      **   analysis
      **)
+  ; enter : C -> PP -> C
   }.
+
   
   Class AbsDomain : Type :=
   { lookup  : C -> PP -> D -> V
@@ -59,12 +61,14 @@ Section AbstractDomain.
 
   Class FnValue : Type :=
   { injFn  : C -> PP -> list cont -> list var -> exp -> V 
-  ; applyA : forall {m} {_ : Monad m} {_ : MonadTrace string m}, (C -> D -> exp -> m D%type) -> D -> V -> list V -> list V -> m D%type
+  ; applyA : forall {m} {_ : Monad m} {_ : MonadTrace string m} {_ : AbsTime}, 
+    (C -> D -> exp -> m D%type) ->
+    D -> V -> list V -> list V -> m D%type
   }.
 
   Class TplValue : Type :=
   { injTuple : D -> C -> var -> list V -> D
-  ; projA    : D -> V -> V -> V
+  ; projA    : D -> C -> V -> V -> V
   }.
 
 End AbstractDomain.
