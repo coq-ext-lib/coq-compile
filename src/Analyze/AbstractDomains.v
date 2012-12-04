@@ -56,8 +56,8 @@ Section AbstractDomain.
 
   Require Import ExtLib.Data.Map.FMapAList.
   Class TplValue (V : Type) (HV : Type) : Type :=
-  { injTuple : forall {m} {a : Monad m} {b : MonadState (alist var HV) m}, var -> list V -> V
-  ; projA    : forall {m} {a : Monad m} {b : MonadState (alist var HV) m}, V -> V -> V
+  { injTuple : (alist V HV) -> var -> list V -> V
+  ; projA    : (alist V HV) -> V -> V -> V
   }.
 
 End AbstractDomain.

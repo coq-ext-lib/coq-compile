@@ -183,8 +183,8 @@ Section Context_aware.
   Require Import ExtLib.Data.Monads.StateMonad.
 
   Global Instance TplValue_Value : TplValue Value (list Value) :=
-  { injTuple := fun _ _ _ v ls => Values (Tpl v :: nil) (* Values (Tpl ls :: nil) *)
-  ; projA    := fun _ _ _ n t => _
+  { injTuple := fun h v ls => Values (Tpl v :: nil) (* Values (Tpl ls :: nil) *)
+  ; projA    := fun h n t => _
     (*
     match t with
       | Any => Any
@@ -225,7 +225,6 @@ Section Context_aware.
         end
     end
   ).
-  (* wtf monad troubles ... *)
 
   Definition getClos (ls : list PtValue) : list (Context * list cont * list var * exp) :=
     filter_map (fun x =>
