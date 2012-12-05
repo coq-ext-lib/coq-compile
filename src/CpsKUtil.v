@@ -216,12 +216,14 @@ Section free_vars.
   End monadic.
 
   Definition free_vars_exp (e : exp) : s :=
-    let x := unIdent (runWriterT (free_vars_exp' e)) in
-    snd x.
+    unIdent (execWriterT (free_vars_exp' e)).
 
   Definition free_vars_decl (r : bool) (d : decl) : s :=
-    let x := unIdent (runWriterT (free_vars_decl' r d)) in
-    snd x.
+    unIdent (execWriterT (free_vars_decl' r d)).
+
+  Definition free_vars_cont (k : cont) (xs : list var) (e : exp) : s :=
+    unIdent (execWriterT (censor (filter_vars xs) (free_vars_exp' e))).
+
   End with_sets.
 
 End free_vars.

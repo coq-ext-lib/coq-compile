@@ -348,8 +348,19 @@ Section Context.
 
 End Context.
 
-Global Instance Show_Domain C (SC : Show C) : Show (Domain C) :=
-{ show d := show (heap _ d, env _ d) }.
+Section hiding_notation.
+  Import ShowNotation.
+  Local Open Scope show_scope.
+  Local Open Scope string_scope.
+
+  Global Instance Show_Domain C (SC : Show C) : Show (Domain C) :=
+  { show d := Char.chr_newline << "Heap: " << Char.chr_newline <<
+    sepBy_f (fun kv => show (fst kv) << " : " << show (snd kv)) Char.chr_newline (heap _ d) <<
+    Char.chr_newline << Char.chr_newline <<
+    "Env: " << Char.chr_newline <<
+    sepBy_f (fun kv => show (fst kv) << " : " << show (snd kv)) Char.chr_newline (env _ d) <<
+    Char.chr_newline }.
+End hiding_notation.
 
 Require Import CoqCompile.Analyze.AbstractInterpCpsK.
 Require Import ExtLib.Data.Monads.EitherMonad.
@@ -432,7 +443,7 @@ Module CFA0_test.
     fun x => x.
 
   Time Eval vm_compute in
-    let '(r,tr) := (cfa_n 1 test2_cpsk 10) in to_string r.
+    let '(r,tr) := (cfa_n 0 test2_cpsk 10) in to_string r.
 
   Eval vm_compute in to_string test2_cpsk.
 
