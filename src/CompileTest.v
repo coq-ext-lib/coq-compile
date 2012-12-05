@@ -68,6 +68,7 @@ Module CompileTest.
   Eval vm_compute in
     Compile.stringToLow fact.
 
+  (** TODO: This is stack overflowing **)
   Eval vm_compute in
     match Compile.runM (Compile.topCompile 8 Compile.Opt.O0 false e_fact) with
       | (inl err, t) => (err, t)
