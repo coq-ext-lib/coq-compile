@@ -71,6 +71,15 @@ GC: runtime Even.v
 	llc gc-opt.ll -o gc-opt.s
 	clang gc-opt.s shadowstack.o -o gc.native
 
+HelloWorld: runtime HelloWorld.v
+	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib HelloWorld.v
+	../Extraction/Wrapper.byte -O1 -io -i HelloWorld -t main -o helloworld.ll
+	llvm-link coqrt.ll helloworld.ll -S -o helloworld-coqrt.ll
+	opt -O3 -S helloworld-coqrt.ll -o helloworld-opt.ll
+	llc helloworld-opt.ll -o helloworld-opt.s
+	clang helloworld-opt.s shadowstack.o -o helloworld.native
+
+
 Compiler: runtime Compiler.v
 #	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib Compiler.v
 	../Extraction/Wrapper.byte -O1 -e compile.scheme -q -o compiler.ll

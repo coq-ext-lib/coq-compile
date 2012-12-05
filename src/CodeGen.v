@@ -39,6 +39,7 @@ Section sized.
   Definition GC_NAME : option string := Some "shadow-stack"%string.
 
   Definition ALLOC_FN : string := "coq_alloc"%string.
+  Definition PRINTCHAR_FN : string := "coq_printchar"%string.
   Definition GCROOT := "llvm.gcroot"%string.
 
   Definition PTR_TYPE := LLVM.Pointer_t ADDR_SPACE UNIVERSAL.
@@ -304,8 +305,25 @@ Section monadic.
     end.
 
   Definition generateMop T (x : Env.var) (p : Low.mop) (os : list op) (k : m T) : m T :=
+    x' <- forLocal x ;;
     match p with
-      | PrintInt_m => k (* XXX IMPLEMENT! *)
+      | PrintInt_m => 
+        mlog "TODO: generate code for PrintInt"%string ;;
+        k
+      | PrintChar_m =>
+        mlog "generating code for PrintChar"%string ;;
+        tr <- tagForConstructor "True"%string ;;
+        arg <- foldM (fun x (acc : Z * LLVM.value) =>
+          x <- opgen x ;;
+          tr <- emitExpFresh (LLVM.Icmp_e LLVM.Eq UNIVERSAL x (LLVM.Constant (LLVM.Int_c tr))) ;;
+          bit <- emitExpFresh (LLVM.Select_e (LLVM.I_t 1) (%tr) 
+                                             (LLVM.I_t 8) (LLVM.Constant (LLVM.Int_c (fst acc))) 
+                                             (LLVM.I_t 8) (LLVM.Constant (LLVM.Int_c 0))) ;; 
+          acc_val <- emitExpFresh (LLVM.Or_e (LLVM.I_t 8) (snd acc) (%bit)) ;;
+          ret ((fst acc * 2)%Z, (%acc_val))) (1%Z, LLVM.Constant (LLVM.Int_c 0)) os ;;
+        emitExp x' (LLVM.Call_e true CALLING_CONV nil UNIVERSAL None (LLVM.Global PRINTCHAR_FN)
+                                ((LLVM.I_t 8, snd arg, nil) :: nil) nil) ;;
+        withNewVar x x' ;; k
     end.
 
   Fixpoint sizeof (t : primtyp) : nat :=

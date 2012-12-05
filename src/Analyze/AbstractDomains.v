@@ -1,12 +1,22 @@
 Require Import CoqCompile.CpsK.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Core.RelDec.
+Require Import String.
+Require Import CoqCompile.TraceMonad.
 
 Import CpsK.CPSK.
 
+Set Implicit Arguments.
+Set Strict Implicit.
+
 Section AbstractDomain.
   
-  Class AbsTime (C : Type) : Type :=
+  Variable C : Type.  (* Context *)
+  Variable D : Type.  (* Domain *)
+  Variable PP : Type. (* Program point, which in our case is just a var + cont name *)
+  Variables V : Type. (* Sets of values *)
+
+  Class AbsTime : Type :=
   { ED :> RelDec (@eq C)
     (** What does this have? 
      ** - there should be a way to refine a context to include some pure fact, e.g.
@@ -14,18 +24,20 @@ Section AbstractDomain.
      ** - there should also be a way to record a stack of call sites for context
      **   analysis
      **)
-  }.
-  
-  Class AbsDomain (Domain Value Context ProgramPoint : Type) : Type :=
-  { lookup  : Context -> ProgramPoint -> Domain -> Value
-  ; update  : Context -> ProgramPoint -> Value -> Domain -> Domain
-  ; joinA   : Domain -> Domain -> Domain
-  ; bottomA : Value (** this means empty, i.e. never has a value **)
-  ; topA    : Value (** this means anything of any type **)
-  ; dom_leq : Domain -> Domain -> bool
+  ; enter : C -> PP -> C
   }.
 
-  Class IntValue (V : Type) : Type :=
+  
+  Class AbsDomain : Type :=
+  { lookup  : C -> PP -> D -> V
+  ; update  : C -> PP -> V -> D -> D
+  ; joinA   : D -> D -> D
+  ; bottomA : V (** this means empty, i.e. never has a value **)
+  ; topA    : V (** this means anything of any type **)
+  ; dom_leq : D -> D -> bool
+  }.
+
+  Class IntValue : Type :=
   { injInt : option BinNums.Z -> V
   ; plusA  : V -> V -> V
   ; minusA : V -> V -> V
@@ -34,27 +46,33 @@ Section AbstractDomain.
   ; ltA    : V -> V -> option bool
   }.
 
-  Class CtorValue (V : Type) (Ctor : Type) : Type :=
+  Class CtorValue (Ctor : Type) : Type :=
   { injCtor : Ctor -> V
   ; isPtrA  : V -> option bool
   ; ceqA    : V -> V -> option bool
   }.
 
-  Class BoolValue (V : Type) : Type :=
+  Class BoolValue : Type :=
   { injBool : option bool -> V
   ; may : V -> bool -> bool
   ; must : V -> bool -> bool
   ; orA : V -> V -> V
   }.
 
-  Class FnValue (V C D : Type) : Type :=
-  { injFn  : C -> list cont -> list var -> exp -> V 
-  ; applyA : forall {m} {_ : Monad m}, (C -> D -> exp -> m D%type) -> D -> V -> list V -> list V -> m D%type
+  Class FnValue : Type :=
+  { injFn  : C -> PP -> list cont -> list var -> exp -> V 
+  ; applyA : forall {m} {_ : Monad m} {_ : MonadTrace string m} {_ : AbsTime}, 
+    (C -> D -> exp -> m D%type) ->
+    D -> V -> list V -> list V -> m D%type
   }.
 
-  Class TplValue (V : Type) : Type :=
-  { injTuple : list V -> V
-  ; projA    : V -> V -> V
+  Class TplValue : Type :=
+  { injTuple : D -> C -> var -> list V -> D
+  ; projA    : D -> C -> V -> V -> V
   }.
 
 End AbstractDomain.
+
+Arguments bottomA {_ _ _ _ _}.
+Arguments topA {_ _ _ _ _}.
+Arguments joinA {_ _ _ _ _} _ _.

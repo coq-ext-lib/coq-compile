@@ -1,11 +1,12 @@
-CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKSemantics Low LLVM \
-	      CpsUtil CpsKUtil AlphaEquivCps AlphaEquivCpsK CpsIO \
+CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKExamples CpsKSemantics Low LLVM \
+	      CpsUtil CpsKUtil AlphaEquivCps AlphaEquivCpsK \
 	      CpsKIO CpsKConvert \
 	      Optimize TraceMonad
 OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK
 ANALYSIS   := OccurCps AbstractDomains AbstractInterpCpsK CFA0 # SimpleAnalysis
 COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGen CloConvK CpsK2Low Compile
-MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE)
+RUNTIME    := IO
+MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE) $(RUNTIME)
 TESTS      :=
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
