@@ -21,6 +21,7 @@ let params =
    ("-q", Arg.Unit (fun () -> quiet := true), "don't print the extracted string");
    ("-O0", Arg.Unit (fun () -> opt := Compile.Compile.Opt.coq_O0), " Optimizer Level 0 (default)");
    ("-O1", Arg.Unit (fun () -> opt := Compile.Compile.Opt.coq_O1), " Optimizer Level 1");
+   ("-O2", Arg.Unit (fun () -> opt := Compile.Compile.Opt.coq_O2), " Optimizer Level 2");
    ("-io", Arg.Unit (fun () -> io := true), " Wrapping with IO monad");
    ("-arg", Arg.String (fun s -> comp_args := !comp_args ^ " " ^ s), " Parameters to pass to coqc")
  ];;

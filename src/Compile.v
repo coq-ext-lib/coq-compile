@@ -78,12 +78,15 @@ Module Compile.
     Require Import CoqCompile.Optimize.
     Require CoqCompile.Opt.CseCpsK.
     Require CoqCompile.Opt.DeadCodeCpsK.
+    Require CoqCompile.Opt.ReduceCpsK.
 
     Definition optimization e : Type := Optimize.optimization e m.
     
     Definition O0 : optimization CPSK.exp := fun x => ret x.
     Definition O1 : optimization CPSK.exp := fun x => 
       ret (CseCpsK.Cse.cse (DeadCodeCpsK.dce x)).
+    Definition O2 : optimization CPSK.exp := fun x =>
+      ret (ReduceCpsK.Reduce.reduce (CseCpsK.Cse.cse (DeadCodeCpsK.dce x))).
     
     Definition runOpt {E} (o : optimization E) (e : E) : m E := o e.
   End Opt.
@@ -194,7 +197,7 @@ Module Compile.
   End Driver.
 
 End Compile.
-(*
+
 Module CompileTest.
   Import Lambda.
   Import LambdaNotation.
@@ -204,8 +207,8 @@ Module CompileTest.
   Definition e_ident : Lambda.exp :=
     Eval compute in 
       match Parse.parse_topdecls identity with
-        | None => Lambda.Var_e (Env.wrapVar ""%string)
-        | Some o => o
+        | inl _ => Lambda.Var_e (Env.wrapVar ""%string)
+        | inr o => o
       end.
 
   Definition fact :=
@@ -227,8 +230,8 @@ Module CompileTest.
   Definition e_fact : Lambda.exp :=
     Eval vm_compute in 
       match Parse.parse_topdecls fact with
-        | None => Lambda.Var_e (Env.wrapVar ""%string)
-        | Some o => o
+        | inl _ => Lambda.Var_e (Env.wrapVar ""%string)
+        | inr o => o
       end.
 
   Eval vm_compute in
@@ -247,4 +250,3 @@ Module CompileTest.
     end.
 
 End CompileTest.
-*)

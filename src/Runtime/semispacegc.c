@@ -27,6 +27,13 @@ static void segfault_handler(int sig, siginfo_t *si, void *unused) {
   if (bot <= fault && fault < top) {
     printf("Fault in unused space\n");
   }
+
+  printf("Searching backward for header...\n");
+  mprotect((void *)bot,heapsize,PROT_READ|PROT_WRITE);
+  do {
+    printf("%p:\t0x%016lx\n", fault, *fault);
+  } while (!((*fault--) & 0x1));
+
   exit(-1);
 }
 
@@ -90,10 +97,13 @@ bumpptr_t gc_init(size_t capacity) {
   return (bumpptr_t) { .base = curbot, .limit = curtop };
 }
 
-void forward(universal_t *objref) {
+void forward(universal_t *objref,universal_t offset) {
   universal_t *ptr = *((universal_t **)objref);
+  /*  printf("Forwarding %p ... ", ptr); */
   if (is_ptr(ptr) && (ptr >= curbot && ptr < curtop)) {
-    /* ptr is a pointer into fromspace */
+    /* ptr is a pointer into an object in fromspace */
+    /* go to the begining of the object */
+    ptr = ptr - offset;
     if (is_rec(ptr)) {
       /* Get a pointer to the header */
       universal_t *header = hdr(ptr);
@@ -102,23 +112,43 @@ void forward(universal_t *objref) {
       /* Copy the object starting at the header into tosapce */
       universal_t *i = header;;
       universal_t *j = endptr;
+      if (debug) {
+	if (len > 10) {
+	  printf("A stack variable at %p\n", &i);
+	  printf("moving %lu word object from %p to %p\n", rec_len(ptr), ptr, endptr + 1);
+	  universal_t *word = ptr-9;
+	  for (uint8_t i = 0; i < 20; i++) {
+	    if (!(i % 4))
+	      printf("\n%p:\t", word);
+	      printf("0x%016lx\t", (universal_t)(*word++));
+	  }
+	}
+      }
       while (len-- > 0) {
 	*j++ = *i++;
       }
       /* Set the forwarding pointer in fromspace and update the record's tag */
-      *ptr = (universal_t)endptr + 1;
-      *header = 0;
+      *ptr = (universal_t)(endptr + 1);
+      *header = UINTPTR_MAX;
       /* Move the end of the queue forward */
       endptr = j;
-    }
+    } /* else
+      if (&(*(universal_t **)ptr)[offset] == *((universal_t **)objref)) {
+	printf("already forwarded\n");
+      } else {
+	printf("forwarding to %p\n", &(*(universal_t **)ptr)[offset]);
+	}
+    } */
     /* ptr must be a forwarding pointer. It either already was, or we 
        forwarded it above. Update the objref to point to the new object */
-    *objref = (universal_t)ptr;
-  }
+    *objref = (universal_t)&(*(universal_t **)ptr)[offset] ;
+  }/* else {
+    printf("not a pointer\n");
+    }*/
 }
 
 void visitGCRoot(void **root, const void *meta) {
-  forward((universal_t *)root);
+  forward((universal_t *)root,(universal_t)meta);
 }
 
 bumpptr_t coq_gc(void) {
@@ -130,7 +160,7 @@ bumpptr_t coq_gc(void) {
   }
 
   /* initialize the queue in tospace */
-  queueptr = (curtop == fromtop) ? tobot : frombot;
+  queueptr = (curbot == frombot) ? tobot : frombot;
   endptr = queueptr;
 
   /* Call forward on the roots */
@@ -146,7 +176,7 @@ bumpptr_t coq_gc(void) {
     assert(is_rec(objref)); /* all heap allocations are records */
     queueptr += rec_len(objref) + 1;
     do {
-      forward(objref++);
+      forward(objref++,0);
     } while (objref < queueptr);
   }
 
@@ -165,7 +195,7 @@ bumpptr_t coq_gc(void) {
     curbot = frombot;
     curtop = fromtop;
   }
-  assert(curbot <= endptr && endptr < curtop);
+  assert(curbot <= endptr && endptr <= curtop);
 
   /* allocation starts at the end of the queue */
   return (bumpptr_t) { .base = endptr, .limit = curtop };
@@ -174,6 +204,10 @@ bumpptr_t coq_gc(void) {
 alloc_t coq_alloc(bumpptr_t bumpptrs, universal_t words) {
   /* TODO: Check for overflow? */
   universal_t *newbase = &bumpptrs.base[words];
+  if (debug) {
+    printf("Starting allocation...\n");
+    printf("Base: %p Limit: %p New Base: %p New Object: %p\n", bumpptrs.base, bumpptrs.limit, newbase, &bumpptrs.base[1]);
+  }
   if (newbase > bumpptrs.limit) {
     size_t allocedBefore;
     if (debug) {
@@ -192,11 +226,11 @@ alloc_t coq_alloc(bumpptr_t bumpptrs, universal_t words) {
       universal_t allocedAfter = (universal_t)bumpptrs.base - (universal_t)curbot;
       printf("Collected %lu / %lu bytes.\n", allocedBefore - allocedAfter, allocedBefore);
     }
-    assert(curbot <= bumpptrs.base && bumpptrs.base < bumpptrs.limit);
+    assert(curbot <= bumpptrs.base && bumpptrs.base <= bumpptrs.limit);
     /* try again and exit on failure */
     newbase = &bumpptrs.base[words];
     if (newbase > bumpptrs.limit)
-      coq_error();
+	  coq_error();
   }
 
   alloc_t result = {
@@ -206,8 +240,9 @@ alloc_t coq_alloc(bumpptr_t bumpptrs, universal_t words) {
     },
     .ptr = bumpptrs.base
   };
-  assert(curbot <= result.ptr && result.ptr < result.bumpptrs.limit
-	 && "Invalid allocation result");
+  assert(curbot <= result.ptr);
+  assert(curbot <= result.bumpptrs.base);
+  assert(result.ptr < result.bumpptrs.limit);
+  assert(result.bumpptrs.limit == curtop);
   return result;
 }
- 

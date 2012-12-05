@@ -48,13 +48,14 @@ Definition cont : Type := (nat + label)%type.
 
 Inductive term :=
 | Halt_tm : op -> term
-| Call_tm : var -> op -> list op -> list cont -> term
+| Call_tm : var -> op -> list op -> list (cont * list op) -> term
 (* Return to a passed-in continuation *)
 | Cont_tm : cont -> list op -> term
 | Switch_tm : op -> list (pattern * label * list op) -> option (label * list op) -> term.
 
 Record block := mk_block {
   b_args : list var;
+  b_scope : list var;
   b_insns : list instr;
   b_term : term
 }.
@@ -133,7 +134,8 @@ Section Printing.
       | Halt_tm o => "halt " << show o
       | Call_tm v fn args ks => 
         show v << " = " << show fn << "(" << sepBy "," (List.map show args) << ") return ["
-        << sepBy "," (List.map (show : cont -> showM) ks) << "]"
+        << sepBy "," (List.map (fun k => let '(k,args) := k in
+          show k << "(" << show args << ")") ks) << "]"
       | Cont_tm k args => "return " << show k << "(" << sepBy "," (List.map show args) << ")"
       | Switch_tm o ps def =>
         "switch " << show o 
@@ -146,7 +148,8 @@ Section Printing.
     end }.
   
   Definition showBlock (l : label) (b : block) : showM :=
-    l << "(" << sepBy "," (List.map show b.(b_args)) << "):"
+    l << "(inscope: " << sepBy ", " (List.map show b.(b_scope)) << "; args: "
+    << sepBy ", " (List.map show b.(b_args)) << "):"
     << match b.(b_insns) with
          | nil => empty
          | _ => indent "  " (chr_newline << sepBy chr_newline (List.map show b.(b_insns)))

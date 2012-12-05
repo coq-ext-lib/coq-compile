@@ -23,7 +23,7 @@ universal_t rec_len(universal_t *ptr) {
 }
 
 bool is_rec(universal_t *ptr) {
-  return (rec_len(ptr) != 0);
+  return (rec_len(ptr) != UINTPTR_MAX);
 }
 
 void coq_done(bumpptr_t bumpptrs, universal_t o) {

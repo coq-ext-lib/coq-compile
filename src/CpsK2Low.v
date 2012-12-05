@@ -48,10 +48,10 @@ Section maps.
     Context {Exc_m : MonadExc string m}.
     Context {Fresh_m : MonadState positive m}.
     Context {Freshl_m : MonadState positive m}.
-    Context {Block_m : MonadState (option (label * list var * list instr)) m}.
+    Context {Block_m : MonadState (option (label * list var * list var * list instr)) m}.
     Context {Blocks_m : MonadState (alist label block) m}.
     Context {VarMap_m : MonadReader (map_var op) m}.
-    Context {ContMap_m : MonadReader (map_cont Low.cont) m}.
+    Context {ContMap_m : MonadReader (map_cont (Low.cont * list var)) m}.
 
     Definition freshVar : m var :=
       x <- modify (MS := Fresh_m) (fun x => Psucc x) ;;
@@ -64,9 +64,9 @@ Section maps.
       block_stack <- get (MonadState := Block_m) ;;
       match block_stack with
         | None => raise "BUG: No current block"%string
-        | Some (l, vs, is) =>
+        | Some (l, vs, ls, is) =>
           put None ;;
-          let blk := {| b_args := vs ; b_insns := rev is ; b_term := tm |} in
+          let blk := {| b_args := vs ; b_scope := ls ; b_insns := rev is ; b_term := tm |} in
             ret blk
       end.
 
@@ -74,30 +74,16 @@ Section maps.
       block_stack <- get (MonadState := Block_m) ;;
       match block_stack with
         | None => raise "BUG: No current block"%string
-        | Some (l, vs, is) =>
-          put (Some (l, vs, i :: is))
+        | Some (l, vs, ls, is) =>
+          put (Some (l, vs, ls, i :: is))
       end.
 
     Definition add_block (l : label) (blk : block) : m unit :=
       modify (MS := Blocks_m) (Maps.add l blk) ;;
       ret tt.
 
-    Definition newBlock {T} (l : label) (vs : list var) (c : m T) : m T :=
-      old_blk <- get (MonadState := Block_m) ;;
-      put (Some (l, vs, nil)) ;;
-      result <- c ;;
-      put old_blk ;;
-      ret result.
-
-    Definition cont2low (c : CPSK.cont) : m Low.cont :=
-      r <- asks (MR := ContMap_m) (Maps.lookup c) ;;
-      match r with
-        | Some r => ret r
-        | None => raise ("ERROR: Unknown continuation '" ++ runShow (show c) ++ "'")
-      end.
-
-    Definition withNewConts (ks : list (CPSK.cont * label)) : forall {T}, m T -> m T :=
-      @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (inr (snd x)) acc) ks).
+    Definition withNewConts (ks : list (CPSK.cont * (Low.cont * list var))) : forall {T}, m T -> m T :=
+      @local _ _ ContMap_m (fold_left (fun acc x => Maps.add (map := map_cont) (fst x) (snd x) acc) ks).
 
     Definition withNewVars (vo : list (var * op)) : forall {T}, m T -> m T :=
       @local _ _ VarMap_m (fold_left (fun acc x => Maps.add (fst x) (snd x) acc) vo).
@@ -105,23 +91,45 @@ Section maps.
     Definition withNewVar (v : var) (o : op) : forall {T}, m T -> m T :=
       @withNewVars ((v,o) :: nil).
 
-    Definition inFreshLbl {T} (vs:list var) (k:m T) : m (label * T) :=
-      l <- freshLbl ;;
-      result <- newBlock l vs k ;;
-      ret (l, result).
+    Definition newBlock {T} (l : label) (vs : list var) (ls : list var) (c : m T) : m T :=
+      old_blk <- get (MonadState := Block_m) ;;
+      put (Some (l, vs, ls, nil)) ;;
+(*      let newVars := map (fun v => (v,Var_o v)) (vs ++ ls)%list in
+      result <- local (fun _ => Maps.empty) (withNewVars newVars c) ;;*)
+      result <- c ;;
+      put old_blk ;;
+      ret result.
+
+    Context {SM : Show (map_var op)}.
 
     Definition opgen (o:op) : m op :=
       match o with 
         | Var_o v => 
           x <- asks (Maps.lookup v) ;;
           match x with
-            | None => raise ("ERROR: Unknown variable '" ++ runShow (show v) ++ "'")
+            | None => 
+              m <- ask (T:=(map_var op)) ;;
+              raise ("ERROR: Unknown variable '" ++ runShow (show v) ++ "' in map " ++ runShow (show m))
             | Some v => ret v
           end
         | Con_o _ => ret o
         | Int_o _ => ret o
         | InitWorld_o => ret o
       end.
+
+    Definition cont2low (c : CPSK.cont) : m (Low.cont * list op) :=
+      r <- asks (MR := ContMap_m) (Maps.lookup c) ;;
+      match r with
+        | Some (k,vs) => 
+          vs <- mapM (fun v => opgen (Var_o v)) vs ;;
+          ret (k,vs)
+        | None => raise ("ERROR: Unknown continuation '" ++ runShow (show c) ++ "'")
+      end.
+
+    Definition inFreshLbl {T} (vs:list var) (ls:list var) (k:m T) : m (label * T) :=
+      l <- freshLbl ;;
+      result <- newBlock l vs ls k ;;
+      ret (l, result).
 
     Definition gen_lbl_args (e:exp) : m (list var) :=
       let vs := free_vars_exp (s := list (var + cont)) e in
@@ -149,8 +157,9 @@ Section maps.
 
     Definition decl2low (d:decl) {T} (c : m T) : m T :=
       match d with
-        | Op_d x o => 
-          withNewVar x o c
+        | Op_d x o =>
+          raise ("Must copy propagate before CpsK2Low: " ++ to_string d)%string
+          (* withNewVar x o c *)
         | Prim_d x p os =>
           vs <- mapM opgen os ;;
           match p with
@@ -213,7 +222,7 @@ Section maps.
 
     Fixpoint cpsk2low' (e:exp) : m block :=
       match e with
-        | App_e o ks os => 
+        | App_e o ks os =>
           v <- opgen o ;;
           vs <- mapM opgen os ;;
           x <- freshVar ;;
@@ -235,43 +244,55 @@ Section maps.
           v <- opgen o ;;
           arms <- mapM (fun pat =>
             let '(p,e) := pat in
-              lbl_blk <- inFreshLbl nil (cpsk2low' e) ;;
+              args <- gen_lbl_args e ;;
+              lbl_blk <- inFreshLbl nil args (cpsk2low' e) ;;
               add_block (fst lbl_blk) (snd lbl_blk) ;;
-              ret (p, fst lbl_blk, map (fun x => Var_o x) nil)) arms ;;
+              ret (p, fst lbl_blk, map (fun x => Var_o x) args)) arms ;;
           defLbl <- match e with
                       | None => ret None
                       | Some e => 
-                        lbl_blk <- inFreshLbl nil (cpsk2low' e) ;;
+                        args <- gen_lbl_args e ;;
+                        lbl_blk <- inFreshLbl nil args (cpsk2low' e) ;;
                         add_block (fst lbl_blk) (snd lbl_blk) ;;
-                        ret (Some (fst lbl_blk, nil))
+                        ret (Some (fst lbl_blk, map (fun x => Var_o x) args))
                     end ;;
           emit_tm (Switch_tm v arms defLbl)
         | Halt_e o _ => 
           v <- opgen o ;;
           emit_tm (Halt_tm v)
-        | AppK_e k os => 
+        | AppK_e k os =>
           k <- cont2low k ;;
+          let '(k,args) := k in
           vs <- mapM opgen os ;;
-          emit_tm (Cont_tm k vs)
+          emit_tm (Cont_tm k (args ++ vs))
         | LetK_e cves e => 
-          lbls <- mapM (fun x => let '(k, vs, e) := x in 
-            l <- freshLbl ;;
-            ret (k, l)) cves ;;
-          withNewConts
-            (map (fun x => let '(k, l) := x in (k, l)) lbls)
-            ((iterM (fun x => let '(k, vs, e) := x in 
-              l <- cont2low k ;;
-              match l with
-                | inr l =>
-                  blk <- newBlock l vs (withNewVars (map (fun x => (x, Var_o x)) vs) (cpsk2low' e)) ;;
-                  add_block l blk
-                | inl _ => raise "??: local cont references cont parameter"%string
-              end) cves) ;;
-            cpsk2low' e)
+            lbls <- mapM (fun x => let '(k, vs, e) := x in 
+              l <- freshLbl ;;
+              vars <- gen_lbl_args e ;;
+              let vars := filter (fun x => negb (existsb (fun y => eq_dec x y) vs)) vars in
+              ret (k, (l,vars))) cves ;;
+            withNewConts
+              (map (fun x => let '(k,(l,v)) := x in (k,(inr l,v))) lbls)
+              (
+                  iterM (fun x => let '(k, vs, e) := x in 
+                    l <- cont2low k ;;
+                    let '(l,_) := l in
+                    args <- gen_lbl_args e ;;
+                    let args := filter (fun x => negb (existsb (fun y => eq_dec x y) vs)) args in
+                    match l with
+                      | inr l =>
+                        let newVars := (map (fun x => (x, Var_o x)) (args ++ vs))%list in
+                        blk <- newBlock l vs args (withNewVars newVars (cpsk2low' e)) ;;
+                               add_block l blk
+                      | inl _ => raise "??: local cont references cont parameter"%string
+                    end) cves ;;
+                  cpsk2low' e
+                )
       end.
 
     Fixpoint tl_cpsk2low (e:exp) : m (label * block) :=
-      lbl_blk <- inFreshLbl nil (cpsk2low' e) ;;
+      args <- gen_lbl_args e ;;
+      lbl_blk <- inFreshLbl nil args (cpsk2low' e) ;;
       add_block (fst lbl_blk) (snd lbl_blk) ;;
       ret lbl_blk.
 
@@ -290,12 +311,12 @@ Section monadic2.
   Record StateData : Type :=
   { freshVar_p : positive
   ; freshLabel_p : positive
-  ; curBlock : option (label * list var * list instr)
+  ; curBlock : option (label * list var * list var * list instr)
   ; allBlocks : alist label block
   }.
   Record ReaderData : Type :=
   { varMap : alist var op
-  ; contMap : alist CPSK.cont Low.cont
+  ; contMap : alist CPSK.cont (Low.cont * list var)
   }.
 
   Definition MonadState_StateData_freshVar m (M : Monad m) : MonadState _ (stateT StateData m) :=
@@ -321,8 +342,8 @@ Section monadic2.
   Instance MonadReader_ReaderData_contMap m (M : Monad m) : MonadReader _ (readerT ReaderData m) :=
     ReaderProd contMap (fun x d => {| varMap := d.(varMap) ; contMap := x |}).
 
-  Arguments tl_cpsk2low {_ _ _ _ m Mon MExc MSvar MSlbl _ _ _ _} (e) : rename.
-  
+  Arguments tl_cpsk2low {_ _ _ _ m Mon MExc MSvar MSlbl _ _ _ _ _} (e) : rename.
+ 
   Definition tl_decl2low (name : var) (ks : list CPSK.cont) (args : list var) (tops : list (var * op)) (e : CPSK.exp) : m Low.function :=
     let c := tl_cpsk2low 
       (map_var := alist var) (FM_var := DMap_alist RelDec_var_eq)
@@ -342,11 +363,11 @@ Section monadic2.
       {| varMap := 
          let vars := fold_left (fun acc x => Maps.add (fst x) (snd x) acc) tops Maps.empty in
          fold_left (fun acc x => Maps.add x (Var_o x) acc) args vars
-       ; contMap := (fix recur (ls : list CPSK.cont) idx (mp : alist CPSK.cont Low.cont) : alist CPSK.cont Low.cont := 
+       ; contMap := (fix recur (ls : list CPSK.cont) idx (mp : alist CPSK.cont (Low.cont * list var)) : alist CPSK.cont (Low.cont * list var) := 
          match ls with
            | nil => mp 
            | l :: ls => 
-             recur ls (S idx) (Maps.add l (inl idx) mp)
+             recur ls (S idx) (Maps.add l (inl idx,nil) mp)
          end) ks 0 Maps.empty
        |}
     in
@@ -358,11 +379,16 @@ Section monadic2.
          ; f_body := state.(allBlocks)
          ; f_entry := entry_label |}.
 
+  Require Import CoqCompile.Opt.CopyPropCpsK.
+
   Definition cpsk2low (fs : list CPSK.decl) (e : CPSK.exp) : m Low.program :=
+    let e := CopyProp.copyprop e in
     let binders : list (var * op) := map (fun d => let v := lowBinder d in (v, Var_o v)) fs in
     fs <- mapM (fun d => 
       match d with
-        | CPSK.Fn_d f ks args e => tl_decl2low f ks args binders e
+        | CPSK.Fn_d f ks args e => 
+          let e := CopyProp.copyprop e in
+          tl_decl2low f ks args binders e
         | _ => raise ("Decl other than function found in top-lvl")%string
       end) fs ;;
     entry <- tl_decl2low (Named_v "coq_main"%string None) nil nil binders e ;;
