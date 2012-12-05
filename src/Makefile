@@ -3,11 +3,11 @@ CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKExamples CpsKSemantics Low
 	      CpsKIO CpsKConvert \
 	      Optimize TraceMonad
 OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK CopyPropCpsK
-ANALYSIS   := OccurCps AbstractDomains AbstractInterpCpsK CFA0 # SimpleAnalysis
+ANALYSIS   := OccurCps AbstractDomains AbstractInterpCpsK CFA0
 COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGen CloConvK CpsK2Low Compile
 RUNTIME    := IO
 MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE) $(RUNTIME)
-TESTS      :=
+TESTS      := CompileTest
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
 
@@ -36,7 +36,8 @@ Makefile.test.coq: Makefile $(TVS)
 runtime:
 	$(MAKE) -C Runtime
 
-test: coq compiler runtime
+test: coq Makefile.test.coq compiler runtime
+	$(MAKE) -f Makefile.test.coq
 	$(MAKE) -C Test test
 
 test-gc: coq compiler runtime
