@@ -365,6 +365,7 @@ Definition cfa_n (n : nat) (e:exp) (fuel:N) : ((string + Domain (context (var + 
     (init_ctx _ n) 
     {| heap := Maps.empty ; env := Maps.empty |} e fuel in 
   unIdent (traceTraceT pcfa).
+
 (*
 Module CFA0_test.
   Require Import String List Bool.
@@ -376,8 +377,10 @@ Module CFA0_test.
   Definition test1 := 
     f 1.
 
-(*  Extraction Language Scheme.
-  Recursive Extraction test1. *)
+(*
+  Extraction Language Scheme.
+  Recursive Extraction test1.
+*)
 
   Definition test1_s := 
     "(define f (lambda (x) x))
@@ -440,4 +443,5 @@ Module CFA0_test.
     let '(r,tr) := (cfa_0 test2_cpsk 10) in
       to_string (sepBy Char.chr_newline (List.map show tr)).
 
-End CFA0_test.*)
+End CFA0_test.
+*)
