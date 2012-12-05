@@ -206,8 +206,7 @@ End decidables.
           show v << "(" << sepBy "," (List.map show ks) << "; " 
           << sepBy ", " (List.map show vs) << ")"
         | Let_e d e =>
-          "let " << indent "  " (emitdecl d) << " in " 
-          << indent "  " (emitexp e)
+          "let " << indent "    " (emitdecl d) << " in" << chr_newline << (emitexp e)
         | Letrec_e ds e =>
           "let rec " << indent "        " (sepBy chr_newline (List.map emitdecl ds)) <<
           chr_newline << "in " << emitexp e
@@ -215,10 +214,10 @@ End decidables.
           "switch " << show v << " with" << 
           indent "  " (
             iter_show (List.map (fun (p: pattern * exp) => 
-              chr_newline << "| " << show (fst p) << " => " << emitexp (snd p)) arms)
+              chr_newline << "| " << show (fst p) << " => " << indent "  " (chr_newline << emitexp (snd p))) arms)
             << match def with 
                  | None => empty
-                 | Some e => chr_newline << "| _ => " << emitexp e
+                 | Some e => chr_newline << "| _ => " << indent "  " (chr_newline << emitexp e)
                end)
           << chr_newline << "end"
         | Halt_e o w => "HALT " << show o << " " << show w 

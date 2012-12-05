@@ -4,7 +4,7 @@ Fixpoint fact (n:nat) : nat :=
     | S n' => n * fact n'
   end.
 
-Definition fact6 := fact 6.
+Definition fact6 := fact 3.
 
 Fixpoint tr_fact' (acc : nat) (n : nat) : nat :=
   match n with
@@ -16,4 +16,4 @@ Fixpoint tr_fact' (acc : nat) (n : nat) : nat :=
 
 Definition tr_fact (n : nat) := tr_fact' 1 n.
 
-Definition tr_fact6 := tr_fact 6.
+Definition tr_fact6 := tr_fact 3.

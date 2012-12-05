@@ -77,7 +77,10 @@ Module LLVM.
   | Array_c : list constant -> constant
   | Vector_c : list constant -> constant
   | Metadata_c : list constant -> constant
-  | Metastring_c : string -> constant.
+  | Metastring_c : string -> constant
+  | Ptrtoint_c : type -> constant -> type -> constant
+  | Inttoptr_c : type -> constant -> type -> constant
+  | Bitcast_c : type ->constant -> type -> constant.
 
   Inductive value : Type := 
   | Local : var -> value
@@ -180,6 +183,51 @@ Module LLVM.
 
   Definition module := list topdecl.
 
+  Fixpoint eq_type x y : bool :=
+    match x , y with
+      | I_t n , I_t n' => eq_dec n n'
+      | Half_t , Half_t => true
+      | Float_t , Float_t => true
+      | Double_t , Double_t => true
+      | X86_fp80_t , X86_fp80_t => true
+      | Fp128_t , Fp128_t => true
+      | Ppc_fp128_t , Ppc_fp128_t => true
+      | Void_t , Void_t => true
+      | Label_t , Label_t => true
+      | X86mmx_t , X86mmx_t => true
+      | Metadata_t , Metadata_t => true
+      | Array_t ns t , Array_t ns' t' =>
+        eq_dec ns ns' && eq_type t t'
+      | Fn_t r a b , Fn_t r' a' b' =>
+        eq_type r r' && eq_dec b b' &&
+        (fix recur l r :=
+          match l , r with
+            | nil , nil => true
+            | cons l ls , cons r rs =>
+              if eq_type l r then recur ls rs else false
+            | _ , _ => false
+          end) a a'
+      | Struct_t b e , Struct_t b' e' =>
+        eq_dec b b' &&
+        (fix recur l r :=
+          match l , r with
+            | nil , nil => true
+            | cons l ls , cons r rs =>
+              if eq_type l r then recur ls rs else false
+            | _ , _ => false
+          end) e e'
+      | Named_t n , Named_t n' =>
+        eq_dec n n'
+      | Pointer_t a t , Pointer_t a' t' =>
+        eq_dec a a' && eq_type t t'
+      | Vector_t n t , Vector_t n' t' =>
+        eq_dec n n' && eq_type t t'
+      | _ , _ => false
+  end.
+
+  Global Instance RelDec_eq_LLVMtype : RelDec (@eq LLVM.type) :=
+  { rel_dec := eq_type }.
+
   Fixpoint eq_constant x y : bool :=
     match x , y with
       | True_c , True_c
@@ -202,6 +250,12 @@ Module LLVM.
             | _ , _ => false
           end) v v'
       | Metastring_c v , Metastring_c v' => eq_dec v v'
+      | Ptrtoint_c t1 c t2 , Ptrtoint_c t1' c' t2' =>
+        eq_constant c c' && eq_dec t1 t1' && eq_dec t2 t2'
+      | Inttoptr_c t1 c t2 , Inttoptr_c t1' c' t2' =>
+        eq_constant c c' && eq_dec t1 t1' && eq_dec t2 t2'
+      | Bitcast_c t1 c t2 , Bitcast_c t1' c' t2' =>
+        eq_constant c c' && eq_dec t1 t1' && eq_dec t2 t2'
       | _ , _ => false
     end.
 
@@ -340,6 +394,9 @@ Module LLVM.
           | Vector_c cs => "<" << sepBy ", " (List.map show_constant cs) << ">"
           | Metastring_c s => "!" << quoted s
           | Metadata_c cs => "!{" << sepBy ", " (List.map show_constant cs) << "}"
+          | Ptrtoint_c t1 c t2 => "ptrtoint (" << (show t1) << " " << (show_constant c) << " to " << (show t2) << ")"
+          | Inttoptr_c t1 c t2 => "inttoptr (" << (show t1) << " " << (show_constant c) << " to " << (show t2) << ")"
+          | Bitcast_c t1 c t2 => "bitcast (" << (show t1) << " " << (show_constant c) << " to " << (show t2) << ")"
         end.
     
     Global Instance Show_value : Show value :=

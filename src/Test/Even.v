@@ -9,8 +9,8 @@ with odd (n:nat) : bool :=
     | S n => even n
   end.
 
-Definition true := even 200.
-Definition false := even 201.
+Definition true := even 20.
+Definition false := even 21.
 
 Definition gc_test :=
   let a := even 20 in
