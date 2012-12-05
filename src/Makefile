@@ -2,7 +2,7 @@ CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKExamples CpsKSemantics Low
 	      CpsUtil CpsKUtil AlphaEquivCps AlphaEquivCpsK \
 	      CpsKIO CpsKConvert \
 	      Optimize TraceMonad
-OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK
+OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK CopyPropCpsK
 ANALYSIS   := OccurCps AbstractDomains AbstractInterpCpsK CFA0 # SimpleAnalysis
 COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGen CloConvK CpsK2Low Compile
 RUNTIME    := IO
