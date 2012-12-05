@@ -322,7 +322,7 @@ Section monadic.
           | LPAREN::LET::LPAREN::LPAREN::(ID v)::ts1 =>
             res <- parse_exp' ts1 fuel ;;
             match res return m _ with
-              | (e,RPAREN::ts2) =>
+              | (e,RPAREN::RPAREN::ts2) =>
                 res <- parse_exp' ts2 fuel ;;
                 match res return m _ with
                   | (e',RPAREN::ts3) =>
