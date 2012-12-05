@@ -355,7 +355,7 @@ Section hiding_notation.
 
   Global Instance Show_Domain C (SC : Show C) : Show (Domain C) :=
   { show d := Char.chr_newline << "Heap: " << Char.chr_newline <<
-    sepBy_f (fun kv => show (fst kv) << " : " << show (snd kv)) Char.chr_newline (heap _ d) <<
+    sepBy_f (fun kv => show (fst kv) << " : <" << show (snd kv)) Char.chr_newline (heap _ d) << ">" <<
     Char.chr_newline << Char.chr_newline <<
     "Env: " << Char.chr_newline <<
     sepBy_f (fun kv => show (fst kv) << " : " << show (snd kv)) Char.chr_newline (env _ d) <<

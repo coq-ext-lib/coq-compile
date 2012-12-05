@@ -90,36 +90,15 @@ Module TEST_REACHABLE.
   Require Import ExtLib.Programming.Show.
   Require CoqCompile.CpsKConvert.
 
-  Definition test2_s :=
-  "(define g (lambdas (x y) x))
-  
-  (define h (lambda (x) `(S ,x)))
-  
-  (define test2 (@ g (h (h `(S ,`(O)))) `(S ,`(O))))"%string.
+  Extraction Language Scheme.
 
-  Definition test2_lam :=
-    Eval vm_compute in 
-      Parse.parse_topdecls test2_s.
-  
-  Definition test2_cpsk : CPSK.exp :=
-    Eval vm_compute in
-      match test2_lam as plus_e return match plus_e with
-                                         | inl _ => unit
-                                         | inr x => CPSK.exp
-                                       end with
-        | inl _ => tt
-        | inr e => CpsKConvert.CPS_pure e 
-      end.
+  Definition test3 := 
+    let x := 3 in
+    let y := S x in
+    y.
 
-Definition test3 := 
-  let x := 3 in
-  let y := S x in
-  y.
-
-Extraction Language Scheme.
-Recursive Extraction test3.
-
-Definition test3_s := "(define test3 (let ((x `(S ,`(S ,`(S ,`(O)))))) `(S ,x)))"%string.
+  Recursive Extraction test3.
+  Definition test3_s := "(define test3 (let ((x `(S ,`(S ,`(S ,`(O)))))) `(S ,x)))"%string.
 
   Definition test3_lam :=
     Eval vm_compute in 
@@ -135,6 +114,152 @@ Definition test3_s := "(define test3 (let ((x `(S ,`(S ,`(S ,`(O)))))) `(S ,x)))
         | inr e => CpsKConvert.CPS_pure e 
       end.
 
+  Definition f := fun x => S x.
+  Definition g := fun (x y:nat) => y.
+  Definition test4 := g (f (f 1)) 1.
+  
+  Recursive Extraction test4.
+  Definition test4_s := 
+  "(define f (lambda (x) `(S ,x)))
+  
+  (define g (lambdas (x y) y))
+  
+  (define test4 (@ g (f (f `(S ,`(O)))) `(S ,`(O))))"%string.
+
+  Definition test4_lam :=
+    Eval vm_compute in 
+      Parse.parse_topdecls test4_s.
+  
+  Definition test4_cpsk : CPSK.exp :=
+    Eval vm_compute in
+      match test4_lam as plus_e return match plus_e with
+                                         | inl _ => unit
+                                         | inr x => CPSK.exp
+                                       end with
+        | inl _ => tt
+        | inr e => CpsKConvert.CPS_pure e 
+      end.
+
+  Definition test5 := 
+    let x := f 1 in
+    let y := f x in
+    let z := f y in
+    let a := f 1 in
+    let b := f a in
+    f b.
+  Recursive Extraction test5.
+  Definition test5_s := "(define f (lambda (x) `(S ,x)))
+
+  (define test5 (let ((a (f `(S ,`(O))))) (let ((b (f a))) (f b))))"%string.
+
+  Definition test5_lam :=
+    Eval vm_compute in 
+      Parse.parse_topdecls test5_s.
+  
+  Definition test5_cpsk : CPSK.exp :=
+    Eval vm_compute in
+      match test5_lam as plus_e return match plus_e with
+                                         | inl _ => unit
+                                         | inr x => CPSK.exp
+                                       end with
+        | inl _ => tt
+        | inr e => CpsKConvert.CPS_pure e 
+      end.
+
+  Require Import ExtLib.Data.Monads.StateMonad.
+  Import MonadNotation.
+  Local Open Scope monad_scope.
+  Print MonadState.
+
+  Fixpoint test6 (n:nat) : state nat unit :=
+    match n with
+      | O => ret tt
+      | S n' => gets (fun x => x) ;; test6 n'
+    end.
+  Recursive Extraction test6.
+  Definition test6_s := "(define __ (lambda (_) __))
+
+(define ret (lambdas (monad x)
+  (match monad
+     ((Build_Monad ret0 bind0) (@ ret0 __ x)))))
+
+(define bind (lambdas (monad x x0)
+  (match monad
+     ((Build_Monad ret0 bind0) (@ bind0 __ x __ x0)))))
+
+(define get (lambda (monadState)
+  (match monadState
+     ((Build_MonadState get0 put) get0))))
+
+(define gets (lambdas (m mS f)
+  (@ bind m (get mS) (lambda (x) (@ ret m (f x))))))
+
+(define runState (lambda (s) s))
+
+(define monad_state `(Build_Monad ,(lambdas (_ v s) `(Pair ,v ,s))
+  ,(lambdas (_ c1 _ c2 s)
+  (match (@ runState c1 s)
+     ((Pair v s0) (@ runState (c2 v) s0))))))
+
+(define monadState_state `(Build_MonadState ,(lambda (x) `(Pair ,x ,x))
+  ,(lambdas (v x) `(Pair ,`(Tt) ,v))))
+
+(define test6 (lambda (n)
+  (match n
+     ((O) (@ ret monad_state `(Tt)))
+     ((S n~)
+       (@ bind monad_state
+         (@ gets monad_state monadState_state (lambda (x) x)) (lambda (x)
+         (test6 n~)))))))"%string.
+
+  Definition test6_lam :=
+    Eval vm_compute in 
+      Parse.parse_topdecls test6_s.
+  
+  Require Import CoqCompile.Optimize.
+  Require CoqCompile.Opt.CseCpsK.
+  Require CoqCompile.Opt.DeadCodeCpsK.
+  Require CoqCompile.Opt.ReduceCpsK.
+  Definition test6_cpsk : CPSK.exp :=
+    Eval vm_compute in
+      match test6_lam as plus_e return match plus_e with
+                                         | inl _ => unit
+                                         | inr x => CPSK.exp
+                                       end with
+        | inl _ => tt
+        | inr e => (* CpsKConvert.CPS_pure e *)
+          ReduceCpsK.Reduce.reduce (CseCpsK.Cse.cse (DeadCodeCpsK.dce (CpsKConvert.CPS_pure e )))
+      end.
+
+  Fixpoint wtf (n acc:nat):=
+    match n with
+      | O => acc
+      | S n' => wtf n' (S acc)
+    end.
+  Definition test7 := wtf 5 0.
+  Recursive Extraction test7.
+  Definition test7_s := "
+  (define wtf (lambdas (n acc)
+  (match n
+     ((O) acc)
+     ((S n~) (@ wtf n~ `(S ,acc))))))
+  
+(define test7 (@ wtf `(S ,`(S ,`(S ,`(S ,`(S ,`(O)))))) `(O)))"%string.
+  
+  Definition test7_lam :=
+    Eval vm_compute in 
+      Parse.parse_topdecls test7_s.
+  
+  Definition test7_cpsk : CPSK.exp :=
+    Eval vm_compute in
+      match test7_lam as plus_e return match plus_e with
+                                         | inl _ => unit
+                                         | inr x => CPSK.exp
+                                       end with
+        | inl _ => tt
+        | inr e => CpsKConvert.CPS_pure e
+      end.
+  
   Definition sanitize {A B} {_ : RelDec (@eq B)} (env:alist (unit * B) A) : (alist B A) :=
     fold (fun kv acc => 
       let '(k, v) := kv in
@@ -150,38 +275,65 @@ Definition test3_s := "(define test3 (let ((x `(S ,`(S ,`(S ,`(O)))))) `(S ,x)))
     { show := fun m => sepBy_f (fun kv => show (fst kv) << " : " << show (snd kv)) Char.chr_newline m }.
   End hiding_notation.
 
-  Definition test3_blah :=
+  Definition test3_reach :=
     let '(r, tr) := cfa_n 0 test3_cpsk 10 in
     match r with
       | inl err => inl err
       | inr dom => inr (reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 10)
     end.
 
-  Definition test3_blah2 : option D :=
-    let '(r, tr) := cfa_n 0 test3_cpsk 10 in
-    match r with
-      | inl err => None
-      | inr dom => Some (reachable_1 (sanitize (env _ dom)) Maps.empty)
-    end.
-  (*
-  Definition test3_blah3 : option D :=
-    let '(r, tr) := cfa_n 0 test3_cpsk 10 in
-    match r with
-      | inl err => None
-      | inr dom => Some (reachable_2 (reachable_1 (sanitize (env _ dom)) Maps.empty))
-    end.
-  Eval vm_compute in to_string test3_blah2.
-  Eval vm_compute in match test3_blah2 with
-                       | Some d => dom_eq Maps.empty d
-                       | None => false
-                     end.
-                     *)
-
   Eval vm_compute in to_string test3_cpsk.
   Time Eval vm_compute in
     let '(r,tr) := (cfa_n 0 test3_cpsk 10) in to_string r.
-  Time Eval vm_compute in to_string (test3_blah).
+  Time Eval vm_compute in to_string (test3_reach).
 
+  Definition test4_reach :=
+    let '(r, tr) := cfa_n 0 test4_cpsk 10 in
+    match r with
+      | inl err => inl err
+      | inr dom => inr (reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 10)
+    end.
+
+  Eval vm_compute in to_string test4_cpsk.
+  Time Eval vm_compute in
+    let '(r,tr) := (cfa_n 0 test4_cpsk 10) in to_string r.
+  Time Eval vm_compute in to_string (test4_reach).
+
+  Definition test5_reach :=
+    let '(r, tr) := cfa_n 0 test5_cpsk 10 in
+    match r with
+      | inl err => inl err
+      | inr dom => inr (reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 10)
+    end.
+
+  Eval vm_compute in to_string test5_cpsk.
+  Time Eval vm_compute in
+    let '(r,tr) := (cfa_n 0 test5_cpsk 10) in to_string r.
+  Time Eval vm_compute in to_string (test5_reach).
+
+  Definition test6_reach :=
+    let '(r, tr) := cfa_n 0 test6_cpsk 10 in
+      match r with
+        | inl err => inl err
+        | inr dom => inr (reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 10)
+      end.
+  
+  Eval vm_compute in to_string test6_cpsk.
+  Time Eval vm_compute in
+    let '(r,tr) := (cfa_n 0 test6_cpsk 10) in to_string r.
+  Time Eval vm_compute in to_string (test6_reach).
+
+  Definition test7_reach :=
+    let '(r, tr) := cfa_n 0 test7_cpsk 20 in
+      match r with
+        | inl err => inl err
+        | inr dom => inr (reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 20)
+      end.
+  
+  Eval vm_compute in to_string test7_cpsk.
+  Time Eval vm_compute in
+    let '(r,tr) := (cfa_n 0 test7_cpsk 20) in to_string r.
+  Time Eval vm_compute in to_string (test7_reach).    
 
 End TEST_REACHABLE.
 *)
