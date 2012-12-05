@@ -216,12 +216,46 @@ Section free_vars.
   End monadic.
 
   Definition free_vars_exp (e : exp) : s :=
-    let x := unIdent (runWriterT (free_vars_exp' e)) in
-    snd x.
+    unIdent (execWriterT (free_vars_exp' e)).
 
   Definition free_vars_decl (r : bool) (d : decl) : s :=
-    let x := unIdent (runWriterT (free_vars_decl' r d)) in
-    snd x.
+    unIdent (execWriterT (free_vars_decl' r d)).
+
+  Definition free_vars_cont (k : cont) (xs : list var) (e : exp) : s :=
+    unIdent (execWriterT (censor (filter_vars xs) (free_vars_exp' e))).
+
   End with_sets.
 
 End free_vars.
+
+Section tuples_in_exp.
+  Require Import ExtLib.Data.Set.ListSet.
+
+  Fixpoint get_tuples_exp (e:exp) : lset (@eq var) :=
+    match e with
+      | App_e o ks os => Sets.empty
+      | Let_e d e => Sets.union (get_tuples_decl d) (get_tuples_exp e)
+      | Letrec_e ds e => 
+        List.fold_left (fun acc x => Sets.union (get_tuples_decl x) acc) ds (get_tuples_exp e)
+      | Switch_e o arms def =>
+        let init := match def with
+                      | Some e => get_tuples_exp e
+                      | None => Sets.empty
+                    end in
+        List.fold_left (fun acc x => let '(p,e) := x in Sets.union (get_tuples_exp e) acc) arms init
+      | Halt_e o1 o2 => Sets.empty
+      | AppK_e k os => Sets.empty
+      | LetK_e kves e => 
+        List.fold_left (fun acc x => let '(k, xs, e) := x in Sets.union acc (get_tuples_exp e)) kves (get_tuples_exp e)
+    end
+  with get_tuples_decl (d:decl) : lset (@eq var) :=
+    match d with
+      | Op_d x o => Sets.empty
+      | Prim_d x p o => match p with
+                          | MkTuple_p => Sets.singleton x
+                          | _ => Sets.empty
+                        end
+      | Fn_d v ks xs e => get_tuples_exp e
+      | Bind_d x w m os => Sets.empty
+    end.
+End tuples_in_exp.

@@ -151,8 +151,10 @@ Section AI.
                     update ctx (inr k) (injFn ctx (inr k) nil xs e) dom) ks dom in
                 recur ctx dom' e
               | Letrec_e ds e =>
+                mlog ("begin calculate fix of let rec")%string ;;
                 dom' <- 
                 mfix (fun go => fun (dom : D) =>
+                  mlog ("calculating fix of let rec")%string ;;
                   dom' <- foldM (fun d acc => eval_decl d ctx acc) (ret dom) ds ;;
                   if dom_leq dom' dom then ret dom' else go dom') dom ;;
                 recur ctx dom' e

@@ -348,8 +348,19 @@ Section Context.
 
 End Context.
 
-Global Instance Show_Domain C (SC : Show C) : Show (Domain C) :=
-{ show d := show (heap _ d, env _ d) }.
+Section hiding_notation.
+  Import ShowNotation.
+  Local Open Scope show_scope.
+  Local Open Scope string_scope.
+
+  Global Instance Show_Domain C (SC : Show C) : Show (Domain C) :=
+  { show d := Char.chr_newline << "Heap: " << Char.chr_newline <<
+    sepBy_f (fun kv => show (fst kv) << " : <" << show (snd kv)) Char.chr_newline (heap _ d) << ">" <<
+    Char.chr_newline << Char.chr_newline <<
+    "Env: " << Char.chr_newline <<
+    sepBy_f (fun kv => show (fst kv) << " : " << show (snd kv)) Char.chr_newline (env _ d) <<
+    Char.chr_newline }.
+End hiding_notation.
 
 Require Import CoqCompile.Analyze.AbstractInterpCpsK.
 Require Import ExtLib.Data.Monads.EitherMonad.
@@ -365,6 +376,7 @@ Definition cfa_n (n : nat) (e:exp) (fuel:N) : ((string + Domain (context (var + 
     (init_ctx _ n) 
     {| heap := Maps.empty ; env := Maps.empty |} e fuel in 
   unIdent (traceTraceT pcfa).
+
 (*
 Module CFA0_test.
   Require Import String List Bool.
@@ -376,8 +388,10 @@ Module CFA0_test.
   Definition test1 := 
     f 1.
 
-(*  Extraction Language Scheme.
-  Recursive Extraction test1. *)
+(*
+  Extraction Language Scheme.
+  Recursive Extraction test1.
+*)
 
   Definition test1_s := 
     "(define f (lambda (x) x))
@@ -432,7 +446,7 @@ Module CFA0_test.
     fun x => x.
 
   Time Eval vm_compute in
-    let '(r,tr) := (cfa_n 1 test2_cpsk 10) in to_string r.
+    let '(r,tr) := (cfa_n 0 test2_cpsk 10) in to_string r.
 
   Eval vm_compute in to_string test2_cpsk.
 
@@ -440,4 +454,5 @@ Module CFA0_test.
     let '(r,tr) := (cfa_0 test2_cpsk 10) in
       to_string (sepBy Char.chr_newline (List.map show tr)).
 
-End CFA0_test.*)
+End CFA0_test.
+*)
