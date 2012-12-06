@@ -6,6 +6,7 @@ let output = ref "out.ll"
 let input = ref (None: string option)
 let term = ref (None: string option)
 let fuel = ref 100
+let comp_args = ref ""
 
 let params =
   [("-o" , Arg.String (fun s -> output := s), "<file> Place output into <file>");
@@ -14,21 +15,19 @@ let params =
    ("-t", Arg.String (fun s -> term := Some s),
       "<coq term> Coq term to extract");
    ("-n", Arg.String (fun s -> fuel := int_of_string s),
-      "<number> Amount of fuel")
+      "<number> Amount of fuel");
+   ("-arg", Arg.String (fun s -> comp_args := !comp_args ^ " " ^ s), " Parameters to pass to coqc")
   ];;
 
 let anon = (fun x -> failwith "Bad argument")
-
-let rec make_nat n =
-  if n > 0 then CpsKSemantics.S (make_nat (n - 1)) else CpsKSemantics.O
 
 let _ = 
   Arg.parse params anon usage_string;
   match !input, !term with
     | Some s, Some t -> Printf.printf "Input: %s\nTerm: %s\nOutput: %s\n----\n" s t !output;
-      (let source = extract s t in
+      (let source = extract !comp_args s t in
        print_string source;
-       match CpsKSemantics.topeval (make_nat !fuel) (explode source) with
+       match CpsKSemantics.topeval (make_N !fuel) (explode source) with
          | CpsKSemantics.Inl s -> print_endline (implode s) 
       	 | CpsKSemantics.Inr ((vs, heap), mops) ->
            let vstr = List.fold_left (fun acc v -> List.append acc (CpsKSemantics.val2str v)) [] vs in
