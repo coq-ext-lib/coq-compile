@@ -46,14 +46,14 @@ static void segfault_handler(int sig, siginfo_t *si, void *unused) {
 }
 
 void gc_stats(bumpptr_t bumpptrs) {
-  double time = (double)collectionTime.tv_sec + (double)collectionTime.tv_nsec/1000000000;
+  double time = ((double)collectionTime.tv_sec * 1000) + ((double)collectionTime.tv_nsec/1000000);
 
   printf("Garbage collection statistics:\n");
   printf("==============================\n");
   printf("Number of allocations: %lu\n", allocations);
   printf("Total space allocated: %lu words\n", allocationsSpace);
   printf("Number of collections: %lu\n", collections);
-  printf("Time spent collecting: %0.3f sec\n", time);
+  printf("Time spent collecting: %0.3f msec\n", time);
 }
 
 void dump_heap(bumpptr_t bumpptrs) {

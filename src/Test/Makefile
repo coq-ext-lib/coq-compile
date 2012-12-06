@@ -7,25 +7,25 @@ test: Ident Fact TRFact True False GC HelloWorld
 	@echo Running tests
 	@echo =============================================
 	@echo Running Ident testcase...
-	./ident.native -d
+	./ident.native -d --Xms=2k
 	@echo
 	@echo Running Factorial testcase...
-	./fact.native -d
+	./fact.native -d --Xms=2k
 	@echo
 	@echo Running Tail-recursive Factorial testcase...
-	./trfact.native -d
+	./trfact.native -d --Xms=2k
 	@echo
-	@echo Running even 200 testcase...
-	./true.native -d
+	@echo Running even 20 testcase...
+	./true.native -d --Xms=2k
 	@echo
-	@echo Running even 201 testcase...
-	./false.native -d
+	@echo Running even 21 testcase...
+	./false.native -d --Xms=2k
 	@echo
 	@echo Running gc testcase...
-	./gc.native -d
+	./gc.native -d --Xms=2k
 	@echo
 	@echo Running hello world testcase...
-	./helloworld.native -d
+	./helloworld.native -d --Xms=8k
 
 test-gc: GC
 	./gc.native -d --Xms=4k
@@ -90,6 +90,14 @@ HelloWorld: runtime HelloWorld.v
 	llc helloworld-opt.ll -o helloworld-opt.s
 	clang -lrt helloworld-opt.s shadowstack.o -o helloworld.native
 
+HelloWorld2: runtime HelloWorld2.v
+	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib HelloWorld2.v
+	../Extraction/Wrapper.byte -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i HelloWorld2 -t main -o helloworld2.ll
+	llvm-link coqrt.ll helloworld2.ll -S -o helloworld2-coqrt.ll
+	opt -S helloworld2-coqrt.ll -o helloworld2-opt.ll
+	llc helloworld2-opt.ll -o helloworld2-opt.s
+	clang -lrt helloworld2-opt.s shadowstack.o -o helloworld2.native
+
 IOFact: runtime IOFact.v
 	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib IOFact.v
 	../Extraction/Wrapper.byte -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IOFact -t main -o iofact.ll
@@ -97,6 +105,14 @@ IOFact: runtime IOFact.v
 	opt -S iofact-coqrt.ll -o iofact-opt.ll
 	llc iofact-opt.ll -o iofact-opt.s
 	clang -lrt iofact-opt.s shadowstack.o -o iofact.native
+
+IONat: runtime IONat.v
+	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib IONat.v
+	../Extraction/Wrapper.byte -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IONat -t main -o ionat.ll
+	llvm-link coqrt.ll ionat.ll -S -o ionat-coqrt.ll
+	opt -S ionat-coqrt.ll -o ionat-opt.ll
+	llc ionat-opt.ll -o ionat-opt.s
+	clang -lrt ionat-opt.s shadowstack.o -o ionat.native
 
 Compiler: runtime Compiler.v
 	../Extraction/Wrapper.byte -O0 -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -e Compiler.scheme -q -o compiler.ll
