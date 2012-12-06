@@ -30,6 +30,10 @@ Section maps.
   Variable map_cont : Type -> Type.
   Context {FM_cont : DMap CPSK.cont map_cont}.
 
+  (* This is what happens when you suck at abstraction ... u use alists >.< *)
+  Variable live : alist (var + cont) (lset (@eq (var + cont))).
+  Variable tup_arity : alist var nat.
+
   Definition lowBinder (d : decl) : var :=
     match d with
       | Prim_d x _ _ 
@@ -52,6 +56,7 @@ Section maps.
     Context {Blocks_m : MonadState (alist label block) m}.
     Context {VarMap_m : MonadReader (map_var op) m}.
     Context {ContMap_m : MonadReader (map_cont (Low.cont * list var)) m}.
+    Context {TupVars_m : MonadState (lset (@eq var)) m}.
 
     Definition freshVar : m var :=
       x <- modify (MS := Fresh_m) (fun x => Psucc x) ;;
@@ -109,12 +114,12 @@ Section maps.
           match x with
             | None => 
               m <- ask (T:=(map_var op)) ;;
-              raise ("ERROR: Unknown variable '" ++ runShow (show v) ++ "' in map " ++ runShow (show m))
+              raise ("ERROR: Unknown variable '" ++ (to_string v) ++ "' in map " ++ (to_string m))
             | Some v => ret v
           end
         | Con_o _ => ret o
         | Int_o _ => ret o
-        | InitWorld_o => ret o
+        | InitWorld_o => ret (Con_o "False")
       end.
 
     Definition cont2low (c : CPSK.cont) : m (Low.cont * list op) :=
@@ -123,7 +128,7 @@ Section maps.
         | Some (k,vs) => 
           vs <- mapM (fun v => opgen (Var_o v)) vs ;;
           ret (k,vs)
-        | None => raise ("ERROR: Unknown continuation '" ++ runShow (show c) ++ "'")
+        | None => raise ("ERROR: Unknown continuation '" ++ (to_string c) ++ "'")
       end.
 
     Definition inFreshLbl {T} (vs:list var) (ls:list var) (k:m T) : m (label * T) :=
@@ -155,7 +160,45 @@ Section maps.
         | Zneg p => O
       end.
 
-    Definition decl2low (d:decl) {T} (c : m T) : m T :=
+    Require Import Coq.Arith.Compare_dec.
+    Definition updateVar {T} (x : Env.var) (os : list op) (size:nat) (c : m T) : m T := 
+      vs <- mapM opgen os ;;
+      foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z vs ;;
+      if leb size (length vs) then c else 
+        foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z (list_repeat (size - length vs) (Int_o 0)) ;;
+        c.
+    
+    Definition updateable (size : nat) (v : Env.var) (e : exp) : m (option (Env.var * nat)) :=
+      tup_vars <- get ;;
+      match Maps.lookup (inl v) live with 
+        | Some live_set =>
+          let live_set := fold (fun x acc => 
+            match x with
+              | inl v => Sets.add v acc
+              | inr _ => acc
+            end) Sets.empty live_set in
+          let usable_vars := Sets.intersect tup_vars live_set in
+          let rando := fold (fun x acc => 
+            match acc with
+              | Some v => Some v
+              | None => 
+                match Maps.lookup x tup_arity with
+                  | Some size' => 
+                    (* eq_dec can be relaxed *)
+                    if eq_dec size size' then Some (x,size') else None
+                  | None => None
+                end
+            end) None usable_vars in
+          match rando with
+            | None => ret None
+            | Some (v,n) => 
+              put (Sets.remove v tup_vars) ;;
+              ret (Some (v,n))
+          end
+        | None => ret None
+      end.
+
+    Definition decl2low (d:decl) {T} (e : exp) (c : m T) : m T :=
       match d with
         | Op_d x o =>
           raise ("Must copy propagate before CpsK2Low: " ++ to_string d)%string
@@ -164,33 +207,42 @@ Section maps.
           vs <- mapM opgen os ;;
           match p with
             | CpsCommon.Eq_p => 
-              emit_instr (Primop_i x Eq_p vs)
+              emit_instr (Primop_i x Eq_p vs) ;; withNewVar x (Var_o x) c
             | CpsCommon.Neq_p =>
-              emit_instr (Primop_i x Neq_p vs)
+              emit_instr (Primop_i x Neq_p vs) ;; withNewVar x (Var_o x) c
             | CpsCommon.Lt_p =>
-              emit_instr (Primop_i x Lt_p vs)
+              emit_instr (Primop_i x Lt_p vs) ;; withNewVar x (Var_o x) c
             | CpsCommon.Lte_p =>
-              emit_instr (Primop_i x Lte_p vs)
+              emit_instr (Primop_i x Lte_p vs) ;; withNewVar x (Var_o x) c
             | CpsCommon.Ptr_p =>
-              emit_instr (Primop_i x Ptr_p vs)
+              emit_instr (Primop_i x Ptr_p vs) ;; withNewVar x (Var_o x) c
             | CpsCommon.Plus_p => 
-              emit_instr (Primop_i x Plus_p vs)
+              emit_instr (Primop_i x Plus_p vs) ;; withNewVar x (Var_o x) c
             | CpsCommon.Minus_p => 
-              emit_instr (Primop_i x Minus_p vs)
+              emit_instr (Primop_i x Minus_p vs) ;; withNewVar x (Var_o x) c
             | CpsCommon.Times_p => 
-              emit_instr (Primop_i x Times_p vs)
+              emit_instr (Primop_i x Times_p vs) ;; withNewVar x (Var_o x) c
             | CpsCommon.MkTuple_p => 
-              emit_instr (Malloc_i ((x, (Struct_t (list_repeat (length vs) Int_t)))::nil)) ;;
-              foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z vs ;;
-              ret tt
+              updatable <- updateable (List.length vs) x e ;;
+              match updatable with
+                | None =>
+                  emit_instr (Malloc_i ((x, (Struct_t (list_repeat (length vs) Int_t)))::nil)) ;;
+                  foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z vs ;;
+                  withNewVar x (Var_o x) c
+                | Some (dv, size) =>
+                  (** select a variable from dead_vars **)
+                  let v := dv in
+                  (** emit updates **)                  
+                  updateVar v vs size (withNewVar x (Var_o v) c)
+              end
             | CpsCommon.Proj_p => 
               match vs with
                 | CpsCommon.Int_o idx :: v :: nil => 
-                  emit_instr (Load_i x (Struct_t (list_repeat (S (nat_of_Z idx)) Int_t)) idx v)
-                | _ => raise ("ERROR: Proj_p requires exactly 2 arguments  ["%string ++ runShow (show os) ++ "] -> ["%string ++ runShow (show vs) ++ "]"%string)
+                  emit_instr (Load_i x (Struct_t (list_repeat (S (nat_of_Z idx)) Int_t)) idx v) ;; 
+                  withNewVar x (Var_o x) c
+                | _ => raise ("ERROR: Proj_p requires exactly 2 arguments  ["%string ++ (to_string os) ++ "] -> ["%string ++ (to_string vs) ++ "]"%string)
               end
-          end ;;
-          withNewVar x (Var_o x) c
+          end 
         | Fn_d _ _ _ _ => raise ("ERROR: Function found in closure converted body"%string) 
         | Bind_d x w mop os => 
           vs <- mapM opgen os ;;
@@ -229,7 +281,7 @@ Section maps.
           ks <- mapM cont2low ks ;;
           emit_tm (Call_tm x v vs ks)
         | Let_e d e => 
-          decl2low d (cpsk2low' e)
+          decl2low d e (cpsk2low' e)
         | Letrec_e ds e =>
           tpls <- getTuples ds ;;
           emit_instr (Malloc_i (map (fun x => (fst x, Struct_t (map (fun _ => Int_t) (snd x)))) tpls)) ;;
@@ -266,28 +318,26 @@ Section maps.
           vs <- mapM opgen os ;;
           emit_tm (Cont_tm k (args ++ vs))
         | LetK_e cves e => 
-            lbls <- mapM (fun x => let '(k, vs, e) := x in 
-              l <- freshLbl ;;
-              vars <- gen_lbl_args e ;;
-              let vars := filter (fun x => negb (existsb (fun y => eq_dec x y) vs)) vars in
-              ret (k, (l,vars))) cves ;;
-            withNewConts
-              (map (fun x => let '(k,(l,v)) := x in (k,(inr l,v))) lbls)
-              (
-                  iterM (fun x => let '(k, vs, e) := x in 
-                    l <- cont2low k ;;
-                    let '(l,_) := l in
-                    args <- gen_lbl_args e ;;
-                    let args := filter (fun x => negb (existsb (fun y => eq_dec x y) vs)) args in
-                    match l with
-                      | inr l =>
-                        let newVars := (map (fun x => (x, Var_o x)) (args ++ vs))%list in
-                        blk <- newBlock l vs args (withNewVars newVars (cpsk2low' e)) ;;
-                               add_block l blk
-                      | inl _ => raise "??: local cont references cont parameter"%string
-                    end) cves ;;
-                  cpsk2low' e
-                )
+          lbls <- mapM (fun x => let '(k, vs, e) := x in 
+            l <- freshLbl ;;
+            vars <- gen_lbl_args e ;;
+            let vars := filter (fun x => negb (existsb (fun y => eq_dec x y) vs)) vars in
+            ret (k, (l,vars))) cves ;;
+          withNewConts
+            (map (fun x => let '(k,(l,v)) := x in (k,(inr l,v))) lbls)
+            (iterM (fun x => let '(k, vs, e) := x in 
+              l <- cont2low k ;;
+              let '(l,_) := l in
+              args <- gen_lbl_args e ;;
+              let args := filter (fun x => negb (existsb (fun y => eq_dec x y) vs)) args in
+              match l with
+                | inr l =>
+                  let newVars := (map (fun x => (x, Var_o x)) (args ++ vs))%list in
+                  blk <- newBlock l vs args (withNewVars newVars (cpsk2low' e)) ;;
+                  add_block l blk
+                | inl _ => raise "??: local cont references cont parameter"%string
+              end) cves ;;
+             cpsk2low' e)
       end.
 
     Fixpoint tl_cpsk2low (e:exp) : m (label * block) :=
@@ -313,6 +363,7 @@ Section monadic2.
   ; freshLabel_p : positive
   ; curBlock : option (label * list var * list var * list instr)
   ; allBlocks : alist label block
+  ; tupVars : lset (@eq var)
   }.
   Record ReaderData : Type :=
   { varMap : alist var op
@@ -321,20 +372,24 @@ Section monadic2.
 
   Definition MonadState_StateData_freshVar m (M : Monad m) : MonadState _ (stateT StateData m) :=
     StateProd freshVar_p 
-    (fun x d => {| freshVar_p := x ; freshLabel_p := d.(freshLabel_p) ; curBlock := d.(curBlock) ; allBlocks := d.(allBlocks) |}).
+    (fun x d => {| freshVar_p := x ; freshLabel_p := d.(freshLabel_p) ; curBlock := d.(curBlock) ; allBlocks := d.(allBlocks) ; tupVars := d.(tupVars) |}).
 
   Definition MonadState_StateData_freshLabel_p m (M : Monad m) : MonadState _ (stateT StateData m) :=
     StateProd freshLabel_p 
-    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := x ; curBlock := d.(curBlock) ; allBlocks := d.(allBlocks) |}).
+    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := x ; curBlock := d.(curBlock) ; allBlocks := d.(allBlocks) ; tupVars := d.(tupVars) |}).
 
   Instance MonadState_StateData_curBlock m (M : Monad m) : MonadState _ (stateT StateData m) :=
     StateProd curBlock
-    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := d.(freshLabel_p) ; curBlock := x ; allBlocks := d.(allBlocks) |}).
+    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := d.(freshLabel_p) ; curBlock := x ; allBlocks := d.(allBlocks) ; tupVars := d.(tupVars) |}).
+
+    Instance MonadState_StateData_tupInfo m (M : Monad m) : MonadState _ (stateT StateData m) :=
+    StateProd tupVars
+    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := d.(freshLabel_p) ; curBlock := d.(curBlock) ; allBlocks := d.(allBlocks) ; tupVars := x |}).
 
   Instance MonadState_StateData_allBlocks m (M : Monad m) 
     : MonadState _ (stateT StateData m) :=
     StateProd allBlocks
-    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := d.(freshLabel_p) ; curBlock := d.(curBlock) ; allBlocks := x |}).
+    (fun x d => {| freshVar_p := d.(freshVar_p) ; freshLabel_p := d.(freshLabel_p) ; curBlock := d.(curBlock) ; allBlocks := x ; tupVars := d.(tupVars) |}).
 
   Instance MonadReader_ReaderData_varMap m (M : Monad m) : MonadReader _ (readerT ReaderData m) :=
     ReaderProd varMap (fun x d => {| varMap := x ; contMap := d.(contMap) |}).
@@ -342,12 +397,15 @@ Section monadic2.
   Instance MonadReader_ReaderData_contMap m (M : Monad m) : MonadReader _ (readerT ReaderData m) :=
     ReaderProd contMap (fun x d => {| varMap := d.(varMap) ; contMap := x |}).
 
-  Arguments tl_cpsk2low {_ _ _ _ m Mon MExc MSvar MSlbl _ _ _ _ _} (e) : rename.
+  Arguments tl_cpsk2low {_ _ _ _ LIVE TUPS m Mon MExc MSvar MSlbl MStup _ _ _ _ _} (e) : rename.
  
+  (* alist (var + cont) (lset (@eq (var + cont))) *)
   Definition tl_decl2low (name : var) (ks : list CPSK.cont) (args : list var) (tops : list (var * op)) (e : CPSK.exp) : m Low.function :=
     let c := tl_cpsk2low 
       (map_var := alist var) (FM_var := DMap_alist RelDec_var_eq)
       (map_cont := alist CPSK.cont) (FM_cont := DMap_alist CPSK.RelDec_cont_eq)
+      (LIVE := nil)  (* TODO change this *)
+      (TUPS := nil)  (* TODO change this *)
       (m := stateT StateData (readerT ReaderData m))
       (MSvar := MonadState_StateData_freshVar _ _)
       (MSlbl := MonadState_StateData_freshLabel_p _ _)
@@ -357,6 +415,7 @@ Section monadic2.
        ; freshLabel_p := 1%positive
        ; curBlock := None
        ; allBlocks := nil
+       ; tupVars := nil  (* TODO change this *)
        |}
     in
     let init_reader : ReaderData :=
