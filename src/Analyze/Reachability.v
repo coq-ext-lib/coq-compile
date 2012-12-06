@@ -158,7 +158,8 @@ Section LIVENESS.
                             | Some old_set => Sets.union old_set live_stuff
                             | None => live_stuff
                           end in
-        live_exp e' (Maps.add (inl x) live_stuff dom)
+        let dom' := live_decl d (Maps.add (inl x) live_stuff dom) in
+        live_exp e' dom'
       | Letrec_e ds e' =>
         List.fold_left (fun acc d =>
           let live_stuff := live_set e' in
@@ -167,7 +168,9 @@ Section LIVENESS.
                               | Some old_set => Sets.union old_set live_stuff
                               | None => live_stuff
                             end in
-          live_exp e' (Maps.add (inl x) live_stuff acc)) ds dom
+          let dom' := Maps.add (inl x) live_stuff acc in
+          let dom' := live_decl d dom' in
+          live_exp e' dom') ds dom
       | Switch_e o arms def =>
         let dom' := List.fold_left (fun acc x => let '(p, e') := x in 
           Maps.combine (fun k v1 v2 => Sets.union v1 v2) (live_exp e' acc) acc) arms dom in
@@ -193,7 +196,6 @@ Section LIVENESS.
 
 End LIVENESS.
 
-(*
 Module TEST_REACHABLE.
   Require Import CoqCompile.Parse.
   Require Import ExtLib.Programming.Show.
@@ -465,4 +467,3 @@ Module TEST_REACHABLE.
     end.
 
 End TEST_REACHABLE.
-*)
