@@ -130,7 +130,11 @@ Module Compile.
     Global Instance Show_lam : Show Lambda.exp :=
     { show := fun x => "todo"%string }.
 
-    Definition topCompile (io : bool) (e:Lambda.exp) : m LLVM.module :=
+    Definition topCompile (io : bool) (e:Lambda.exp) (stop_at_low : bool) 
+      : m match stop_at_low with
+            | true => Low.program
+            | false => LLVM.module
+          end :=
       mctor <- makeCtorMap e ;;
       cps_e <- phase "CpsConvert"%string 
         (match io return Lambda.exp -> m CPSK.exp with
@@ -142,14 +146,35 @@ Module Compile.
       let _ : CPSK.exp := opt_e in
       clo_conv_e <- phase "Closure Convert"%string (@CloConvK.ClosureConvert.cloconv_exp _ _ _) opt_e ;;
       low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x))) (fun x => CoqCompile.CpsK2Low.cpsk2low _ (fst x) (snd x)) clo_conv_e ;;
-      phase "Codegen" (CodeGen.generateProgram word_size mctor) low.
+      match stop_at_low as stop_at_low 
+        return m match stop_at_low with
+                   | true => Low.program
+                   | false => LLVM.module
+                 end
+        with
+        | true => ret low
+        | false => 
+          phase "Codegen" (CodeGen.generateProgram word_size mctor) low
+      end.
 
 
     (** Test Hooks **)
-    Definition topCompile_string (io : bool) (e : Lambda.exp) : (string + string) :=
-      match unIdent (traceTraceT (unEitherT (topCompile io e))) with
+    Definition topCompile_string (io : bool) (e : Lambda.exp) (stop_at_low : bool) : string + string :=
+      match unIdent (traceTraceT (unEitherT (topCompile io e stop_at_low))) with
         | (inl e, t) => inl (e ++ to_string t)%string
-        | (inr mod', t) => inr (runShow (show mod') ""%string)
+        | (inr mod', t) => 
+          let str := 
+            match stop_at_low as stop_at_low 
+              return match stop_at_low with
+                       | true => Low.program
+                       | false => LLVM.module
+                     end -> string
+              with
+              | true => to_string
+              | false => to_string
+            end
+          in
+          inr (str mod')
       end.
     
     Definition stringToCPS (s : string) : string :=
@@ -221,9 +246,9 @@ Module Compile.
           end
       end.
 
-    Definition topCompileFromStr (io : bool) (e:string) : string + string :=
+    Definition topCompileFromStr (io : bool) (e:string) (stop : bool) : string + string :=
       parse <- Parse.parse_topdecls e ;;
-      topCompile_string io parse.
+      topCompile_string io parse stop.
 
   End Driver.
 

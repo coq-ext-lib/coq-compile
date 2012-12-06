@@ -1,5 +1,6 @@
 Require Import ExtrOcamlBasic.
 Require Import ExtrOcamlString.
+Require Import String.
 Extraction Blacklist String List.
 
 (* Normally I prefer to do Recursive Extraction Library, but there are
@@ -13,7 +14,8 @@ Extraction Blacklist String List.
 (* This still has parameters, but obviously at some point we want to switch to this *)
 Require Import CoqCompile.Compile.
 
-Definition topcompile := Compile.Compile.topCompileFromStr 8.
+Definition topcompile :=
+  Compile.Compile.topCompileFromStr 8.
 Time Extraction "Extraction/Compile.ml" topcompile.
 
 Require Import CoqCompile.CpsKSemantics.
