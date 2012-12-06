@@ -227,6 +227,7 @@ Section monadic.
       ret None
     ).
 End monadic.
+
 (*
 Module TEST_REACHABLE.
   Require Import CoqCompile.Parse.
@@ -412,6 +413,84 @@ Module TEST_REACHABLE.
     { show := fun m => sepBy_f (fun kv => show (fst kv) << " : " << show (snd kv)) Char.chr_newline m }.
   End hiding_notation.
 
+
+    Definition ident (x: nat) := x.
+
+  Definition call_ident :=
+    let x := 0 in
+      let y := 1 in
+        let z := ident x in
+          (y,z).
+  Recursive Extraction call_ident. 
+
+  Definition ident_s := 
+"(define ident (lambda (x) x))
+
+(define call_ident
+  (let ((x `(O))) (let ((y `(S ,`(O)))) (let ((z (ident x))) `(Pair ,y ,z)))))"%string.
+  Definition ident_lam :=
+    Eval vm_compute in 
+      Parse.parse_topdecls ident_s.
+
+  Definition ident_cpsk : CPSK.exp :=
+    Eval vm_compute in
+      match test5_lam as plus_e return match plus_e with
+                                         | inl _ => unit
+                                         | inr x => CPSK.exp
+                                       end with
+        | inl _ => tt
+        | inr e => CpsKConvert.CPS_pure e 
+      end.
+
+  Section monadic.
+    Require Import CoqCompile.TraceMonad.
+    Require Import ExtLib.Data.Monads.EitherMonad.
+    Import MonadNotation.
+    Local Open Scope monad_scope.
+
+    Variable m : Type -> Type.
+    Context {Monad_m : Monad m}.
+    Context {Trace_m : MonadTrace string m}.
+    Context {Exc_m : MonadExc string m}.
+
+    Definition ident_reach : m D :=
+      dom <- cfa_n m 0 ident_cpsk 10 ;; 
+      let dom' := reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 10 in
+      match dom' with
+        | Some dom'' => ret dom''
+        | None => raise "reachable: out of fuel"%string
+      end.
+    
+    Definition ident_live : m (alist (var + cont) (lset (@eq (var + cont)))) :=
+      reach <- ident_reach ;;
+      ret (live_exp reach ident_cpsk Maps.empty).
+
+  End monadic.
+
+  Require Import ExtLib.Data.Monads.IdentityMonad.
+  Eval vm_compute in 
+    match (traceTraceT (ident_reach _)) with
+      | inl err => err
+      | inr dom => to_string dom
+    end.
+  Eval vm_compute in 
+    match (traceTraceT (ident_live _)) with
+      | inl err => err
+      | inr dom => to_string dom
+    end.
+
+  Eval vm_compute in to_string ident_cpsk.
+  Time Eval vm_compute in to_string ident_reach.
+
+    Definition ident_reach :=
+      let '(r, tr) := cfa_n _ 0 ident_cpsk 10 in
+        match r with
+          | inl err => inl err
+          | inr dom => inr (reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 10)
+        end.
+
+  
+(*
   Definition test3_reach :=
     let '(r, tr) := cfa_n 0 test3_cpsk 10 in
     match r with
@@ -491,6 +570,8 @@ Module TEST_REACHABLE.
                        | None => inl "reachability analysis failed"%string
                      end
     end.
+*)
 
 End TEST_REACHABLE.
+
 *)
