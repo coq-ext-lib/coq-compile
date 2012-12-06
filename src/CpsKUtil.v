@@ -228,34 +228,53 @@ Section free_vars.
 
 End free_vars.
 
-Section tuples_in_exp.
+Section tuples_fun.
+  Require Import ExtLib.Data.Map.FMapAList.
   Require Import ExtLib.Data.Set.ListSet.
 
-  Fixpoint get_tuples_exp (e:exp) : lset (@eq var) :=
+  Fixpoint tuples_arity_exp' (e:exp) (dom:alist var nat) : alist var nat :=
     match e with
-      | App_e o ks os => Sets.empty
-      | Let_e d e => Sets.union (get_tuples_decl d) (get_tuples_exp e)
+      | App_e o ks os => dom
+      | Let_e d e => 
+        let dom' := tuples_arity_decl' d dom in
+        tuples_arity_exp' e dom'
       | Letrec_e ds e => 
-        List.fold_left (fun acc x => Sets.union (get_tuples_decl x) acc) ds (get_tuples_exp e)
+        let dom' := List.fold_left (fun acc d => tuples_arity_decl' d acc) ds dom in
+        tuples_arity_exp' e dom'
       | Switch_e o arms def =>
         let init := match def with
-                      | Some e => get_tuples_exp e
-                      | None => Sets.empty
+                      | Some e => tuples_arity_exp' e dom
+                      | None => dom
                     end in
-        List.fold_left (fun acc x => let '(p,e) := x in Sets.union (get_tuples_exp e) acc) arms init
-      | Halt_e o1 o2 => Sets.empty
-      | AppK_e k os => Sets.empty
+        List.fold_left (fun acc x => let '(p,e) := x in tuples_arity_exp' e acc) arms init
+      | Halt_e o1 o2 => dom
+      | AppK_e k os => dom
       | LetK_e kves e => 
-        List.fold_left (fun acc x => let '(k, xs, e) := x in Sets.union acc (get_tuples_exp e)) kves (get_tuples_exp e)
+        let dom' := List.fold_left (fun acc x => let '(k, xs, e) := x in 
+          tuples_arity_exp' e acc) kves dom in
+        tuples_arity_exp' e dom'
     end
-  with get_tuples_decl (d:decl) : lset (@eq var) :=
+  with tuples_arity_decl' (d:decl) (dom:alist var nat) : alist var nat :=
     match d with
-      | Op_d x o => Sets.empty
-      | Prim_d x p o => match p with
-                          | MkTuple_p => Sets.singleton x
-                          | _ => Sets.empty
+      | Op_d x o => dom
+      | Prim_d x p os => match p with
+                          | MkTuple_p => Maps.add x (length os) dom
+                          | _ => dom
                         end
-      | Fn_d v ks xs e => get_tuples_exp e
-      | Bind_d x w m os => Sets.empty
+      | Fn_d v ks xs e => tuples_arity_exp' e dom
+      | Bind_d x w m os => dom
     end.
-End tuples_in_exp.
+  
+  Definition tuples_arity_exp (e:exp) : alist var nat :=
+    tuples_arity_exp' e Maps.empty.
+
+  Definition tuples_arity_decl (d:decl) : alist var nat :=
+    tuples_arity_decl' d Maps.empty.
+
+  Definition tuples_in_exp (e:exp) : lset (@eq var) :=
+    Maps.keys _ _ (tuples_arity_exp e).
+
+  Definition tuples_in_decl (d:decl) : lset (@eq var) :=
+    Maps.keys _ _ (tuples_arity_decl d).
+
+End tuples_fun.
