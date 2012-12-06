@@ -196,6 +196,7 @@ Section LIVENESS.
 
 End LIVENESS.
 
+(*
 Module TEST_REACHABLE.
   Require Import CoqCompile.Parse.
   Require Import ExtLib.Programming.Show.
@@ -467,3 +468,4 @@ Module TEST_REACHABLE.
     end.
 
 End TEST_REACHABLE.
+*)
