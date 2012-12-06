@@ -407,7 +407,7 @@ Section monadic.
         match size with
           | 0 => 
             comment ("Don't allocate empty tuples")%string ;;
-            x <- castFrom PTR_TYPE (LLVM.Constant LLVM.Undef_c) ;;
+            x <- castFrom PTR_TYPE (LLVM.Constant LLVM.Null_c) ;;
             withNewVar v x (k offset)
           | size =>
             len <- opgen (Int_o (Z.of_nat size)) ;;
@@ -717,7 +717,7 @@ Definition generatePhi (f : LLVM.var * LLVM.type) (vs : list (LLVM.value * label
   let '(v,t) := f in
   LLVM.Assign_i (Some (%v)) (LLVM.Phi_e t vs).
 
-Definition rewriteBlock (cfg : CFG) (formals : alist label (list (LLVM.var * LLVM.type))) (block : LLVM.block) : m' LLVM.block :=
+Definition rewriteBlock (fname : string) (cfg : CFG) (formals : alist label (list (LLVM.var * LLVM.type))) (block : LLVM.block) : m' LLVM.block :=
   match block with
     | (None,_) => ret block
     | (Some lbl,intrs) =>
@@ -739,7 +739,8 @@ Definition rewriteBlock (cfg : CFG) (formals : alist label (list (LLVM.var * LLV
                     | Some phi_recs =>
                       let phis := map (fun e => let '(f,a) := e in generatePhi f a) phi_recs in
                       ret (Some lbl,phis ++ intrs)
-                    | _ => raise ("Control-flow graph inconsisent with Low.function: wrong number of args\n" ++
+                    | _ => raise ("Control-flow graph inconsisent with Low.function " ++ fname ++
+                                  ": wrong number of args\n" ++
                                   "block: " ++ (to_string lbl) ++ " " ++
                                   "formals: " ++ (to_string formals) ++ " " ++
                                   "args: " ++ (to_string args) ++ " "
@@ -766,7 +767,7 @@ Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : m' LLVM.t
   let header := LLVM.Build_fn_header None None CALLING_CONV false type nil fname f_params nil None None GC_NAME in 
   runBlocks <- runGenBlocks ctor_m (f_entry f) (f_args f)(f_body f) ;;
   let '(formals,cfg,blocks) := runBlocks in
-  phiBlocks <- mapM (rewriteBlock cfg formals) blocks ;;
+  phiBlocks <- mapM (rewriteBlock fname cfg formals) blocks ;;
   ret (LLVM.Define_d header phiBlocks).
 
 End generate.

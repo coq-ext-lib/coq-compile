@@ -123,7 +123,7 @@ Module IO.
     Fn_d printchar (k :: nil) (a :: nil)
     (Let_e
       (Fn_d res (k' :: nil) (w :: nil) body)
-      (AppK_e k' (Var_o res :: nil))).
+      (AppK_e k (Var_o res :: nil))).
     
   Definition runIO (e : op) : exp :=
     let k := wrapCont "IO$k" in
