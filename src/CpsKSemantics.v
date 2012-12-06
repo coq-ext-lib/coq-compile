@@ -5,6 +5,7 @@ Require Import ExtLib.Data.Map.FMapAList.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Data.Monads.OptionMonad.
 Require Import ExtLib.Data.Monads.StateMonad.
+Require Import ExtLib.Data.Monads.FuelMonad.
 Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Structures.Reducible.
@@ -53,7 +54,7 @@ Section CPSEVAL.
   (** We'll just naively implement heaps as lists of heap values *)
   Definition heap := list heap_value.
 
-  Definition m : Type -> Type := stateT heap (stateT (list (mop * list value)) (sum string)).
+  Definition m : Type -> Type := GFixT (stateT heap (stateT (list (mop * list value)) (sum string))).
   
   (** We'll be working in a combination of the state and option monads, so
      I've written various environment and other functions tailored to that
@@ -249,74 +250,75 @@ Section CPSEVAL.
       | _ => raise "??"
     end.
 
-  Fixpoint eval_exp (n:nat) (env:alist (var + cont) value) (e:exp) : m (list value) :=
-    match n with 
-      | 0 => raise "out of gas"
-      | S n => 
-        match e with 
-          | App_e v ks os => 
-            v' <- eval_op env v ;;
-            vs' <- mapM (eval_op env) os ;;
-            vk' <- mapM (eval_cont env) ks ;;
-            let _ : list value := vs' in
-            let _ : list value := vk' in
-            match v' with 
-              | Ptr_v z => 
-                hv <- heap_lookup z ;;
-                match hv with 
-                  | Closure_v env kvs xs e =>
-                    env' <- extends env (map (fun x => inl x) xs) vs' ;;
-                    env' <- extends env' (map (fun x => inr x) kvs) vk' ;; 
-                    eval_exp n env' e
-                  | _ => raise "applying non-function"
-                end
-              | _ => raise "applying non-function" 
-            end
-          | Let_e d e =>
-            env' <- eval_decl env d ;;
-            eval_exp n env' e
-          | Letrec_e ds e =>
-            env' <- mapM malloc_dummy ds ;;
-            let _ : alist (var + cont) value := env' in
-            iterM (initialize_decl (env' ++ env)%list) ds ;;
-            eval_exp n (env' ++ env)%list e
-          | Switch_e v arms def => 
-            v' <- eval_op env v ;;
-            e <- find_arm v' arms def ;;
-            eval_exp n env e
-          | Halt_e o w => x <- eval_op env o ;; ret (x::nil)
-          | AppK_e k os =>
-            vs <- mapM (eval_op env) os ;;
-            v <- eval_cont env k ;;
-            match v with
-              | Ptr_v z =>
-                hv <- heap_lookup z ;;
-                match hv with
-                  | Closure_v env ks xs e => 
-                    kvs <- mapM (eval_cont env) ks ;;
-                    env' <- extends env (map (fun x => inl x) xs) vs ;;
-                    env' <- extends env' (map (fun x => inr x) ks) kvs ;;
-                    eval_exp n env' e
-                  | _ => raise "applying non-function (continuation case)"
-                end
-              | _ => raise "applying non-function (continuation case)"
-            end
-          | LetK_e k_xs_e e =>
-            env' <- mapM malloc_dummyk k_xs_e ;;
-            iterM (initialize_declk (env' ++ env)%list) k_xs_e ;;
-            eval_exp n (env' ++ env)%list e
-       end 
+  Definition eval_exp (env:alist (var + cont) value) (e:exp) : m (list value) :=
+    mfix2 _ (fun recur => fix eval_exp (env:alist (var + cont) value) (e:exp) {struct e} : m (list value) :=
+      match e with 
+        | App_e v ks os => 
+          v' <- eval_op env v ;;
+          vs' <- mapM (eval_op env) os ;;
+          vk' <- mapM (eval_cont env) ks ;;
+          let _ : list value := vs' in
+          let _ : list value := vk' in
+          match v' with 
+            | Ptr_v z => 
+              hv <- heap_lookup z ;;
+              match hv with 
+                | Closure_v env kvs xs e =>
+                  env' <- extends env (map (fun x => inl x) xs) vs' ;;
+                  env' <- extends env' (map (fun x => inr x) kvs) vk' ;; 
+                  recur env' e
+                | _ => raise "applying non-function"
+              end
+            | _ => raise "applying non-function" 
+          end
+        | Let_e d e =>
+          env' <- eval_decl env d ;;
+          eval_exp env' e
+        | Letrec_e ds e =>
+          env' <- mapM malloc_dummy ds ;;
+          let _ : alist (var + cont) value := env' in
+          iterM (initialize_decl (env' ++ env)%list) ds ;;
+          eval_exp (env' ++ env)%list e
+        | Switch_e v arms def => 
+          v' <- eval_op env v ;;
+          e <- find_arm v' arms def ;;
+          recur env e
+        | Halt_e o w => x <- eval_op env o ;; ret (x::nil)
+        | AppK_e k os =>
+          vs <- mapM (eval_op env) os ;;
+          v <- eval_cont env k ;;
+          match v with
+            | Ptr_v z =>
+              hv <- heap_lookup z ;;
+              match hv with
+                | Closure_v env ks xs e => 
+                  kvs <- mapM (eval_cont env) ks ;;
+                  env' <- extends env (map (fun x => inl x) xs) vs ;;
+                  env' <- extends env' (map (fun x => inr x) ks) kvs ;;
+                  recur env' e
+                | _ => raise "applying non-function (continuation case)"
+              end
+            | _ => raise "applying non-function (continuation case)"
+          end
+        | LetK_e k_xs_e e =>
+          env' <- mapM malloc_dummyk k_xs_e ;;
+          iterM (initialize_declk (env' ++ env)%list) k_xs_e ;;
+          eval_exp (env' ++ env)%list e
+      end) env e.
+
+  Definition run {A} (n:N) (c : m A) (h:heap) : string + (A * heap * list (mop * list value)) :=
+    match runStateT (runStateT (runGFixT c n) h) nil with
+      | inl err => inl err
+      | inr (None,_,_) => inl "Out of fuel"%string
+      | inr (Some x,y,z) => inr (x,y,z)
     end.
 
-  Definition run {A} (c : m A) (h:heap) : string + (A * heap * list (mop * list value)) :=
-    runStateT (runStateT c h) nil.
-
-  Definition eval (n:nat) (e:exp) : string + (list value * heap * list (mop * list value)) := 
-    run (eval_exp n nil e) nil.
+  Definition eval (n:N) (e:exp) : string + (list value * heap * list (mop * list value)) := 
+    run n (eval_exp nil e) nil.
 
   Require Import CoqCompile.Parse.
   Require Import CoqCompile.CpsKConvert.
-  Definition evalstr (n:nat) (s:string) : string + (list value * heap * list (mop * list value)) := 
+  Definition evalstr (n:N) (s:string) : string + (list value * heap * list (mop * list value)) := 
     parse <- Parse.parse_topdecls s ;;
     eval n (CPS_pure parse).
 
