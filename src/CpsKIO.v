@@ -87,15 +87,7 @@ Module IO.
   (** PrintChar :: ascii -> IO unit 
    ** fun k a => 
    **   let res = fun k' w =>
-   **     let a1 = #(1, a) in
-   **     let a2 = #(2, a) in
-   **     let a3 = #(3, a) in
-   **     let a4 = #(4, a) in
-   **     let a5 = #(5, a) in
-   **     let a6 = #(6, a) in
-   **     let a7 = #(7, a) in
-   **     let a8 = #(8, a) in
-   **     let (x,w') = bind PrintChar (w::a1::a2::a3::a4::a5::a6::a7::a8::nil)
+   **     let (x,w') = bind PrintChar (w::a::nil)
    **     in k' x w'
    **   in k res
    **)
@@ -108,17 +100,8 @@ Module IO.
     let w' := wrapVar "w'" in
     let x := wrapVar "x" in
     let body :=
-      (fix go (i : nat) (k : list op -> exp) : exp :=
-        match i with
-          | 0 => k nil
-          | S i' =>
-            let v := wrapVar ("a" ++ to_string i)%string in
-            go i' (fun ops => 
-              Let_e (Prim_d v Proj_p (Int_o (BinInt.Z.of_nat i) :: Var_o a :: nil))
-                    (k (ops ++ Var_o v :: nil)))
-        end) 8 (fun args =>
-          Let_e (Bind_d x w' PrintChar_m (Var_o w :: args))
-                (AppK_e k' (Var_o x :: Var_o w' :: nil)))
+      Let_e (Bind_d x w' PrintChar_m ((Var_o w)::(Var_o a)::nil))
+            (AppK_e k' (Var_o x :: Var_o w' :: nil))
     in
     Fn_d printchar (k :: nil) (a :: nil)
     (Let_e
@@ -135,6 +118,6 @@ Module IO.
 
   Definition wrapIO (bind ret printint printchar : var) (e : exp) : exp :=
     (* Let_e (IO_bind bind) (Let_e (IO_return ret) e). *)
-    Let_e (IO_bind bind) (Let_e (IO_return ret) (Let_e (IO_printInt printint) (Let_e (IO_printChar printchar) e))).
+    Let_e (IO_bind bind) (Let_e (IO_return ret) (Let_e (IO_printChar printchar) e)).
 
 End IO.

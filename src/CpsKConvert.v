@@ -185,7 +185,7 @@ Section cps_convert.
   Definition CPS_io (e:Lambda.exp) : exp :=
     let cmd : readerT (alist var op) (state positive) exp := 
       let w := InitWorld_o in
-      cps e (map_var := alist var) (fun x => ret (Halt_e x w)) in
+      cps e (map_var := alist var) (fun x => ret (IO.runIO x)) in
     let result := evalState (runReaderT cmd empty) 1%positive in
     IO.wrapIO (wrapVar "io_bind") 
                  (wrapVar "io_ret")

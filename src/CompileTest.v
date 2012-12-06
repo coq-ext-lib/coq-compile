@@ -1,21 +1,13 @@
 Require Import ZArith String List Bool.
 Require Import ExtLib.Structures.Monads.
-Require Import ExtLib.Structures.Reducible.
-Require Import ExtLib.Data.Monads.OptionMonad.
-Require Import ExtLib.Data.Monads.StateMonad.
-Require Import ExtLib.Data.Monads.EitherMonad.
-Require Import ExtLib.Data.Monads.IdentityMonad.
+Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Data.Map.FMapAList.
 Require Import ExtLib.Data.Strings.
 Require Import ExtLib.ExtLib.
-Require Import ExtLib.Tactics.Consider.
-Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Programming.Show.
 Require Import CoqCompile.Lambda.
-Require Import CoqCompile.Cps CoqCompile.CpsK.
+Require Import CoqCompile.CpsK CoqCompile.CpsKExamples.
 Require Import CoqCompile.LLVM.
-Require Import CoqCompile.CodeGen CoqCompile.CloConvK.
-Require Import CoqCompile.ExtractTypes.
 Require Import CoqCompile.Parse.
 Require Import CoqCompile.TraceMonad.
 Require Import CoqCompile.Compile.
@@ -24,9 +16,6 @@ Set Implicit Arguments.
 Set Strict Implicit.
 
 Module CompileTest.
-  Import Lambda.
-  Import LambdaNotation.
-
   Definition identity : string := "(define ident (lambda (x) ident))"%string.
 
   Definition e_ident : Lambda.exp :=
@@ -60,13 +49,13 @@ Module CompileTest.
       end.
 
   Eval vm_compute in
-    Compile.stringToCPS fact.
+    Compile.lamToCPS e_fact.
 
   Eval vm_compute in
-    Compile.stringToClos fact.
+    Compile.lamToClos e_fact.
 
   Eval vm_compute in
-    Compile.stringToLow fact.
+    Compile.lamToLow e_fact.
 
   (** TODO: This is stack overflowing **)
   Eval vm_compute in

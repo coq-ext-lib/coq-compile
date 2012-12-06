@@ -16,9 +16,6 @@ test: Ident Fact TRFact True False GC
 	echo Runnint gc testcase...
 	./gc.native -d
 
-test: Fact
-	./fact.native -d
-
 test-gc: GC
 	./gc.native -d --Xms=4k
 
@@ -32,7 +29,7 @@ Ident: runtime Ident.v
 	llvm-link coqrt.ll ident.ll -S -o ident-coqrt.ll
 	opt -S ident-coqrt.ll -o ident-opt.ll
 	llc ident-opt.ll -o ident-opt.s
-	clang ident-opt.s shadowstack.o -o ident.native
+	clang -lrt ident-opt.s shadowstack.o -o ident.native
 
 Fact: runtime Fact.v
 	coqc Fact.v
@@ -40,7 +37,7 @@ Fact: runtime Fact.v
 	llvm-link coqrt.ll fact.ll -S -o fact-coqrt.ll
 	opt -S fact-coqrt.ll -o fact-opt.ll
 	llc fact-opt.ll -o fact-opt.s
-	clang fact-opt.s shadowstack.o -o fact.native
+	clang -lrt fact-opt.s shadowstack.o -o fact.native
 
 TRFact: runtime Fact.v
 	coqc Fact.v
@@ -48,7 +45,7 @@ TRFact: runtime Fact.v
 	llvm-link coqrt.ll trfact.ll -S -o trfact-coqrt.ll
 	opt -S trfact-coqrt.ll -o trfact-opt.ll
 	llc trfact-opt.ll -o trfact-opt.s
-	clang trfact-opt.s shadowstack.o -o trfact.native
+	clang -lrt trfact-opt.s shadowstack.o -o trfact.native
 
 True: runtime Even.v
 	coqc Even.v
@@ -56,7 +53,7 @@ True: runtime Even.v
 	llvm-link coqrt.ll true.ll -S -o true-coqrt.ll
 	opt -S true-coqrt.ll -o true-opt.ll
 	llc true-opt.ll -o true-opt.s
-	clang true-opt.s shadowstack.o -o true.native
+	clang -lrt true-opt.s shadowstack.o -o true.native
 
 False: runtime Even.v
 	coqc Even.v
@@ -64,7 +61,7 @@ False: runtime Even.v
 	llvm-link coqrt.ll false.ll -S -o false-coqrt.ll
 	opt -S false-coqrt.ll -o false-opt.ll
 	llc false-opt.ll -o false-opt.s
-	clang false-opt.s shadowstack.o -o false.native
+	clang -lrt false-opt.s shadowstack.o -o false.native
 
 GC: runtime Even.v
 	coqc Even.v
@@ -72,7 +69,7 @@ GC: runtime Even.v
 	llvm-link coqrt.ll gc.ll -S -o gc-coqrt.ll
 	opt -S gc-coqrt.ll -o gc-opt.ll
 	llc gc-opt.ll -o gc-opt.s
-	clang gc-opt.s shadowstack.o -o gc.native
+	clang -lrt gc-opt.s shadowstack.o -o gc.native
 
 HelloWorld: runtime HelloWorld.v
 	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib HelloWorld.v
@@ -80,16 +77,15 @@ HelloWorld: runtime HelloWorld.v
 	llvm-link coqrt.ll helloworld.ll -S -o helloworld-coqrt.ll
 	opt -S helloworld-coqrt.ll -o helloworld-opt.ll
 	llc helloworld-opt.ll -o helloworld-opt.s
-	clang helloworld-opt.s shadowstack.o -o helloworld.native
+	clang -lrt helloworld-opt.s shadowstack.o -o helloworld.native
 
 
 Compiler: runtime Compiler.v
-#	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib Compiler.v
-	../Extraction/Wrapper.byte -O0 -e Compiler.scheme -q -o compiler.ll
+	../Extraction/Wrapper.byte -O0 -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -e Compiler.scheme -q -o compiler.ll
 	llvm-link rt.ll compiler.ll -S -o compiler-rt.ll
 	opt -S compiler-rt.ll -o compiler-opt.ll
 	llc compiler-opt.ll -o compiler-opt.s
-	clang -g compiler-opt.s shadowstack.o -o compiler.native
+	clang -lrt -g compiler-opt.s shadowstack.o -o compiler.native
 
 clean:
 	rm -f *.ll *.s *.o *.native *.vo *.glob tmp_extr.*

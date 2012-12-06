@@ -23,10 +23,6 @@ typedef struct alloc {
   universal_t *ptr;
 } alloc_t;
 
-bool is_ptr(universal_t *ptr) __attribute((always_inline));
-universal_t *hdr(universal_t *ptr) __attribute((always_inline));
-universal_t rec_len(universal_t *ptr) __attribute((always_inline));
-bool is_rec(universal_t *ptr) __attribute((always_inline));
 
 extern bool debug;
 
@@ -35,8 +31,5 @@ void coq_done(bumpptr_t bumpptrs, universal_t o);
 void coq_error(void);
 alloc_t coq_alloc(bumpptr_t bumpptrs, universal_t words) __attribute((always_inline));
 bumpptr_t coq_gc(void);
-
-
-void coq_printchar(char) __attribute((always_inline));
 
 #endif /* COQRT_H */

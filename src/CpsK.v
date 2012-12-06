@@ -203,10 +203,10 @@ End decidables.
         | LetK_e ks e =>
           let emitKd (kd : cont * list var * exp) : showM :=
             let '(k, xs, b) := kd in 
-            show k << "(" << sepBy ", " (List.map show xs) << ") := " << emitexp b
+            show k << "(" << sepBy ", " (List.map show xs) << ") := " << indent "  " (chr_newline << emitexp b)
           in
-          "letK " << indent "     " (sepBy chr_newline (List.map emitKd ks)) << chr_newline
-          << "in " << emitexp e
+          "letK " << indent "     " (sepBy chr_newline (List.map emitKd ks))
+          << " in" << chr_newline << emitexp e
         | App_e v ks vs =>
           show v << "(" << sepBy "," (List.map show ks) << "; " 
           << sepBy ", " (List.map show vs) << ")"
@@ -214,7 +214,7 @@ End decidables.
           "let " << indent "    " (emitdecl d) << " in" << chr_newline << (emitexp e)
         | Letrec_e ds e =>
           "let rec " << indent "        " (sepBy chr_newline (List.map emitdecl ds)) <<
-          chr_newline << "in " << emitexp e
+          " in" << chr_newline << emitexp e
         | Switch_e v arms def =>
           "switch " << show v << " with" << 
           indent "  " (
@@ -230,11 +230,11 @@ End decidables.
     with emitdecl (d:decl) : showM := 
       match d with 
         | Op_d x v => 
-          show x << " = " << show v
+          show x << " := " << show v
         | Prim_d x p vs => 
-          show x << " = " << show p << "(" << sepBy "," (List.map show vs) << ")"
+          show x << " := " << show p << "(" << sepBy "," (List.map show vs) << ")"
         | Fn_d f k xs e => 
-          show f << "(" << sepBy "," (List.map show k) << "; " << sepBy (", " : showM) (List.map show xs) << ") = " << indent "  " (emitexp e)
+          show f << "(" << sepBy "," (List.map show k) << "; " << sepBy (", " : showM) (List.map show xs) << ") := " << indent "  " (chr_newline << emitexp e)
         | Bind_d x w mop args =>
           show x << "[" << show w << "] <- " << show mop << "(" << sepBy " " (List.map show args) << ")"
       end.
