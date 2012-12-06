@@ -42,47 +42,30 @@ Module Contify.
    **   to a passed-in continuation
    **)
 
-  Section monadic.
-    Let monoid : Monoid (alist var (lset (@eq (list cont)))) := 
+  Definition map_monoid : Monoid (alist var (lset (@eq (list cont)))) := 
       @Monoid_map (alist var) _ _ (@Monoid_set_union _ _ _ _) _ _.
 
+  Definition set_monoid := @Monoid_set_union (lset (@eq var)) _ _ _.
+
+  Section monadic.
     Variable m : Type -> Type.
     Context {Monad_m : Monad m}.
-    Context {Contexts_m : MonadWriter monoid m}.
+    Context {Contexts_m : MonadWriter map_monoid m}.
+    Context {Escapes_m : MonadWriter set_monoid m}.
     Context {MonadExc_m : MonadExc string m}.
     Context {ContSubst_m : MonadReader (alist cont cont) m}.
-
-(*
-    Fixpoint term_cont (e : exp) : m lset (@eq cont).
-    refine (
-      match e with
-        | AppK_e k _ => singleton k
-        | App_e _ ks _ => reduce Sets.empty Sets.singleton Sets.union ks
-        | Halt_e _ _ => Sets.empty
-        | Switch_e _ arms def =>
-          let arm_ks :=
-            reduce Sets.empty 
-                   (fun pe => let '(p,e) := pe in term_cont e)
-                   Sets.union arms in
-          let def_ks :=
-            match def with
-              | None => Sets.empty
-              | Some e => term_cont e
-            end
-          in
-          Sets.union arm_ks def_ks
-        | Let_e (Fn_d v ks xs e') e => _
-        | Let_e _ e => term_cont e
-        | Letrec_e _ _ => _
-        | LetK_e ks e => _
-      end).
-*)
 
     Definition call (f : op) (ks : list cont) : m unit :=
       match f with
         | Var_o f =>
           tell (Maps.singleton f (Sets.singleton ks))
         | _ => raise "Calling non-variable"%string
+      end.
+
+    Definition escapes (o : op) : m unit :=
+      match o with
+        | Var_o v => tell (Sets.singleton v)
+        | _ => ret tt
       end.
 
     Import MonadNotation.
@@ -138,13 +121,15 @@ Module Contify.
     refine (
       match e with
         | AppK_e k xs =>
+          iterM escapes xs ;;
           k <- contify_k k ;;
           ret (AppK_e k xs)
         | App_e f ks xs => 
+          iterM escapes xs ;;
           ks <- mapM contify_k ks ;;
           call f ks ;;
           ret (App_e f ks xs)
-        | Halt_e x w => 
+        | Halt_e x w =>
           ret (Halt_e x w) 
         | Switch_e o arms def =>
           arms' <- mapM (fun pe => let '(p,e) := pe in 
@@ -153,27 +138,31 @@ Module Contify.
           def' <- mapM contify_exp def ;;
           ret (Switch_e o arms' def')
         | Let_e (Fn_d f ks xs e_body) e =>
-          e'_conts <- censor (Maps.remove f) (listens (Maps.lookup f) (contify_exp e)) ;;
-          let '(e',conts) := e'_conts in
+          e'_conts <- censor (Maps.remove f) (listens (Sets.contains f) (listens (Maps.lookup f) (contify_exp e))) ;;
+          let '(e',conts,escapes) := e'_conts in
           match conts with
             | None =>
               (* f is either dead or only passed forward, we can't contify it *)
               e_body' <- contify_exp e_body ;;
               ret (Let_e (Fn_d f ks xs e_body') e')
             | Some conts =>
-              match isSingleton conts with
-                | None => 
-                  (** We can't contify f **)
-                  e_body' <- contify_exp e_body ;;
-                  ret (Let_e (Fn_d f ks xs e_body') e')
-                | Some args =>
+              match escapes , isSingleton conts with
+                | false , Some args =>
                   (** We can contify f **)
                   k <- var_to_cont f ;;
                   let e' := replaceCalls (Var_o f) k e' in
                   e_body' <- withConts ks args (contify_exp e_body) ;;
                   ret (LetK_e ((k, xs, e_body') :: nil) e')
+                | _ , _ => 
+                  (** We can't contify f **)
+                  e_body' <- contify_exp e_body ;;
+                  ret (Let_e (Fn_d f ks xs e_body') e')
               end
           end
+        | Let_e (Prim_d v MkTuple_p xs) e => 
+          iterM escapes xs ;;
+          e' <- contify_exp e ;;
+          ret (Let_e (Prim_d v MkTuple_p xs) e')
         | Let_e d e => 
           e' <- contify_exp e ;;
           ret (Let_e d e')
@@ -191,5 +180,84 @@ Module Contify.
     Defined.
   End monadic.
 
+  Require Import ExtLib.Data.Monads.WriterMonad.
+  Require Import ExtLib.Data.Monads.ReaderMonad.
+  
+  Definition contify (e : exp) : string + exp :=
+    runReaderT (evalWriterT (Monoid_S := set_monoid) (evalWriterT (Monoid_S := map_monoid) (contify_exp e))) (Maps.empty : alist cont cont).
+
+(*
+  Module TESTS.
+    Require Import ExtLib.Programming.Show.
+    Require Import CoqCompile.CpsKConvert.
+    Require Import CoqCompile.Parse.
+
+(*
+    Definition f x := S x.
+    Definition main := (f, f 1).
+
+    Extraction Language Scheme.
+    Recursive Extraction main.
+*)
+
+    Definition simple :=
+      "(define f (lambda (x) `(S ,x)))
+
+       (define main (f `(S ,`(O))))"%string.
+
+    Definition simple_no :=
+      "(define f (lambda (x) `(S ,x)))
+
+       (define main `(Pair ,f ,(f `(S ,`(O)))))"%string.
+    
+    Definition simple_lam := 
+      Eval vm_compute in
+      Parse.parse_topdecls simple.
+
+    Definition simple_cps : CPSK.exp :=
+      Eval vm_compute in
+      match simple_lam as parsed return match parsed with
+                                      | inl _ => unit
+                                      | inr _ => CPSK.exp 
+                                    end
+        with
+        | inl _ => tt
+        | inr x => 
+          let res := CpsKConvert.CPS_pure x in
+          match res with
+            | Letrec_e (d :: nil) e => Let_e d e
+            | _ => res
+          end
+      end.
+
+    Eval vm_compute in to_string simple_cps.
+    Eval vm_compute in to_string (contify simple_cps).
+
+
+    Definition simple_no_lam := 
+      Eval vm_compute in
+      Parse.parse_topdecls simple_no.
+
+    Definition simple_no_cps : CPSK.exp :=
+      Eval vm_compute in
+      match simple_no_lam as parsed return match parsed with
+                                      | inl _ => unit
+                                      | inr _ => CPSK.exp 
+                                    end
+        with
+        | inl _ => tt
+        | inr x => 
+          let res := CpsKConvert.CPS_pure x in
+          match res with
+            | Letrec_e (d :: nil) e => Let_e d e
+            | _ => res
+          end
+      end.
+
+    Eval vm_compute in to_string simple_no_cps.
+    Eval vm_compute in to_string (contify simple_no_cps).
+
+  End TESTS.
+*)    
 
 End Contify.
