@@ -51,9 +51,9 @@ void gc_stats(bumpptr_t bumpptrs) {
   printf("Garbage collection statistics:\n");
   printf("==============================\n");
   printf("Number of allocations: %lu\n", allocations);
-  printf("Total space allocated: %lu bytes\n", allocationsSpace);
+  printf("Total space allocated: %lu words\n", allocationsSpace);
   printf("Number of collections: %lu\n", collections);
-  printf("Time spent collecting: %0.3f\n", time);
+  printf("Time spent collecting: %0.3f sec\n", time);
 }
 
 void dump_heap(bumpptr_t bumpptrs) {

@@ -1,20 +1,31 @@
-all: Ident Fact TRFact True False GC
+all: Ident Fact TRFact True False GC HelloWorld
 
 .PHONY: runtime
 
-test: Ident Fact TRFact True False GC
-	echo Running Ident testcase...
+test: Ident Fact TRFact True False GC HelloWorld
+	@echo =============================================
+	@echo Running tests
+	@echo =============================================
+	@echo Running Ident testcase...
 	./ident.native -d
-	echo Running Factorial testcase...
+	@echo
+	@echo Running Factorial testcase...
 	./fact.native -d
-	echo Running Tail-recursive Factorial testcase...
+	@echo
+	@echo Running Tail-recursive Factorial testcase...
 	./trfact.native -d
-	echo Running even 200 testcase...
+	@echo
+	@echo Running even 200 testcase...
 	./true.native -d
-	echo Running even 201 testcase...
+	@echo
+	@echo Running even 201 testcase...
 	./false.native -d
-	echo Runnint gc testcase...
+	@echo
+	@echo Running gc testcase...
 	./gc.native -d
+	@echo
+	@echo Running hello world testcase...
+	./helloworld.native -d
 
 test-gc: GC
 	./gc.native -d --Xms=4k
@@ -79,6 +90,13 @@ HelloWorld: runtime HelloWorld.v
 	llc helloworld-opt.ll -o helloworld-opt.s
 	clang -lrt helloworld-opt.s shadowstack.o -o helloworld.native
 
+IOFact: runtime IOFact.v
+	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib IOFact.v
+	../Extraction/Wrapper.byte -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IOFact -t main -o iofact.ll
+	llvm-link coqrt.ll iofact.ll -S -o iofact-coqrt.ll
+	opt -S iofact-coqrt.ll -o iofact-opt.ll
+	llc iofact-opt.ll -o iofact-opt.s
+	clang -lrt iofact-opt.s shadowstack.o -o iofact.native
 
 Compiler: runtime Compiler.v
 	../Extraction/Wrapper.byte -O0 -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -e Compiler.scheme -q -o compiler.ll

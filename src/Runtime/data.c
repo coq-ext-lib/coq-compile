@@ -1,7 +1,6 @@
 #include "data.h"
 
 #include "coqrt.h"
-#include <stdio.h>
 
 bool is_ptr(universal_t *ptr) {
   return ((universal_t)ptr & 0x1) == 0; 
@@ -20,12 +19,6 @@ bool is_rec(universal_t *ptr) {
 }
 
 char coq_ascii_to_char(universal_t *ptr) {
-  if (debug) {
-    fprintf(stderr, "Length %lu\n", rec_len(ptr));
-    for (int i = 0; i < rec_len(ptr); i++) {
-      fprintf(stderr, "Value %d: %lu\n", i, ptr[i]);
-    }
-  }
   assert(rec_len(ptr) == 9);
   unsigned char c = 0;
   /* Coq ascii's are represented lowest significant

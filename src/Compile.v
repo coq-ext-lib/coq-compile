@@ -202,6 +202,25 @@ Module Compile.
           end
       end.
 
+    Definition lamToCPSIO (l : Lambda.exp) : string :=
+      String Char.chr_newline (to_string (CpsKConvert.CPS_io l)).
+
+    Definition lamToClosIO (l : Lambda.exp) : string :=
+      match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io l)) with
+        | inl e => e
+        | inr (ds,e) => String Char.chr_newline (to_string (CPSK.Letrec_e ds e))
+      end.
+
+    Definition lamToLowIO (l : Lambda.exp) : string :=
+      match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io l)) with
+        | inl e => e
+        | inr (decls,main) =>
+          match (CpsK2Low.cpsk2low _ decls main) with
+            | inl e => e
+            | inr low => String Char.chr_newline (to_string low)
+          end
+      end.
+
     Definition topCompileFromStr (io : bool) (e:string) : string + string :=
       parse <- Parse.parse_topdecls e ;;
       topCompile_string io parse.

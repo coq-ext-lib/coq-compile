@@ -12,16 +12,20 @@ bool debug = false;
 
 void coq_done(bumpptr_t bumpptrs, universal_t o) {
   if (debug) {
-    printf("Program terminated normally.\n");
-    printf("Return value: %p\n", (void *)o);
+    fprintf(stderr, "Program terminated normally.\n");
+    fprintf(stderr, "Return value: %p\n", (void *)o);
+    gc_stats(bumpptrs);
   }
-  gc_stats(bumpptrs);
   exit(0);
 }
 
 void coq_error() {
-  printf("Error: out of memory.\n");
+  fprintf(stderr, "Error: out of memory.\n");
   exit(-1);
+}
+
+void coq_report(universal_t value) {
+  fprintf(stderr, "Report: 0x%016lx\n", value);
 }
 
 void usage(char *program, int exit_code) {

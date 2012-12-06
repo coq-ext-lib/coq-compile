@@ -247,6 +247,17 @@ Section monadic.
           raise ("Expected 1 arguments got " ++ nat2string10 (length ls))%string
       end.
 
+  Definition reportUniversal (v : LLVM.value) : m unit :=
+    let args := (UNIVERSAL,v,nil)::nil in
+    let call := LLVM.Call_e true CALLING_CONV nil LLVM.Void_t None (LLVM.Global "coq_report"%string) args nil in
+    emitInstr (LLVM.Assign_i None call).
+
+  Definition reportPointer (v : LLVM.value) : m unit :=
+    v <- castFrom PTR_TYPE v ;;
+    let args := (UNIVERSAL,(%v),nil)::nil in
+    let call := LLVM.Call_e true CALLING_CONV nil LLVM.Void_t None (LLVM.Global "coq_report"%string) args nil in
+    emitInstr (LLVM.Assign_i None call).
+
   Definition addRoot (root : Env.var): m unit :=
     roots <- get (MonadState := State_gcroots) ;;
     var <- opgen (Var_o root) ;;
@@ -261,7 +272,7 @@ Section monadic.
     iterM (fun root =>
       let '(v,r) := root in
       isLive <- live v ;;
-      if isLive 
+      if isLive
         then
           var <- opgen (Var_o v) ;;
           var <- castTo PTR_TYPE var ;;
@@ -441,7 +452,10 @@ Section monadic.
     let gep := LLVM.Getelementptr_e false PTR_TYPE (%ptr) ((UNIVERSAL,idx)::nil) in
     elem <- emitExp gep ;;
     load <- emitExp (LLVM.Load_e false false PTR_TYPE (%elem) None None None false) ;;
-    withNewValue dest (%load) k.
+    withNewValue dest (%load) (
+      addRoot dest ;;
+      k
+    ).
 
   (* Should use primtyp at least as a check *)
   Definition generateStore T (t : primtyp) (v : op) (index : Z) (ptr : op) (k : m T) : m T :=
@@ -493,8 +507,12 @@ Section monadic.
       | arg::nil =>
         opgen arg
       | _ =>
-        let size := (length args) + 1 in
+        let size := (length args) in
         let box alloc :=
+          len <- opgen (Int_o (Z.of_nat size)) ;;
+          emitInstr (LLVM.Store_i false false UNIVERSAL len PTR_TYPE (%alloc) None None false) ;;
+          index <- opgen (Int_o (Z.of_nat 1)) ;;
+          alloc <- emitExp (LLVM.Getelementptr_e false PTR_TYPE (%alloc) ((UNIVERSAL,index)::nil)) ;;
           (fix recur index args :=
             match args with
               | nil => 
@@ -508,14 +526,17 @@ Section monadic.
                 emitInstr (LLVM.Store_i false false UNIVERSAL arg PTR_TYPE (%elem) None None false) ;;
                 recur (index + 1)%Z args
             end) 0%Z args
-        in doMalloc size box
+        in doMalloc (size+1) box
     end.
         
   Definition generateUnboxing T (boxed : LLVM.var) (args : list Env.var) (k : m T) : m T :=
     match args with
       | nil => k
       | arg::nil =>
-        withNewValue arg (%boxed) k
+        withNewValue arg (%boxed) (
+          addRoot arg ;;
+          k
+        )
       | _ =>
         boxed <- castTo PTR_TYPE (%boxed) ;;
         (fix recur index args :=
@@ -526,7 +547,10 @@ Section monadic.
               let gep := LLVM.Getelementptr_e false PTR_TYPE (%boxed) ((UNIVERSAL,idx)::nil) in
               elem <- emitExp gep ;;
               load <- emitExp (LLVM.Load_e false false PTR_TYPE (%elem) None None None false) ;;
-              withNewValue arg (%load) (recur (index+1)%Z args)
+              withNewValue arg (%load) (
+                addRoot arg ;;
+                recur (index+1)%Z args
+              )
           end) 0%Z args
     end.
 
@@ -539,18 +563,11 @@ Section monadic.
     f <- castTo (computeFunctionType (length args)) f ;;
     let arity := 1 in
     match conts with
-      | nil =>
-(*        let call := LLVM.Call_e true CALLING_CONV nil (RET_TYPE arity) None (%f) fnArgs (LLVM.Noreturn :: nil) in
-        let instr := LLVM.Assign_i None call in
-        storeRoots ;;
-        emitInstr instr ;;
-        emitInstr LLVM.Unreachable_i*)
-        raise "Bug?"%string (* Dead code? *)
+      | nil => raise "Bug?"%string (* Dead code? *)
       | ((inl 0),_)::nil =>
         let call := LLVM.Call_e true CALLING_CONV nil (RET_TYPE arity) None (%f) fnArgs nil in
-        storeRoots ;;
         result <- emitExp call ;;
-        reloadRoots (emitInstr (LLVM.Ret_i (Some (RET_TYPE arity,%result))))
+        emitInstr (LLVM.Ret_i (Some (RET_TYPE arity,%result)))
       | ((inr lbl),vars)::nil =>
         let call := LLVM.Call_e true CALLING_CONV nil (RET_TYPE arity) None (%f) fnArgs nil in
         storeRoots ;;
@@ -663,14 +680,7 @@ Section monadic.
       iterM addRoot ps ;;
       ptrs <- ret "bumpptrs"%string ;;
       withBumpPtrs ptrs (
-        storeRoots ;;
-        let call := LLVM.Call_e true CALLING_CONV nil BUMP_TYPE None (LLVM.Global "coq_gc"%string) nil nil in
-        ptrs <- emitExp call ;;
-        withBumpPtrs ptrs (
-          reloadRoots (
-            generateInstructions b
-          )
-        )
+        generateInstructions b
       )
     ).
  
@@ -684,7 +694,7 @@ Section monadic.
      withBumpPtrs ptrs (
        generateUnboxing argsV args (
          withNewVars (locals) (newLocals) (     
-           iterM addRoot (args++locals) ;;
+           iterM addRoot locals ;;
            generateInstructions b
          )
        )
@@ -829,11 +839,16 @@ End globals.
     let args := ((CHAR_PTR_PTR,"root",nil)::(CHAR_PTR,"metadata",nil)::nil)%string in
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "llvm.gcroot"%string args nil None None None in
       LLVM.Declare_d header.
-
+ 
   Definition coq_error_decl : LLVM.topdecl := 
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_error"%string nil nil None None None in
       LLVM.Declare_d header.
-  
+
+  Definition coq_report_decl : LLVM.topdecl := 
+    let args := ((UNIVERSAL,"value",nil)::nil)%string in
+    let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_report"%string args nil None None None in
+      LLVM.Declare_d header.
+ 
   Definition coq_done_decl : LLVM.topdecl :=
     let formals := ((BUMP_TYPE,"bumpptrs",nil)::(UNIVERSAL,"o",nil)::nil)%string in
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil "coq_done"%string formals nil None None None in
@@ -861,6 +876,6 @@ Context {FM_ctor : DMap constructor map_ctor}.
 Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : m LLVM.module :=
   let globals := generateGlobals (FM := DMap_alist RelDec_var_eq) word_size (p_topdecl p) in
   decls <- mapM (generateFunction word_size globals mctor) (p_topdecl p) ;;
-  ret (coq_alloc_decl word_size :: coq_gc_decl word_size :: coq_error_decl :: coq_done_decl word_size :: llvm_gcroot_decl :: coq_printchar_decl word_size :: decls).
+  ret (coq_alloc_decl word_size :: coq_gc_decl word_size :: coq_error_decl :: coq_report_decl word_size :: coq_done_decl word_size :: llvm_gcroot_decl :: coq_printchar_decl word_size :: decls).
 
 End program.
