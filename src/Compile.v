@@ -106,6 +106,7 @@ Module Compile.
   Section Driver.
     Require CoqCompile.CpsKConvert.
     Require CoqCompile.CpsK2Low.
+    Require Import CoqCompile.Analyze.Reachability.
 
     Import MonadNotation.
     Local Open Scope monad_scope.
@@ -130,7 +131,7 @@ Module Compile.
     Global Instance Show_lam : Show Lambda.exp :=
     { show := fun x => "todo"%string }.
 
-    Definition topCompile (io : bool) (e:Lambda.exp) (stop_at_low : bool) 
+    Definition topCompile (io : bool) (e:Lambda.exp) (stop_at_low : bool) (dupdate : bool) 
       : m match stop_at_low with
             | true => Low.program
             | false => LLVM.module
@@ -145,7 +146,13 @@ Module Compile.
       opt_e <- phase "Optimize"%string cps_opt cps_e ;;
       let _ : CPSK.exp := opt_e in
       clo_conv_e <- phase "Closure Convert"%string (@CloConvK.ClosureConvert.cloconv_exp _ _ _) opt_e ;;
-      low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x))) (fun x => CoqCompile.CpsK2Low.cpsk2low _ (fst x) (snd x)) clo_conv_e ;;
+      low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x)))
+                   (fun x =>
+                     liveMap <- (if dupdate
+                                   then
+                                     construct_live_map _ (CPSK.Letrec_e (fst clo_conv_e) (snd clo_conv_e)) 100
+                                   else ret None) ;;
+                     CoqCompile.CpsK2Low.cpsk2low_h _ liveMap (fst x) (snd x)) clo_conv_e ;;
       match stop_at_low as stop_at_low 
         return m match stop_at_low with
                    | true => Low.program
@@ -159,8 +166,8 @@ Module Compile.
 
 
     (** Test Hooks **)
-    Definition topCompile_string (io : bool) (e : Lambda.exp) (stop_at_low : bool) : string + string :=
-      match unIdent (traceTraceT (unEitherT (topCompile io e stop_at_low))) with
+    Definition topCompile_string (io : bool) (e : Lambda.exp) (stop_at_low dupdate : bool) : string + string :=
+      match unIdent (traceTraceT (unEitherT (topCompile io e stop_at_low dupdate))) with
         | (inl e, t) => inl (e ++ to_string t)%string
         | (inr mod', t) => 
           let str := 
@@ -246,9 +253,9 @@ Module Compile.
           end
       end.
 
-    Definition topCompileFromStr (io : bool) (e:string) (stop : bool) : string + string :=
+    Definition topCompileFromStr (io : bool) (e:string) (stop dupdate : bool) : string + string :=
       parse <- Parse.parse_topdecls e ;;
-      topCompile_string io parse stop.
+      topCompile_string io parse stop dupdate.
 
   End Driver.
 

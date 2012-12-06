@@ -186,15 +186,16 @@ Section AI.
     Variable m : Type -> Type.
     Context {Monad_m : Monad m}.
     Context {MonadTrace_m : MonadTrace string m}.
+    Context {MonadExc_m : MonadExc string m}.
 
     Require Import BinNums.
-    Definition aeval (ctx : C) (dom : D) (e : exp) (fuel : N) : m (string + D) :=
+    Definition aeval (ctx : C) (dom : D) (e : exp) (fuel : N) : m D :=
       let c := aeval_exp (m := GFixT (eitherT string (stateT (alist (C * exp) D) m))) ctx dom e in 
       bind (evalStateT (unEitherT (runGFixT c fuel)) Maps.empty) (fun res => 
       match res with
-        | inl err => ret (inl err)
-        | inr None => ret (inl "aeval: out of fuel")%string
-        | inr (Some dom) => ret (inr dom)
+        | inl err => raise err
+        | inr None => raise ("aeval: out of fuel")%string
+        | inr (Some dom) => ret dom
       end).
   End interface.
 

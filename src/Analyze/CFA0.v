@@ -369,13 +369,19 @@ Require Import ExtLib.Data.Monads.IdentityMonad.
 Require Import CoqCompile.TraceMonad.
 Require Import BinNums.
 
-Definition cfa_n (n : nat) (e:exp) (fuel:N) : ((string + Domain (context (var + cont) n)) * list string) :=
+Section cfa_n.
+  Variable m : Type -> Type.
+  Context {Monad_m : Monad m}.
+  Context {Trace_m : MonadTrace string m}.
+  Context {Exc_m : MonadExc string m}.
+
+Definition cfa_n (n : nat) (e:exp) (fuel:N) : m (Domain (context (var + cont) n)) :=
   let ctx := context (var + cont) n in
-  let pcfa := aeval (AbsTime_C := AbsTime_n _ n)
-    (D := Domain ctx) (C := ctx) (V := Value ctx) (m := traceT string ident) 
+  aeval (AbsTime_C := AbsTime_n _ n)
+    (D := Domain ctx) (C := ctx) (V := Value ctx) (m := m)
     (init_ctx _ n) 
-    {| heap := Maps.empty ; env := Maps.empty |} e fuel in 
-  unIdent (traceTraceT pcfa).
+    {| heap := Maps.empty ; env := Maps.empty |} e fuel.
+End cfa_n.
 
 (*
 Module CFA0_test.

@@ -7,6 +7,7 @@ let input = ref (None: string option)
 let term = ref (None: string option)
 let opt = ref (Compile.Compile.Opt.coq_O0)
 let io = ref false
+let dupdate = ref false
 let comp_args = ref ""
 let lit = ref (None : string option)
 let quiet = ref false
@@ -25,6 +26,7 @@ let params =
    ("-O2", Arg.Unit (fun () -> opt := Compile.Compile.Opt.coq_O2), " Optimizer Level 2");
    ("-io", Arg.Unit (fun () -> io := true), " Wrapping with IO monad");
    ("-emit-low", Arg.Unit (fun () -> to_low := true), " Generate low instead of llvm");
+   ("-dupdate", Arg.Unit (fun () -> dupdate := true), " Use destructive updates");
    ("-arg", Arg.String (fun s -> comp_args := !comp_args ^ " " ^ s), " Parameters to pass to coqc")
  ];;
 
@@ -32,7 +34,7 @@ let anon = (fun x -> failwith "Bad argument")
 
 let compile_from_str source =
   if not !quiet then print_string source ;
-  match Compile.topcompile !opt !io (explode source) !to_low with
+  match Compile.topcompile !opt !io (explode source) !to_low !dupdate with
     | Compile.Inl s -> print_endline (implode s) 
     | Compile.Inr assembly -> 
 	let out_ref = open_out !output in

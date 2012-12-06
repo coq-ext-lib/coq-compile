@@ -196,6 +196,37 @@ Section LIVENESS.
 
 End LIVENESS.
 
+Section monadic.
+  Require Import CoqCompile.TraceMonad.
+  Import MonadNotation.
+  Local Open Scope monad_scope.
+
+  Variable m : Type -> Type.
+  Context {Monad_m : Monad m}.
+  Context {MonadTrace_m : MonadTrace string m}.
+  Context {MonadExc_m : MonadExc string m}.
+
+  Definition sanitize {A B} {_ : RelDec (@eq B)} (env:alist (unit * B) A) : (alist B A) :=
+    fold (fun kv acc => 
+      let '(k, v) := kv in
+      let '(_, k) := k in
+      Maps.add k v acc) Maps.empty env.
+
+  Definition construct_live_map (e:exp) (fuel:N) : m (option (alist (var + cont) (lset (@eq (var + cont))))) :=
+    catch (
+      domain <- cfa_n _ 0 e fuel ;;
+      let sanitized := sanitize (env _ domain) in
+      match reachable sanitized Maps.empty fuel with
+        | None => raise "reachable ran out of fuel"%string
+        | Some dom' =>
+        let live := live_exp dom' e Maps.empty in
+          ret (Some live)
+      end
+    ) (fun err =>
+      mlog ("construct_live_map failed: " ++ err)%string ;;
+      ret None
+    ).
+End monadic.
 (*
 Module TEST_REACHABLE.
   Require Import CoqCompile.Parse.
@@ -371,13 +402,7 @@ Module TEST_REACHABLE.
         | inl _ => tt
         | inr e => CpsKConvert.CPS_pure e
       end.
-  
-  Definition sanitize {A B} {_ : RelDec (@eq B)} (env:alist (unit * B) A) : (alist B A) :=
-    fold (fun kv acc => 
-      let '(k, v) := kv in
-      let '(_, k) := k in
-      Maps.add k v acc) Maps.empty env.
-  
+    
   Section hiding_notation.
     Import ShowNotation.
     Local Open Scope show_scope.
