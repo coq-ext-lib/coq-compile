@@ -10,6 +10,7 @@ Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Data.Set.ListSet.
 Require Import ExtLib.Data.Lists.
 Require Import ExtLib.Programming.Show.
+Require Import ExtLib.Data.Map.FMapAList.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -77,68 +78,79 @@ Module ClosureConvert.
     Definition liftDecl (d : decl) : m unit :=
       tell (d :: nil).
 
-    Fixpoint underBinders (o : op) (ls : list var) (from : nat) (c : m exp) {struct ls} : m exp :=
+    (** unpack the environment stored in [o]. The variable names are in [ls] and the index of the
+     ** first is [from]. Run [c] under all the binders.
+     **)
+    Fixpoint unpackEnv (o : op) (ls : list var) (from : nat) (c : m exp) {struct ls} : m exp :=
       match ls with 
         | nil => c
         | l :: ls => 
           l' <- freshFor l ;;
-          e <- local (Maps.add l (Var_o l')) (underBinders o ls (S from) c) ;;
+          e <- local (Maps.add l (Var_o l')) (unpackEnv o ls (S from) c) ;;
           ret (Let_e (Prim_d l' Proj_p (Int_o (PreOmega.Z_of_nat' from) :: o :: nil)) e)
       end.
 
-    Definition withVars {T} (ls : list (var * op)) : m T -> m T :=
-      local (fold_left (fun mp vo => Maps.add (fst vo) (snd vo) mp) ls).
+    Definition withVars {T} (ls : list var) (os : list var) : m T -> m T :=
+      local (fold_left (fun mp vo => Maps.add (fst vo) (Var_o (snd vo)) mp) (List.combine ls os)).
 
     Definition withVar {T} (v : var) (v' : var) : m T -> m T :=
-      withVars ((v,Var_o v')::nil).
+      withVars (v :: nil) (v'::nil).
 
     Definition withConts {T} (ls ls' : list cont) : m T -> m T :=
       local (fold_left (fun mp vo => Maps.add (fst vo) (snd vo) mp) (List.combine ls ls')).
 
-
-    Fixpoint usingEnvForAll (env : op) (ls : list (var * var)) (c : m exp) : m exp :=
-      match ls with
-        | nil => c
-        | (name, code_name) :: ls => 
-          z <- freshFor name ;;
-          local (Maps.add name (Var_o z))
-            (e <- usingEnvForAll env ls c ;;
-             ret (Let_e (Prim_d z MkTuple_p (Var_o code_name :: env :: nil)) e))
+    (** Build closures for all of [func_names] using [code_names] for the function pointers
+     ** and [env] for the environment pointer. Run [c] under fresh binders.
+     **)
+    Fixpoint buildClosures (envF : op) (func_names code_names : list var) (c : m exp) : m exp :=
+      match func_names , code_names with
+        | nil , nil => c
+        | name :: func_names , codeF :: code_names => 
+          zF <- freshFor name ;;
+          e <- withVar name zF (buildClosures envF func_names code_names c) ;;
+          ret (Let_e (Prim_d zF MkTuple_p (Var_o codeF :: envF :: nil)) e)
+        | _ , _ => 
+          raise "Bug, got different list sizes to buildClosures"%string
       end.
 
-    Fixpoint alist_lookup {K V} (R : RelDec (@eq K)) (k : K) (ls : list (K * V)) : option V :=
+    (** TODO: Move to library **)
+    Fixpoint filter_map {A B} (f : A -> option B) (ls : list A) : list B :=
       match ls with
-        | nil => None
-        | l :: ls => if eq_dec k (fst l) then Some (snd l) else alist_lookup _ k ls
+        | nil => nil
+        | l :: ls => 
+          match f l with
+            | None => filter_map f ls
+            | Some v => v :: filter_map f ls
+          end
       end.
 
     Fixpoint cloconv_exp' (e : exp) : m exp.
+    Set Printing Implicit.
     refine (
       match e with
         | AppK_e k args =>
           args <- mapM cloconv_op args ;;
           k <- cloconv_k k ;;
           ret (AppK_e k args)
-        | LetK_e ks e => 
+        | LetK_e ks e =>
           let k_names := map (fun x => let '(k,_,_) := x in k) ks in
-          ks' <- mapM freshCont k_names ;;
-          withConts k_names ks' (
+          ksF <- mapM freshCont k_names ;;
+          withConts k_names ksF (
             ks <- mapM (fun k_xs_e => let '(k,xs,e) := k_xs_e in
-                          k' <- cloconv_k k ;;
-                          xs' <- mapM (fun x =>
-                                         x' <- freshFor x ;;
-                                         ret (x, x')) xs ;;
-                          e <- withVars (map (fun x => (fst x, Var_o (snd x))) xs') (cloconv_exp' e) ;;
-                          ret (k', map (fun x => snd x) xs', e)) ks ;;
+                          kF <- cloconv_k k ;;
+                          xsF <- mapM freshFor xs ;;
+                          e <- withVars xs xsF (cloconv_exp' e) ;;
+                          ret (kF, xsF, e)) ks ;;
             e <- cloconv_exp' e ;;
             ret (LetK_e ks e)
           )
         | App_e f ks args =>
-          f <- cloconv_op f ;;
-          args <- mapM cloconv_op args ;;
-          f_code <- fresh "cptr" ;;
-          ret (Let_e (Prim_d f_code Proj_p (Int_o 0 :: f :: nil))
-                     (App_e (Var_o f_code) ks (f :: args)))
+          fF <- cloconv_op f ;;
+          ksF <- mapM cloconv_k ks ;;
+          argsF <- mapM cloconv_op args ;;
+          f_codeF <- fresh "cptr" ;;
+          ret (Let_e (Prim_d f_codeF Proj_p (Int_o 0 :: fF :: nil))
+                     (App_e (Var_o f_codeF) ksF (fF :: argsF)))
         | Switch_e o arms def =>
           o <- cloconv_op o ;;
           arms <- mapM (fun pe =>
@@ -168,222 +180,130 @@ Module ClosureConvert.
           x' <- freshFor x ;;
           w' <- freshFor w ;;
           os <- mapM cloconv_op os ;;
-          e <- withVars ((x,Var_o x')::(w,Var_o w')::nil) (cloconv_exp' e) ;;
+          e <- withVars (x :: w :: nil) (x' :: w' :: nil) (cloconv_exp' e) ;;
           ret (Let_e (Bind_d x' w' m os) e) 
         | Let_e (Fn_d v ks vs e') e =>
-          let fvars := free_vars_decl false (Fn_d v ks vs e') in
+          let fvars : lset (@eq (var + cont)) := free_vars_decl false (Fn_d v ks vs e') in
           fvars <- mapM (fun v' =>
             match v' with
-              | inl v => freshFor v
-              | inr x => raise ("Invariant violation: escaping continuation " ++ runShow (show x) ++ " from " ++ runShow (show v))%string
+              | inl v => ret v
+              | inr x => 
+                raise ("Invariant violation: escaping continuation " ++ to_string x ++ " from " ++ to_string v)%string
             end) fvars ;;
           ks' <- mapM freshCont ks ;;
           vs' <- mapM freshFor vs ;;
-          let vsP := List.combine vs (map Var_o vs') in
           (** fvars does not contain duplicates **)
           envV <- fresh "env"%string ;;
           v_code <- freshFor v ;;
-          e' <- underBinders (Var_o envV) fvars 1 (withConts ks ks' (withVars vsP (cloconv_exp' e'))) ;;
+          e' <- unpackEnv (Var_o envV) fvars 1 (withConts ks ks' (withVars vs vs' (cloconv_exp' e'))) ;;
           v' <- freshFor v ;;
           e <- withVar v v' (cloconv_exp' e) ;;
-          liftDecl (Fn_d v_code ks' (envV :: vs') e') ;;
-          ret (Let_e (Prim_d v' MkTuple_p (Var_o v_code :: (map Var_o fvars)))
+          liftDecl (Fn_d v_code ks' (envV :: vs') e') ;; 
+          fvarsF <- mapM cloconv_op (List.map Var_o fvars) ;;
+          ret (Let_e (Prim_d v' MkTuple_p (Var_o v_code :: fvarsF))
                      e)
         | Letrec_e ds e_body => _
       end).
-refine (
-          let func_names := fold_left (fun acc d =>
-            match d with
-              | Fn_d v _ _ _ => v :: acc
-              | _ => acc
-            end) ds nil in
-          (** Find all the functions and get the combined environment **)
-          let env : list (var + cont) := toList (monoid_sum (@Monoid_set_union _ _ _ _)
-            (map (fun d => 
-              match d with 
-                | Fn_d _ _ _ _ => free_vars_decl true d
-                | _ => monoid_unit (@Monoid_set_union _ _ _ _)
-              end) ds))
-          in
-          (** Remove the recursive functions from the environment **)
-          let env := filter (fun x => 
-            match x with
-              | inl x => negb (anyb (eq_dec x) func_names)
-              | inr x => false
-            end) env in
-          env <- mapM (fun x => match x with
-                                  | inl x => ret x
-                                  | inr x =>
-                                    raise "ERROR: found continuation in list"%string
-                                end) env ;;
-          let _ : list var := env in
-          (** The names for the code **)
-          funcCodeNames <- mapM (fun n => 
-            v <- freshFor n ;; 
-            vw <- freshFor n ;; 
-            ret (n, (v, vw))) func_names ;;
-          let funcCodeOps := map (fun x => let '(a,(b,_)) := x in (a, b)) funcCodeNames in
-
-          (** Lift the functions & wrappers out **)
-          iterM (fun d =>
-            match d with
-              | Fn_d v ks vs e =>
-                envV <- fresh "env" ;;
-                e <- usingEnvForAll (Var_o envV) funcCodeOps (underBinders (Var_o envV) env 0 (cloconv_exp' e)) ;;
-                match alist_lookup _ v funcCodeNames with
-                  | None => ret tt (** Dead Code **)
-                  | Some (cptr, cptr_wrap) =>
-                    liftDecl (Fn_d cptr ks (envV :: vs) e) ;;
-                    zV <- fresh "env" ;;
-                    liftDecl (Fn_d cptr_wrap ks (envV :: vs) 
-                                   (Let_e (Prim_d zV Proj_p (Int_o (PreOmega.Z_of_nat' 1) :: Var_o envV :: nil))
-                                          (App_e (Var_o cptr) ks (Var_o zV :: map Var_o vs))))
-                end
-              | _ => ret tt
-            end) ds ;;
-
-          all_envV <- fresh "env" ;;
-          let all_env_d := Prim_d all_envV MkTuple_p (map Var_o env) in
-          let _ : list decl := ds in
-          (** Construct non-functions & wrapper closures **)
-          ds' <- mapM (fun d =>
-            match d with
-              | Fn_d v _ _ _ =>
-                match alist_lookup _ v funcCodeNames with
-                  | None => ret d (** Dead Code **)
-                  | Some (_, cptr_wrap) =>
-                    ret (Prim_d v MkTuple_p (Var_o cptr_wrap :: Var_o all_envV :: nil))
-                end 
-              | Prim_d v p os =>
-                os <- mapM cloconv_op os ;;
-                ret (Prim_d v p os)
-              | Bind_d x w m os =>
-                os <- mapM cloconv_op os ;;
-                ret (Bind_d x w m os)
-              | Op_d v o =>
-                o <- cloconv_op o ;;
-                ret (Op_d v o)
-            end) ds ;;
-          let _ : list decl := ds' in
-          (** Cps the result **)
-          let var_map : list (var * op) := 
-            fold_left (fun acc d => 
-              match d with
-                | Fn_d v _ _ _ => (v, Var_o v) :: acc
-                | Prim_d v _ _ => (v, Var_o v) :: acc
-                | Bind_d x w _ _ => (x, Var_o x) :: (w, Var_o w) :: acc
-                | Op_d v _ => (v, Var_o v) :: acc
-              end) ds nil
-          in
-          e <- withVars var_map (cloconv_exp' e_body) ;;
-          (** Return everything **)
-          ret (Letrec_e (all_env_d :: ds') e)).
-    Defined.
-(* NOT RIGHT... FIX:
-   generate fresh names for all binders first, then enter that scope and do the rest
 
     refine (
-          let func_names := fold_left (fun acc d =>
-            match d with
-              | Fn_d v _ _ _ => v :: acc
-              | _ => acc
-            end) ds nil in
-          (** Find all the functions and get the combined environment **)
-          let env : list (var + cont) := toList (monoid_sum (@Monoid_set_union _ _ _ _)
-            (map (fun d => 
-              match d with 
-                | Fn_d _ _ _ _ => free_vars_decl true d
-                | _ => monoid_unit (@Monoid_set_union _ _ _ _)
-              end) ds))
-          in
-          (** Remove the recursive functions from the environment **)
-          let env := filter (fun x => 
-            match x with
-              | inl x => negb (anyb (eq_dec x) func_names)
-              | inr x => false
-            end) env in
-          env <- mapM (fun x => match x with
-                                  | inl x => ret x
-                                  | inr x =>
-                                    raise "ERROR: found continuation in list"%string
-                                end) env ;;
-          let _ : list var := env in
-          (** The names for the code pointers **)
-          funcCodeNames <- mapM (fun n => 
-            v <- freshFor n ;; 
-            vw <- freshFor n ;; 
-            ret (n, (v, vw))) func_names ;;
-          let funcCodeOps := map (fun x => let '(a,(b,_)) := x in (a, b)) funcCodeNames in
+      (** Check sanity: We don't permit Op_d, Prim_d, or Bind_d in letrec **)
+      iterM (fun d => match d with
+                        | Fn_d _ _ _ _ => ret tt
+                        | Prim_d _ MkTuple_p _ => ret tt
+                        | _ => raise ("Invariant violation: found '" ++ to_string d ++ "' in letrec")%string
+                      end) ds ;;
 
-          (** Lift the functions & wrappers out **)
-          iterM (fun d =>
-            match d with
-              | Fn_d v ks vs e =>
-                ks' <- mapM freshCont ks ;;
-                vs' <- mapM freshFor vs ;;
-                env' <- mapM freshFor env ;;
-                envV <- fresh "env" ;;
-                e <- usingEnvForAll (Var_o envV) funcCodeOps (underBinders (Var_o envV) env' 0 
-                  (withConts ks ks' (withVars (List.combine (vs ++ env) (map Var_o (vs' ++ env'))) (cloconv_exp' e)))) ;;
-                match alist_lookup _ v funcCodeNames with
-                  | None => ret tt (** Dead Code **)
-                  | Some (cptr, cptr_wrap) =>
-                    liftDecl (Fn_d cptr ks' (envV :: vs') e) ;;
-                    zV <- fresh "env" ;;
-                    (** NOTE: it should be safe to use vs' in both functions since they are local with
-                     ** disjoint scope chains 
-                     **)
-                    liftDecl (Fn_d cptr_wrap ks' (envV :: vs') 
-                                   (Let_e (Prim_d zV Proj_p (Int_o (PreOmega.Z_of_nat' 1) :: Var_o envV :: nil))
-                                          (App_e (Var_o cptr) ks' (Var_o zV :: map Var_o vs'))))
-                end
-              | _ => ret tt
-            end) ds ;;
+      (** Gather the current names **)
+      let funcs := filter_map (fun d =>
+        match d with
+          | Fn_d v ks xs e => Some (v, ks, xs, e)
+          | _ => None
+        end) ds in
+      let tuples := filter_map (fun d =>
+        match d with
+          | Prim_d v MkTuple_p os => Some (v, os)
+          | _ => None
+        end) ds in
+      let func_names : list var := map (fun v => let '(v,_,_,_) := v in v) funcs in
+      let tuple_names : list var := map (fun v => fst v) tuples in
+      (** Generate new names for all the declarations **)
+      Fcode_names <- mapM freshFor func_names ;;
+      let _ : list var := Fcode_names in 
 
-          all_envV <- fresh "env" ;;
-          env_values <- mapM cloconv_op (map Var_o env) in
-          let all_env_d := Prim_d all_envV MkTuple_p env_values in
-          let _ : list decl := ds in
-          (** Construct non-functions & wrapper closures **)
-          ds' <- mapM (fun d =>
-            match d with
-              | Fn_d v _ _ _ =>
-                match alist_lookup _ v funcCodeNames with
-                  | None => ret d (** Dead Code **)
-                  | Some (_, cptr_wrap) =>
-                    ret (Prim_d v MkTuple_p (Var_o cptr_wrap :: Var_o all_envV :: nil))
-                end 
-              | Prim_d v p os =>
-                os <- mapM cloconv_op os ;;
-                ret (Prim_d v p os)
-              | Bind_d x w m os =>
-                os <- mapM cloconv_op os ;;
-                ret (Bind_d x w m os)
-              | Op_d v o =>
-                o <- cloconv_op o ;;
-                ret (Op_d v o)
-            end) ds ;;
-          let _ : list decl := ds' in
-          (** Cps the result **)
-          let var_map : list (var * op) := 
-            fold_left (fun acc d => 
-              match d with
-                | Fn_d v _ _ _ => (v, Var_o v) :: acc
-                | Prim_d v _ _ => (v, Var_o v) :: acc
-                | Bind_d x w _ _ => (x, Var_o x) :: (w, Var_o w) :: acc
-                | Op_d v _ => (v, Var_o v) :: acc
-              end) ds nil
-          in
-          e <- withVars var_map (cloconv_exp' e_body) ;;
-          (** Return everything **)
-          ret (Letrec_e (all_env_d :: ds') e)).
+      let funcCodeNames : alist var var := List.combine func_names Fcode_names in
+      
+      (** Compute the environment **)
+      let env : lset (@eq (var + cont)) :=
+        fold (fun fn acc => 
+          let '(v, ks, xs, e) := fn in          
+          Sets.union acc (free_vars_decl true (Fn_d v ks xs e))) Sets.empty funcs
+      in
+      let env : list var := filter_map (fun x => 
+        match x with
+          | inl x => 
+            if negb (anyb (eq_dec x) func_names) then Some x else None
+          | inr x => None
+        end) env 
+      in
+
+      (** Lift the functions **)
+      Fwrap_names <- mapM (fun d =>
+        match d with
+          | Fn_d v ks vs e =>
+            ksF      <- mapM freshCont ks ;;
+            vsF      <- mapM freshFor vs ;;
+            env_varF <- fresh "env" ;;
+            e <- buildClosures (Var_o env_varF) func_names Fcode_names
+                 (** for recursive tuples, indexing starts at 0 since the environment is unboxed **)
+                 (unpackEnv (Var_o env_varF) env 0 
+                 (withConts ks ksF
+                 (withVars vs vsF (cloconv_exp' e)))) ;;
+            (** get my code name **)
+            match Maps.lookup v funcCodeNames with
+              | None => raise "Function name not found"%string
+              | Some cptr =>
+                liftDecl (Fn_d cptr ksF (env_varF :: vsF) e) ;;
+                wrapF <- freshFor v ;;
+                ksF      <- mapM freshCont ks ;;
+                vsF      <- mapM freshFor vs ;;
+                env_varF <- fresh "env" ;;
+                tmpF     <- fresh "temp" ;;
+                liftDecl (Fn_d wrapF ksF (env_varF :: vsF)
+                  (Let_e (Prim_d tmpF Proj_p (Int_o (PreOmega.Z_of_nat' 1) :: Var_o env_varF :: nil))
+                    (App_e (Var_o cptr) ksF (Var_o tmpF :: map Var_o vsF)))) ;;
+                ret (Some wrapF)
+            end
+          | _ => ret None
+        end) ds ;;
+      let Fwrap_names : list var := filter_map (fun x => x) Fwrap_names in
+      
+      Ftuple_names <- mapM freshFor tuple_names ;;
+      Fclosure_names <- mapM freshFor func_names ;;
+
+      withVars tuple_names Ftuple_names (withVars func_names Fclosure_names (
+        (** Create the environment **)
+        env_varF <- fresh "env" ;;
+      
+        env_decl <- (env_ops <- mapM cloconv_op (List.map Var_o env) ;;
+                     ret (Prim_d env_varF MkTuple_p env_ops)) ;;
+  
+        (** Create the closures **)
+        let clos_decls := map (fun clo_wrap => let '(cloF, wrapF) := clo_wrap in
+          Prim_d cloF MkTuple_p (Var_o wrapF :: Var_o env_varF :: nil)) (List.combine Fclosure_names Fwrap_names) in
+
+        (** Create the tuples **)
+        tpl_decls <- mapM (fun tpl_f => let '((tpl, args), tplF) := tpl_f in
+          liftM (Prim_d tplF MkTuple_p) (mapM cloconv_op args)) (List.combine tuples Ftuple_names) ;;
+
+        e <- cloconv_exp' e_body ;;
+        ret (Letrec_e (env_decl :: clos_decls ++ tpl_decls) e)
+      ))).
     Defined.
-    *)
+
   End monadic.
   
   End maps.
 
-  Require Import ExtLib.Data.Map.FMapAList.
   Require Import ExtLib.Data.Monads.WriterMonad.
   Require Import ExtLib.Data.Monads.ReaderMonad.
   Require Import ExtLib.Data.Monads.StateMonad.
@@ -408,89 +328,5 @@ refine (
       let '(e', ds') := res in
       ret (ds', e').
   End monadic.
-
-
-(*
-  Module Tests.
-
-    Require Import Lambda.
-    Import LambdaNotation.
-    Require Import ExtLib.FMaps.FMapAList.
-    Require Import Arith.
-
-   (* This tries to check that two heap values / values really are
-      "equivalent" - only works for tuples of values. We return false
-      if we try to compare closures. "depth" parameter is fuel for how deep to check 
-      the equivalence. Maybe break this out into a separate testing thing,
-      since this would work for testing optimizations on CPS form as well *)
-
-    Fixpoint compare_heap_value (depth: nat) (heap1 heap2: heap) (hv1 hv2: heap_value) :=
-      match depth with
-        | O => true
-        | S d' => 
-          match hv1, hv2 with
-            | Tuple_v lv1, Tuple_v lv2 =>  
-              if eq_nat_dec (List.length lv1) (List.length lv2) then
-                List.fold_left 
-                  (fun acc vs => andb acc (compare_value d' heap1 heap2 (fst vs) (snd vs))) 
-                  (List.combine lv1 lv2) true 
-                else
-                  false
-            | _, _ => false
-          end
-      end
-    with
-      compare_value (depth: nat) h1 h2 v1 v2 :=
-      match depth with
-        | O => true
-        | S d' =>
-          match v1, v2 with
-            | Con_v c1, Con_v c2 => eq_dec c1 c2 
-            | Int_v z1, Int_v z2 => eq_dec z1 z2
-            | Ptr_v n1, Ptr_v n2 => 
-              match (run (heap_lookup n1) h1), (run (heap_lookup n2) h2) with
-                | (Some hv1, _), (Some hv2, _) => compare_heap_value d'  h1 h2 hv1 hv2 
-                | _, _ => false
-              end
-            | _, _ => false
-          end
-      end.
-
-    (* Just a wrapper to make this easier to use *)
-    Definition compare dfuel rfuel e1 e2 :=
-      match (eval rfuel e1), (eval rfuel e2) with
-        | (Some hv1, h1), (Some hv2, h2) => 
-          compare_heap_value dfuel h1 h2 (Tuple_v hv1) (Tuple_v hv2)
-        | _, _ => false
-      end.
-
-    Definition cc1 := CPS (gen (def y := S_c Z_c in def z := S_c Z_c in S_c y)).
-    Eval compute in (exp2string cc1).
-    Eval compute in (exp2string (cloconv_exp cc1)).
-    Eval compute in (compare 200 200 cc1 (cloconv_exp cc1)).
-
-    Definition cc2 := CPS (gen e2).
-    
-    Eval compute in (exp2string cc2).
-    Eval compute in (exp2string (cloconv_exp cc2)).
-    (* This returns a closure, so can't use compare to check *)
-
-    Definition cc3 := CPS (gen e4).
-    Eval compute in (exp2string cc3).
-    Eval compute in (exp2string (cloconv_exp cc3)).
-    (* This diverges, so can't check *)
-
-    Definition cc4 := CPS (gen e5).
-    Eval compute in exp2string cc4.
-    Eval compute in exp2string (cloconv_exp cc4).
-    Eval compute in (compare 200 200 cc4 (cloconv_exp cc4)).
-
-    Definition cc5 := CPS (gen e6).
-    Eval compute in exp2string cc5.
-    Eval compute in exp2string (cloconv_exp cc5).
-    Eval compute in (compare 200 200 cc5 (cloconv_exp cc5)).
-
-  End Tests.
-*)
 
 End ClosureConvert.
