@@ -10,28 +10,12 @@
 
 bool debug = false;
 
-bool is_ptr(universal_t *ptr) {
-  return ((universal_t)ptr & 0x1) == 0; 
-}
-
-universal_t *hdr(universal_t *ptr) {
-  return ptr - 1;
-}
-
-universal_t rec_len(universal_t *ptr) {
-  return *hdr(ptr);
-}
-
-bool is_rec(universal_t *ptr) {
-  return (rec_len(ptr) != UINTPTR_MAX);
-}
-
 void coq_done(bumpptr_t bumpptrs, universal_t o) {
   if (debug) {
     printf("Program terminated normally.\n");
     printf("Return value: %p\n", (void *)o);
-    gc_stats(bumpptrs);
   }
+  gc_stats(bumpptrs);
   exit(0);
 }
 
@@ -90,7 +74,7 @@ int main(int argc, char *argv[]) {
       case 'k':
       case 'K':
 	if (heapsize > (SIZE_MAX/1024)) {
-	  printf("Heap size too large.\n");
+	  fprintf(stderr, "Heap size too large.\n");
 	  exit(-1);
 	}
 	heapsize *= 1024;
@@ -98,7 +82,7 @@ int main(int argc, char *argv[]) {
       case 'm':
       case 'M':
 	if (heapsize > (SIZE_MAX/1048576)) {
-	  printf("Heap size too large.\n");
+	  fprintf(stderr, "Heap size too large.\n");
 	  exit(-1);
 	}
 	heapsize *= 1048576;
@@ -106,7 +90,7 @@ int main(int argc, char *argv[]) {
       case 'g':
       case 'G':
 	if (heapsize > (SIZE_MAX/1073741824)) {
-	  printf("Heap size too large.\n");
+	  fprintf(stderr, "Heap size too large.\n");
 	  exit(-1);
 	}
 	heapsize *= 1073741824;

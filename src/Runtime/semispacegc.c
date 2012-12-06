@@ -1,11 +1,13 @@
 #include "gc.h"
 #include "shadowstack.h"
+#include "data.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <time.h>
 
 universal_t *tobot, *totop;
 universal_t *frombot, *fromtop;
@@ -13,9 +15,15 @@ universal_t *curbot, *curtop;
 universal_t *queueptr, *endptr;
 size_t heapsize;
 
+universal_t allocations;
+universal_t allocationsSpace;
+universal_t collections;
+struct timespec collectionTime;
+
+
 static void segfault_handler(int sig, siginfo_t *si, void *unused) {
   universal_t *fault = (universal_t *)si->si_addr;
-  printf("SIGSEGV at %p\n", fault);
+  fprintf(stderr, "SIGSEGV at %p\n", fault);
   universal_t *bot, *top;
   if (curbot == frombot) {
     bot = tobot;
@@ -25,31 +33,37 @@ static void segfault_handler(int sig, siginfo_t *si, void *unused) {
     top = fromtop;
   }
   if (bot <= fault && fault < top) {
-    printf("Fault in unused space\n");
+    fprintf(stderr, "Fault in unused space\n");
   }
 
-  printf("Searching backward for header...\n");
+  fprintf(stderr, "Searching backward for header...\n");
   mprotect((void *)bot,heapsize,PROT_READ|PROT_WRITE);
   do {
-    printf("%p:\t0x%016lx\n", fault, *fault);
+    fprintf(stderr, "%p:\t0x%016lx\n", fault, *fault);
   } while (!((*fault--) & 0x1));
 
   exit(-1);
 }
 
 void gc_stats(bumpptr_t bumpptrs) {
-  size_t remaining = (size_t)bumpptrs.limit - (size_t)bumpptrs.base;
-  printf("%lu / %lu bytes allocated\n", heapsize - remaining, heapsize);
+  double time = (double)collectionTime.tv_sec + (double)collectionTime.tv_nsec/1000000000;
+
+  printf("Garbage collection statistics:\n");
+  printf("==============================\n");
+  printf("Number of allocations: %lu\n", allocations);
+  printf("Total space allocated: %lu bytes\n", allocationsSpace);
+  printf("Number of collections: %lu\n", collections);
+  printf("Time spent collecting: %0.3f\n", time);
 }
 
 void dump_heap(bumpptr_t bumpptrs) {
   universal_t *word = curbot;
-  printf("Dumping heap from %p to %p\n", word, bumpptrs.base);
+  fprintf(stderr, "Dumping heap from %p to %p\n", word, bumpptrs.base);
   while (word < bumpptrs.base) {
-    printf("0x%016lx:\t", (universal_t)word);
+    fprintf(stderr, "0x%016lx:\t", (universal_t)word);
     for (uint8_t i = 0; i < 8 && word < bumpptrs.base; i++)
-      printf("0x%016lx\t", (universal_t)(*word++));
-    printf("\n");
+      fprintf(stderr, "0x%016lx\t", (universal_t)(*word++));
+    fprintf(stderr, "\n");
   }
 }
 
@@ -58,7 +72,7 @@ bumpptr_t gc_init(size_t capacity) {
   frombot =
     (universal_t *)mmap(NULL, heapsize, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
   if (frombot == (universal_t *)MAP_FAILED) {
-    printf("Error: failed to initialize heap.\n");
+    fprintf(stderr, "Error: failed to initialize heap.\n");
     exit(-1);
   }
   fromtop = frombot + (heapsize/sizeof(universal_t *));
@@ -66,40 +80,37 @@ bumpptr_t gc_init(size_t capacity) {
   tobot =
     (universal_t *)mmap(NULL, heapsize, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
   if (tobot == (universal_t *)MAP_FAILED) {
-    printf("Error: failed to initialize heap.\n");
+    fprintf(stderr, "Error: failed to initialize heap.\n");
     exit(-1);
   }
   totop = tobot + (heapsize/sizeof(universal_t *));
 
-  if (debug) {
-    printf("Heap initialized with capacity %lu.\n", heapsize);
-    printf("fromspace:\t%p\t%p\n", frombot, fromtop);
-    printf("tospace:\t%p\t%p\n", tobot, totop);
-  }
   curbot = frombot;
   curtop = fromtop;
 
   /* Protect unused space to detect errors */
-  if (debug) {
-    if (mprotect((void *)tobot,heapsize,PROT_NONE) != 0) {
-      printf("Warning: failed to mprotect unused space\n");
-    }
+  if (mprotect((void *)tobot,heapsize,PROT_NONE) != 0)
+    fprintf(stderr, "Warning: failed to mprotect unused space\n");
 
-    struct sigaction sa;
-    sa.sa_flags = SA_SIGINFO;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_sigaction = segfault_handler;
-    if (sigaction(SIGSEGV, &sa, NULL) == -1) {
-      printf("Warning: failed to initialize segfault handler\n");
-    }
+  struct sigaction sa;
+  sa.sa_flags = SA_SIGINFO;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_sigaction = segfault_handler;
+  if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+    fprintf(stderr, "Warning: failed to initialize segfault handler\n");
   }
+
+  allocations = 0;
+  allocationsSpace = 0;
+  collections = 0;
+  collectionTime.tv_sec = 0;
+  collectionTime.tv_nsec = 0;
 
   return (bumpptr_t) { .base = curbot, .limit = curtop };
 }
 
 void forward(universal_t *objref,universal_t offset) {
   universal_t *ptr = *((universal_t **)objref);
-  /*  printf("Forwarding %p ... ", ptr); */
   if (is_ptr(ptr) && (ptr >= curbot && ptr < curtop)) {
     /* ptr is a pointer into an object in fromspace */
     /* go to the begining of the object */
@@ -112,18 +123,6 @@ void forward(universal_t *objref,universal_t offset) {
       /* Copy the object starting at the header into tosapce */
       universal_t *i = header;;
       universal_t *j = endptr;
-      if (debug) {
-	if (len > 10) {
-	  printf("A stack variable at %p\n", &i);
-	  printf("moving %lu word object from %p to %p\n", rec_len(ptr), ptr, endptr + 1);
-	  universal_t *word = ptr-9;
-	  for (uint8_t i = 0; i < 20; i++) {
-	    if (!(i % 4))
-	      printf("\n%p:\t", word);
-	      printf("0x%016lx\t", (universal_t)(*word++));
-	  }
-	}
-      }
       while (len-- > 0) {
 	*j++ = *i++;
       }
@@ -132,19 +131,11 @@ void forward(universal_t *objref,universal_t offset) {
       *header = UINTPTR_MAX;
       /* Move the end of the queue forward */
       endptr = j;
-    } /* else
-      if (&(*(universal_t **)ptr)[offset] == *((universal_t **)objref)) {
-	printf("already forwarded\n");
-      } else {
-	printf("forwarding to %p\n", &(*(universal_t **)ptr)[offset]);
-	}
-    } */
+    }
     /* ptr must be a forwarding pointer. It either already was, or we 
        forwarded it above. Update the objref to point to the new object */
     *objref = (universal_t)&(*(universal_t **)ptr)[offset] ;
-  }/* else {
-    printf("not a pointer\n");
-    }*/
+  }
 }
 
 void visitGCRoot(void **root, const void *meta) {
@@ -152,24 +143,20 @@ void visitGCRoot(void **root, const void *meta) {
 }
 
 bumpptr_t coq_gc(void) {
-  if (debug) {
-    universal_t *tospace = (curbot == tobot) ? frombot : tobot;
-    if (mprotect((void *)tospace,heapsize,PROT_READ|PROT_WRITE) != 0) {
-      printf("Warning: failed to unprotect unused space\n");
-    }
-  }
+  struct timespec before;
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &before);
+
+  universal_t *tospace = (curbot == tobot) ? frombot : tobot;
+  if (mprotect((void *)tospace,heapsize,PROT_READ|PROT_WRITE) != 0)
+    fprintf(stderr, "Warning: failed to unprotect unused space\n");
 
   /* initialize the queue in tospace */
   queueptr = (curbot == frombot) ? tobot : frombot;
   endptr = queueptr;
 
   /* Call forward on the roots */
-  if (debug)
-    printf("Visiting roots...\n");
   visitGCRoots(&visitGCRoot);
 
-  if (debug)
-    printf("Running the worklist...\n");
   /* iterate the worklist until we're done copying */
   while (queueptr < endptr) {
     universal_t *objref = queueptr+1;
@@ -181,10 +168,8 @@ bumpptr_t coq_gc(void) {
   }
 
   /* Protect the not in use space to detect errors */
-  if (debug) {
-    if (mprotect((void *)curbot,heapsize,PROT_NONE) != 0) {
-      printf("Warning: failed to mprotect unused space\n");
-    }
+  if (mprotect((void *)curbot,heapsize,PROT_NONE) != 0) {
+    fprintf(stderr, "Warning: failed to mprotect unused space\n");
   }
 
   /* Swap spaces and return the new bump pointers */
@@ -197,6 +182,25 @@ bumpptr_t coq_gc(void) {
   }
   assert(curbot <= endptr && endptr <= curtop);
 
+  /* Statistics */
+  struct timespec after;
+  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &after);
+  struct timespec diff;
+  if ((after.tv_nsec-before.tv_nsec)<0) {
+    diff.tv_sec = after.tv_sec-before.tv_sec-1;
+    diff.tv_nsec = 1000000000+after.tv_nsec-before.tv_nsec;
+  } else {
+    diff.tv_sec = after.tv_sec-before.tv_sec;
+    diff.tv_nsec = after.tv_nsec-before.tv_nsec;
+  }
+  collections++;
+  collectionTime.tv_sec += diff.tv_sec;
+  collectionTime.tv_nsec += diff.tv_nsec;
+  if (collectionTime.tv_nsec >= 1000000000) {
+    collectionTime.tv_nsec -= 1000000000;
+    collectionTime.tv_sec += 1;
+  }
+
   /* allocation starts at the end of the queue */
   return (bumpptr_t) { .base = endptr, .limit = curtop };
 }
@@ -204,34 +208,18 @@ bumpptr_t coq_gc(void) {
 alloc_t coq_alloc(bumpptr_t bumpptrs, universal_t words) {
   /* TODO: Check for overflow? */
   universal_t *newbase = &bumpptrs.base[words];
-  if (debug) {
-    printf("Starting allocation...\n");
-    printf("Base: %p Limit: %p New Base: %p New Object: %p\n", bumpptrs.base, bumpptrs.limit, newbase, &bumpptrs.base[1]);
-  }
   if (newbase > bumpptrs.limit) {
-    size_t allocedBefore;
-    if (debug) {
-      allocedBefore = (universal_t)bumpptrs.base - (universal_t)curbot;
-      printf("Starting collection...");
-      printf("Bottom: %p Base: %p Limit: %p Top: %p\n", curbot, bumpptrs.base, bumpptrs.limit, curtop);
-      assert(allocedBefore <= heapsize);
-    }
     bumpptrs = coq_gc();
-
     assert((universal_t)bumpptrs.limit - heapsize <= (universal_t)bumpptrs.base);
-
-    if (debug) {
-      printf(" done.\n");
-      printf("Bottom: %p Base: %p Limit: %p\n", curbot, bumpptrs.base, bumpptrs.limit);
-      universal_t allocedAfter = (universal_t)bumpptrs.base - (universal_t)curbot;
-      printf("Collected %lu / %lu bytes.\n", allocedBefore - allocedAfter, allocedBefore);
-    }
     assert(curbot <= bumpptrs.base && bumpptrs.base <= bumpptrs.limit);
     /* try again and exit on failure */
     newbase = &bumpptrs.base[words];
     if (newbase > bumpptrs.limit)
 	  coq_error();
   }
+
+  allocations++;
+  allocationsSpace += words;
 
   alloc_t result = {
     .bumpptrs = {

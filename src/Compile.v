@@ -55,7 +55,9 @@ Module Compile.
                            then ret 3
                            else if string_dec "False" ctor
                                   then ret 1
-                                  else next)%Z ;;
+                                  else if string_dec "Tt" ctor
+                                         then ret 3
+                                         else next)%Z ;;
                     let map' := Maps.add ctor n acc in
                     ret map'
                 end
