@@ -79,6 +79,82 @@ Module CPSK.
     consider (string_dec s s0 && rel_dec (equ := eq) p p0); intuition; subst; auto;
     inversion H; auto.
   Qed.
+  
+Section decidables.
+  Fixpoint exp_eq (l r : exp) : bool :=
+    match l , r with
+      | App_e o ks os , App_e o' ks' os' =>
+        eq_dec o o' && eq_dec ks ks' && eq_dec os os'
+      | Let_e d e , Let_e d' e' =>
+        decl_eq d d' && exp_eq e e'
+      | Letrec_e ds e , Letrec_e ds' e' =>
+        (fix recur l r :=
+          match l , r with
+            | nil , nil => true
+            | cons l ls , cons r rs =>
+              if decl_eq l r then recur ls rs else false
+            | _ , _ => false
+          end) ds ds' && exp_eq e e'
+      | Switch_e o a e , Switch_e o' a' e' =>
+        (fix recur l r :=
+          match l , r with
+            | nil , nil => true
+            | cons l ls , cons r rs =>
+              let '(p,e) := l in
+              let '(p',e') := r in
+              if eq_dec p p' && exp_eq e e' then recur ls rs else false
+            | _ , _ => false
+          end) a a' && eq_dec o o' && 
+        match e , e' with
+          | None , None => true
+          | Some e , Some e' => exp_eq e e'
+          | _ , _ => false
+        end
+      | Halt_e o1 o2 , Halt_e o1' o2' =>
+        eq_dec o1 o1' && eq_dec o2 o2'
+      | AppK_e k os , AppK_e k' os' =>
+        eq_dec k k' && eq_dec os os'
+      | LetK_e ks e , LetK_e ks' e' =>
+        (fix recur l r :=
+          match l , r with
+            | nil , nil => true
+            | cons l ls , cons r rs =>
+              let '(k,vs,e) := l in
+              let '(k',vs',e') := r in
+              if eq_dec k k' && eq_dec vs vs' && exp_eq e e' then recur ls rs else false
+            | _ , _ => false
+          end) ks ks' && exp_eq e e'
+      | _, _ => false
+    end
+    with decl_eq (l r : decl) : bool :=
+      match l , r  with
+        | Op_d v o , Op_d v' o' =>
+          eq_dec v v' && eq_dec o o'
+        | Prim_d v p os , Prim_d v' p' os' =>
+          eq_dec v v' && eq_dec p p' && eq_dec os os'
+        | Fn_d v ks vs e , Fn_d v' ks' vs' e' =>
+          eq_dec v v' && eq_dec ks ks' && eq_dec vs vs' && exp_eq e e'
+        | Bind_d v1 v2 m os , Bind_d v1' v2' m' os' =>
+          eq_dec v1 v1' && eq_dec v2 v2' && eq_dec m m' && eq_dec os os'
+        | _ , _ => false
+      end.
+
+  Global Instance RelDec_exp_eq : RelDec (@eq exp) :=
+  { rel_dec l r := exp_eq l r }.
+
+  Global Instance RelDec_decl_eq : RelDec (@eq decl) :=
+  { rel_dec l r := decl_eq l r }.
+
+  (*
+  Global Instance RelDec_exp_eq_correct : RelDec_Correct RelDec_exp_eq.
+  constructor; intros. split. intros.
+  generalize y. unfold rel_dec in H. unfold RelDec_exp_eq in H. induction x; destruct y; intuition.
+  unfold RelDec_exp_eq. 
+  *)
+
+End decidables.
+
+
 
   (** Simplify a switch that only has one branch. *)
   Definition switch_e (v:op) (arms: list (pattern * exp)) (def:option exp) := 
@@ -127,27 +203,26 @@ Module CPSK.
         | LetK_e ks e =>
           let emitKd (kd : cont * list var * exp) : showM :=
             let '(k, xs, b) := kd in 
-            show k << "(" << sepBy ", " (List.map show xs) << ") := " << emitexp b
+            show k << "(" << sepBy ", " (List.map show xs) << ") := " << indent "  " (chr_newline << emitexp b)
           in
-          "letK " << indent "     " (sepBy chr_newline (List.map emitKd ks)) << chr_newline
-          << "in " << emitexp e
+          "letK " << indent "     " (sepBy chr_newline (List.map emitKd ks))
+          << " in" << chr_newline << emitexp e
         | App_e v ks vs =>
           show v << "(" << sepBy "," (List.map show ks) << "; " 
           << sepBy ", " (List.map show vs) << ")"
         | Let_e d e =>
-          "let " << indent "  " (emitdecl d) << " in " 
-          << indent "  " (emitexp e)
+          "let " << indent "    " (emitdecl d) << " in" << chr_newline << (emitexp e)
         | Letrec_e ds e =>
           "let rec " << indent "        " (sepBy chr_newline (List.map emitdecl ds)) <<
-          chr_newline << "in " << emitexp e
+          " in" << chr_newline << emitexp e
         | Switch_e v arms def =>
           "switch " << show v << " with" << 
           indent "  " (
             iter_show (List.map (fun (p: pattern * exp) => 
-              chr_newline << "| " << show (fst p) << " => " << emitexp (snd p)) arms)
+              chr_newline << "| " << show (fst p) << " => " << indent "  " (chr_newline << emitexp (snd p))) arms)
             << match def with 
                  | None => empty
-                 | Some e => chr_newline << "| _ => " << emitexp e
+                 | Some e => chr_newline << "| _ => " << indent "  " (chr_newline << emitexp e)
                end)
           << chr_newline << "end"
         | Halt_e o w => "HALT " << show o << " " << show w 
@@ -155,11 +230,11 @@ Module CPSK.
     with emitdecl (d:decl) : showM := 
       match d with 
         | Op_d x v => 
-          show x << " = " << show v
+          show x << " := " << show v
         | Prim_d x p vs => 
-          show x << " = " << show p << "(" << sepBy "," (List.map show vs) << ")"
+          show x << " := " << show p << "(" << sepBy "," (List.map show vs) << ")"
         | Fn_d f k xs e => 
-          show f << "(" << sepBy "," (List.map show k) << "; " << sepBy (", " : showM) (List.map show xs) << ") = " << indent "  " (emitexp e)
+          show f << "(" << sepBy "," (List.map show k) << "; " << sepBy (", " : showM) (List.map show xs) << ") := " << indent "  " (chr_newline << emitexp e)
         | Bind_d x w mop args =>
           show x << "[" << show w << "] <- " << show mop << "(" << sepBy " " (List.map show args) << ")"
       end.

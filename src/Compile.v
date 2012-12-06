@@ -55,7 +55,9 @@ Module Compile.
                            then ret 3
                            else if string_dec "False" ctor
                                   then ret 1
-                                  else next)%Z ;;
+                                  else if string_dec "Tt" ctor
+                                         then ret 3
+                                         else next)%Z ;;
                     let map' := Maps.add ctor n acc in
                     ret map'
                 end
@@ -78,12 +80,15 @@ Module Compile.
     Require Import CoqCompile.Optimize.
     Require CoqCompile.Opt.CseCpsK.
     Require CoqCompile.Opt.DeadCodeCpsK.
+    Require CoqCompile.Opt.ReduceCpsK.
 
     Definition optimization e : Type := Optimize.optimization e m.
     
     Definition O0 : optimization CPSK.exp := fun x => ret x.
     Definition O1 : optimization CPSK.exp := fun x => 
       ret (CseCpsK.Cse.cse (DeadCodeCpsK.dce x)).
+    Definition O2 : optimization CPSK.exp := fun x =>
+      ret (ReduceCpsK.Reduce.reduce (CseCpsK.Cse.cse (DeadCodeCpsK.dce x))).
     
     Definition runOpt {E} (o : optimization E) (e : E) : m E := o e.
   End Opt.
@@ -139,6 +144,8 @@ Module Compile.
       low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x))) (fun x => CoqCompile.CpsK2Low.cpsk2low _ (fst x) (snd x)) clo_conv_e ;;
       phase "Codegen" (CodeGen.generateProgram word_size mctor) low.
 
+
+    (** Test Hooks **)
     Definition topCompile_string (io : bool) (e : Lambda.exp) : (string + string) :=
       match unIdent (traceTraceT (unEitherT (topCompile io e))) with
         | (inl e, t) => inl (e ++ to_string t)%string
@@ -147,15 +154,15 @@ Module Compile.
     
     Definition stringToCPS (s : string) : string :=
       match Parse.parse_topdecls s with
-        | None => "Failed to parse."%string
-        | Some e =>
+        | inl e => e
+        | inr e =>
           CpsK.CPSK.exp2string (CpsKConvert.CPS_pure e)
       end.
 
     Definition stringToClos (s : string) : string :=
       match Parse.parse_topdecls s with
-        | None => "Failed to parse."%string
-        | Some e =>
+        | inl e => e
+        | inr e =>
           match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
             | inr (ds,e) => to_string (CPSK.Letrec_e ds e)
@@ -164,88 +171,41 @@ Module Compile.
 
     Definition stringToLow (s : string) : string :=
        match Parse.parse_topdecls s with
-        | None => "Failed to parse."%string
-        | Some e =>
+        | inl e => e
+        | inr e =>
           match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
             | inr (decls,main) =>
               match (CpsK2Low.cpsk2low _ decls main) with
                 | inl e => e
-                | inr low => to_string low
+                | inr low => String Char.chr_newline (to_string low)
               end
           end
       end.
-(*
-    Definition stringToAssembly (s: string) : string + string :=
-      match Parse.parse_topdecls s with
-        | None => inl "Failed to parse."%string
-        | Some e =>
-          match topCompile e with
-            | inl s => inl s
-            | inr module => inr (runShow (show module) ""%string)
+
+    Definition lamToCPS (l : Lambda.exp) : string :=
+      String Char.chr_newline (to_string (CpsKConvert.CPS_pure l)).
+
+    Definition lamToClos (l : Lambda.exp) : string :=
+      match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure l)) with
+        | inl e => e
+        | inr (ds,e) => String Char.chr_newline (to_string (CPSK.Letrec_e ds e))
+      end.
+
+    Definition lamToLow (l : Lambda.exp) : string :=
+      match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure l)) with
+        | inl e => e
+        | inr (decls,main) =>
+          match (CpsK2Low.cpsk2low _ decls main) with
+            | inl e => e
+            | inr low => String Char.chr_newline (to_string low)
           end
       end.
-*)
 
-    Definition topCompileFromStr (io : bool) (e:string) : (string + string) :=
-      match Parse.parse_topdecls e with
-        | None => inl "Failed to parse."%string
-        | Some e => topCompile_string io e
-      end.
+    Definition topCompileFromStr (io : bool) (e:string) : string + string :=
+      parse <- Parse.parse_topdecls e ;;
+      topCompile_string io parse.
+
   End Driver.
 
 End Compile.
-(*
-Module CompileTest.
-  Import Lambda.
-  Import LambdaNotation.
-
-  Definition identity : string := "(define ident (lambda (x) ident))"%string.
-
-  Definition e_ident : Lambda.exp :=
-    Eval compute in 
-      match Parse.parse_topdecls identity with
-        | None => Lambda.Var_e (Env.wrapVar ""%string)
-        | Some o => o
-      end.
-
-  Definition fact :=
-  "(define plus (lambdas (n m)
-     (match n
-       ((O) m)
-       ((S p) `(S ,(@ plus p m))))))
-  
-   (define mult (lambdas (n m)
-     (match n
-       ((O) `(O))
-       ((S p) (@ plus m (@ mult p m))))))
-  
-   (define fact (lambda (n)
-     (match n
-       ((O) `(S ,`(O)))
-       ((S n~) (@ mult n (fact n~))))))"%string.
-
-  Definition e_fact : Lambda.exp :=
-    Eval vm_compute in 
-      match Parse.parse_topdecls fact with
-        | None => Lambda.Var_e (Env.wrapVar ""%string)
-        | Some o => o
-      end.
-
-  Eval vm_compute in
-    Compile.stringToCPS fact.
-
-  Eval vm_compute in
-    Compile.stringToClos fact.
-
-  Eval vm_compute in
-    Compile.stringToLow fact.
-
-  Eval vm_compute in
-    match Compile.runM (Compile.topCompile 8 Compile.Opt.O0 false e_fact) with
-      | (inl err, t) => (err, t)
-      | (inr mod', t) => (to_string mod', t)
-    end.
-
-End CompileTest.
-*)

@@ -317,10 +317,8 @@ Section CPSEVAL.
   Require Import CoqCompile.Parse.
   Require Import CoqCompile.CpsKConvert.
   Definition evalstr (n:nat) (s:string) : string + (list value * heap * list (mop * list value)) := 
-    match Parse.parse_topdecls s with
-      | None => raise "Parsing failed."%string
-      | Some e => eval n (CPS_pure e)
-    end.
+    parse <- Parse.parse_topdecls s ;;
+    eval n (CPS_pure parse).
 
   (*
     Section TEST_EVAL.

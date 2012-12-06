@@ -3,8 +3,8 @@ Require Import CoqCompile.CpsK.
 Require Import CoqCompile.CpsKUtil.
 Require Import ExtLib.Core.RelDec.
 Require Import ExtLib.Structures.Monads.
+Require Import ExtLib.Structures.Maps.
 Require Import ExtLib.Structures.Reducible.
-Require Import ExtLib.Data.Monads.StateMonad.
 Require Import List Bool ZArith String.
 
 Set Implicit Arguments.
@@ -30,9 +30,13 @@ Section cps_convert.
   Definition partition v arms := partition' v arms nil nil.
   
   Section monadic.
+    Variable map_var : Type -> Type.
+    Context {DMap_var : DMap var map_var}.
+
     Variable m : Type -> Type.
     Context {Monad_m : Monad m}.
     Context {State_m : MonadState positive m}.
+    Context {Reader_m : MonadReader (map_var op) m}.
     Import MonadNotation.
     Local Open Scope monad_scope.
     Local Open Scope string_scope.
@@ -46,7 +50,17 @@ Section cps_convert.
   Definition freshCont (s:string) : m cont := 
     n <- modify Psucc ;;
     ret (K s n).
-  
+
+  Definition withVar {T} (x : var) (v : var) : m T -> m T :=
+    local (Maps.add x (Var_o v)).
+
+  Definition freshFor (v : var) : m var :=
+    n <- modify Psucc ;;
+    match v with 
+      | Anon_v _ => ret (Anon_v n)
+      | Named_v s p => 
+        ret (Named_v s (Some n))
+    end.
 
   (** Convert a [Lambda.exp] into a CPS [exp].  The meta-level continuation [k] is used
       to build the "rest of the expression".  We work in the state monad so we can generate
@@ -70,7 +84,12 @@ Section cps_convert.
   *)
   Fixpoint cps (e:Lambda.exp) (k:op -> m exp) : m exp := 
     match e with 
-      | Lambda.Var_e x => k (Var_o x)
+      | Lambda.Var_e x => 
+        x' <- asks (Maps.lookup x) ;;
+        match x' with
+          | None => k (Var_o x)
+          | Some o => k o
+        end
       | Lambda.Con_e c nil => k (Con_o c)
       | Lambda.App_e e1 e2 => 
         cps e1 (fun v1 => 
@@ -99,22 +118,25 @@ Section cps_convert.
           e <- k (Var_o x) ;;
           ret (Let_e (Prim_d x MkTuple_p ((Con_o c)::vs)) e))
       | Lambda.Let_e x e1 e2 => 
-        cps e1 (fun v1 => 
-          e2' <- cps e2 k ; 
-          ret (Let_e (Op_d x v1) e2'))
+        cps e1 (fun v1 =>
+          x' <- freshFor x ;;
+          e2' <- withVar x x' (cps e2 k) ; 
+          ret (Let_e (Op_d x' v1) e2'))
       | Lambda.Lam_e x e => 
-        f <- freshVar (Some "f") ;; 
+        x' <- freshFor x ;;
+        f <- freshVar (Some "f") ;;
         c <- freshCont "K" ;; 
-        e' <- cps e (fun v => ret (AppK_e c (v::nil))) ; 
+        e' <- withVar x x' (cps e (fun v => ret (AppK_e c (v::nil)))) ; 
         e0 <- k (Var_o f) ; 
-        ret (Let_e (Fn_d f (c::nil) (x::nil) e') e0)
+        ret (Let_e (Fn_d f (c::nil) (x'::nil) e') e0)
       | Lambda.Letrec_e fs e => 
         fs' <- mapM (fun fn => 
           match fn with 
             | (f,(x,e)) => 
-              c <- freshCont "c" ;; 
-              e' <- cps e (fun v => ret (AppK_e c (v::nil))) ;;
-              ret (Fn_d f (c::nil) (x::nil) e')
+              c <- freshCont "c" ;;
+              x' <- freshFor x ;;
+              e' <- withVar x x' (cps e (fun v => ret (AppK_e c (v::nil)))) ;;
+              ret (Fn_d f (c::nil) (x'::nil) e')
           end) fs ; 
         e0 <- cps e k ; 
         ret (Letrec_e fs' e0)
@@ -150,17 +172,25 @@ Section cps_convert.
   Local Open Scope monad_scope.
 
   Require Import CoqCompile.CpsKIO.
+  Require Import ExtLib.Data.Map.FMapAList.
+  Require Import ExtLib.Data.Monads.StateMonad.
+  Require Import ExtLib.Data.Monads.ReaderMonad.
 
   Definition CPS_pure (e:Lambda.exp) : exp := 
-    evalState (let w := InitWorld_o in
-               cps e (fun x => ret (Halt_e x w))) 1%positive.
+    let cmd : readerT (alist var op) (state positive) exp := 
+      let w := InitWorld_o in
+      cps e (map_var := alist var) (fun x => ret (Halt_e x w))
+    in evalState (runReaderT cmd empty) 1%positive.
 
   Definition CPS_io (e:Lambda.exp) : exp :=
-    let result := 
-      evalState (cps e (fun x => ret (IO.runIO x))) 1%positive
-    in IO.wrapIO (wrapVar "$__IO_bind__") 
-                 (wrapVar "$__IO_return__")
-                 (wrapVar "$__IO_printint__")
+    let cmd : readerT (alist var op) (state positive) exp := 
+      let w := InitWorld_o in
+      cps e (map_var := alist var) (fun x => ret (IO.runIO x)) in
+    let result := evalState (runReaderT cmd empty) 1%positive in
+    IO.wrapIO (wrapVar "io_bind") 
+                 (wrapVar "io_ret")
+                 (wrapVar "io_printInt")
+                 (wrapVar "io_printChar")
                  result.
 
 End cps_convert.

@@ -14,11 +14,11 @@ Extraction Blacklist String List.
 Require Import CoqCompile.Compile.
 
 Definition topcompile := Compile.Compile.topCompileFromStr 8.
-Extraction "Extraction/Compile.ml" topcompile.
+Time Extraction "Extraction/Compile.ml" topcompile.
 
 Require Import CoqCompile.CpsKSemantics.
 Definition topeval := evalstr.
-Extraction "Extraction/CpsKSemantics.ml" topeval.
+Time Extraction "Extraction/CpsKSemantics.ml" topeval.
 
 (* Just for testing purposes. *)
 (*

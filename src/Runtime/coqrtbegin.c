@@ -1,33 +1,21 @@
+#include "coqrt.h"
+#include "gc.h"
+
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <stdint.h>
-#include <stdbool.h>
 #include <string.h>
-#include <sys/mman.h>
 
 #define DEFAULTHEAPSIZE 2097152 /* 2MB */
-#define UNIVERSAL uintptr_t
-
-struct ret {
-  UNIVERSAL *base;
-  UNIVERSAL *limit;
-  UNIVERSAL val;
-};
-
-extern struct ret coq_main(UNIVERSAL *base, UNIVERSAL *limit);
 
 bool debug = false;
-size_t heapsize = DEFAULTHEAPSIZE;
 
-void coq_done(UNIVERSAL *base, UNIVERSAL *limit, UNIVERSAL o) {
+void coq_done(bumpptr_t bumpptrs, universal_t o) {
   if (debug) {
     printf("Program terminated normally.\n");
     printf("Return value: %p\n", (void *)o);
-    size_t remaining = (void *)limit - (void *)base;
-    printf("Bytes allocated: %ld\n", heapsize - remaining);
   }
+  gc_stats(bumpptrs);
   exit(0);
 }
 
@@ -44,6 +32,8 @@ void usage(char *program, int exit_code) {
 }
 
 int main(int argc, char *argv[]) {
+  size_t heapsize = DEFAULTHEAPSIZE;
+
   /* Process command line options */
   while (1) {
     static struct option long_options[] = {
@@ -84,7 +74,7 @@ int main(int argc, char *argv[]) {
       case 'k':
       case 'K':
 	if (heapsize > (SIZE_MAX/1024)) {
-	  printf("Heap size too large.\n");
+	  fprintf(stderr, "Heap size too large.\n");
 	  exit(-1);
 	}
 	heapsize *= 1024;
@@ -92,7 +82,7 @@ int main(int argc, char *argv[]) {
       case 'm':
       case 'M':
 	if (heapsize > (SIZE_MAX/1048576)) {
-	  printf("Heap size too large.\n");
+	  fprintf(stderr, "Heap size too large.\n");
 	  exit(-1);
 	}
 	heapsize *= 1048576;
@@ -100,7 +90,7 @@ int main(int argc, char *argv[]) {
       case 'g':
       case 'G':
 	if (heapsize > (SIZE_MAX/1073741824)) {
-	  printf("Heap size too large.\n");
+	  fprintf(stderr, "Heap size too large.\n");
 	  exit(-1);
 	}
 	heapsize *= 1073741824;
@@ -122,14 +112,9 @@ int main(int argc, char *argv[]) {
     usage(argv[0],-1);
 
   /* Initialize the heap */
-  UNIVERSAL *base = (UNIVERSAL *)mmap(NULL, (size_t)heapsize, PROT_READ|PROT_WRITE, MAP_ANON|MAP_PRIVATE, -1, 0);
-  if (base == (UNIVERSAL *)MAP_FAILED) {
-    printf("Error: failed to initialize heap.\n");
-    exit(-1);
-  }
-  UNIVERSAL *limit = (UNIVERSAL *)((void *)base + heapsize);
+  bumpptr_t heap = gc_init(heapsize);
 
   /* Invoke the Coq program */
-  coq_main(base,limit);
+  coq_main(heap);
   return 0;
 }

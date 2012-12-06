@@ -15,14 +15,15 @@ let implode l =
   | c :: l -> res.[i] <- c; imp (i + 1) l in
   imp 0 l
 
-let extract (m: string) (t: string) =
+let extract (args : string) (m: string) (t: string) =
   let extr = open_out "tmp_extr.v" in
   Printf.fprintf extr "Require %s.\nExtraction Language Scheme.\nRecursive Extraction %s.%s.\n"
     m m t;
   flush extr;
   (* Run the extraction, then chop off the first 4 lines because
      the parser can't handle them *)
-  let status = Unix.system "coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib tmp_extr.v | tail -n +4 > tmp_extr.scheme" in
+(*  let status = Unix.system "coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib tmp_extr.v | tail -n +4 > tmp_extr.scheme" in *)
+  let status = Unix.system ("coqc" ^ args ^ " tmp_extr.v | tail -n +4 > tmp_extr.scheme") in 
   match status with
     | Unix.WEXITED 0 -> 
       let scheme_file = open_in "tmp_extr.scheme" in

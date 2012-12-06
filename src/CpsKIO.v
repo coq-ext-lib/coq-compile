@@ -1,6 +1,7 @@
-Require Import List.
+Require Import String List.
 Require Import CoqCompile.CpsK.
 Require Import ExtLib.Core.RelDec.
+Require Import ExtLib.Programming.Show.
 
 Module IO.
   Import CPSK.
@@ -82,6 +83,30 @@ Module IO.
           (Bind_d x w' PrintInt_m (Var_o w :: Var_o i :: nil))
           (AppK_e k' (Var_o x :: Var_o w' :: nil))))
       (AppK_e k (Var_o res :: nil))).
+
+  (** PrintChar :: ascii -> IO unit 
+   ** fun k a => 
+   **   let res = fun k' w =>
+   **     let (x,w') = bind PrintChar (w::a::nil)
+   **     in k' x w'
+   **   in k res
+   **)
+  Definition IO_printChar (printchar : var) : decl :=
+    let k := wrapCont "k" in
+    let k' := wrapCont "k'" in
+    let res := wrapVar "res" in
+    let a := wrapVar "a" in
+    let w := wrapVar "w" in
+    let w' := wrapVar "w'" in
+    let x := wrapVar "x" in
+    let body :=
+      Let_e (Bind_d x w' PrintChar_m ((Var_o w)::(Var_o a)::nil))
+            (AppK_e k' (Var_o x :: Var_o w' :: nil))
+    in
+    Fn_d printchar (k :: nil) (a :: nil)
+    (Let_e
+      (Fn_d res (k' :: nil) (w :: nil) body)
+      (AppK_e k (Var_o res :: nil))).
     
   Definition runIO (e : op) : exp :=
     let k := wrapCont "IO$k" in
@@ -91,8 +116,8 @@ Module IO.
     LetK_e ((k, x :: w :: nil, (Halt_e (Var_o x) (Var_o w)))::nil)
            (App_e e (k::nil) (InitWorld_o :: nil)).
 
-  Definition wrapIO (bind ret printint : var) (e : exp) : exp :=
+  Definition wrapIO (bind ret printint printchar : var) (e : exp) : exp :=
     (* Let_e (IO_bind bind) (Let_e (IO_return ret) e). *)
-    Let_e (IO_bind bind) (Let_e (IO_return ret) (Let_e (IO_printInt printint) e)).
+    Let_e (IO_bind bind) (Let_e (IO_return ret) (Let_e (IO_printChar printchar) e)).
 
 End IO.

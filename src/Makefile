@@ -1,12 +1,13 @@
-CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKSemantics Low LLVM \
-	      CpsUtil CpsKUtil AlphaEquivCps AlphaEquivCpsK CpsIO \
+CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKExamples CpsKSemantics Low LLVM \
+	      CpsUtil CpsKUtil AlphaEquivCps AlphaEquivCpsK \
 	      CpsKIO CpsKConvert \
-	      Optimize
-OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK
-ANALYSIS   := OccurCps AbstractInterpCpsK # SimpleAnalysis
+	      Optimize TraceMonad
+OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK CopyPropCpsK
+ANALYSIS   := OccurCps AbstractDomains AbstractInterpCpsK CFA0 #Reachability
 COMPILE    := ExtractTypes Cps2CpsK CpsK2Cps CodeGen CloConvK CpsK2Low Compile
-MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE)
-TESTS      :=
+RUNTIME    := IO
+MODULES    := $(CORE) $(ANALYSIS:%=Analyze/%) $(OPT:%=Opt/%) $(COMPILE) $(RUNTIME)
+TESTS      := CompileTest
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
 
@@ -35,8 +36,12 @@ Makefile.test.coq: Makefile $(TVS)
 runtime:
 	$(MAKE) -C Runtime
 
-test: coq compiler runtime
+test: coq Makefile.test.coq compiler runtime
+	$(MAKE) -f Makefile.test.coq
 	$(MAKE) -C Test test
+
+test-gc: coq compiler runtime
+	$(MAKE) -C Test test-gc
 
 clean:: Makefile.coq
 	$(MAKE) -f Makefile.coq clean
