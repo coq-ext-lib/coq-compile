@@ -161,13 +161,17 @@ Section maps.
       end.
 
     Require Import Coq.Arith.Compare_dec.
-    Definition updateVar {T} (x : Env.var) (os : list op) (size:nat) (c : m T) : m T := 
-      vs <- mapM opgen os ;;
+    Definition updateVar {T} (x : Env.var) (vs : list op) (size:nat) (c : m T) : m T := 
       foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z vs ;;
       if leb size (length vs) then c else 
         foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z (list_repeat (size - length vs) (Int_o 0)) ;;
         c.
     
+    (*  size: length of the tuple we want
+     *  v: program point
+     *  e: remaining exp
+     *  returns: a tuple variable and its size if its dead and can be used for a destructive update
+     *)
     Definition updateable (size : nat) (v : Env.var) (e : exp) : m (option (Env.var * nat)) :=
       tup_vars <- get ;;
       match live with
