@@ -31,7 +31,7 @@ Section maps.
   Context {FM_cont : DMap CPSK.cont map_cont}.
 
   (* This is what happens when you suck at abstraction ... u use alists >.< *)
-  Variable live : alist (var + cont) (lset (@eq (var + cont))).
+  Variable live : option (alist (var + cont) (lset (@eq (var + cont)))).
   Variable tup_arity : alist var nat.
 
   Definition lowBinder (d : decl) : var :=
@@ -170,32 +170,35 @@ Section maps.
     
     Definition updateable (size : nat) (v : Env.var) (e : exp) : m (option (Env.var * nat)) :=
       tup_vars <- get ;;
-      match Maps.lookup (inl v) live with 
-        | Some live_set =>
-          let live_set := fold (fun x acc => 
-            match x with
-              | inl v => Sets.add v acc
-              | inr _ => acc
-            end) Sets.empty live_set in
-          let usable_vars := Sets.intersect tup_vars live_set in
-          let rando := fold (fun x acc => 
-            match acc with
-              | Some v => Some v
-              | None => 
-                match Maps.lookup x tup_arity with
-                  | Some size' => 
-                    (* eq_dec can be relaxed *)
-                    if eq_dec size size' then Some (x,size') else None
-                  | None => None
-                end
-            end) None usable_vars in
-          match rando with
-            | None => ret None
-            | Some (v,n) => 
-              put (Sets.remove v tup_vars) ;;
-              ret (Some (v,n))
+      match live with
+        | Some live =>
+          match Maps.lookup (inl v) live with 
+            | Some live_set =>
+              let live_set := fold (fun x acc => 
+                match x with
+                  | inl v => Sets.add v acc
+                  | inr _ => acc
+                end) Sets.empty live_set in
+              let usable_vars := Sets.difference tup_vars live_set in
+              let rando := fold (fun x acc => 
+                match acc with
+                  | Some v => Some v
+                  | None => 
+                    match Maps.lookup x tup_arity with
+                      | Some size' => 
+                        if leb size size' then Some (x,size') else None
+                      | None => None
+                    end
+                end) None usable_vars in
+              match rando with
+                | None => put (Sets.add v tup_vars) ;; ret None
+                | Some (v,n) => 
+                  put (Sets.remove v tup_vars) ;;
+                  ret (Some (v,n))
+              end
+            | None => put (Sets.add v tup_vars) ;; ret None
           end
-        | None => ret None
+        | None => put (Sets.add v tup_vars) ;; ret None
       end.
 
     Definition decl2low (d:decl) {T} (e : exp) (c : m T) : m T :=
@@ -399,13 +402,12 @@ Section monadic2.
 
   Arguments tl_cpsk2low {_ _ _ _ LIVE TUPS m Mon MExc MSvar MSlbl MStup _ _ _ _ _} (e) : rename.
  
-  (* alist (var + cont) (lset (@eq (var + cont))) *)
-  Definition tl_decl2low (name : var) (ks : list CPSK.cont) (args : list var) (tops : list (var * op)) (e : CPSK.exp) : m Low.function :=
+  Definition tl_decl2low_h (live : option (alist (var + CPSK.cont) (lset (@eq (var + CPSK.cont))))) (name : var) (ks : list CPSK.cont) (args : list var) (tops : list (var * op)) (e : CPSK.exp) : m Low.function :=
     let c := tl_cpsk2low 
       (map_var := alist var) (FM_var := DMap_alist RelDec_var_eq)
       (map_cont := alist CPSK.cont) (FM_cont := DMap_alist CPSK.RelDec_cont_eq)
-      (LIVE := nil)  (* TODO change this *)
-      (TUPS := nil)  (* TODO change this *)
+      (LIVE := live)  
+      (TUPS := tuples_arity_exp e)  
       (m := stateT StateData (readerT ReaderData m))
       (MSvar := MonadState_StateData_freshVar _ _)
       (MSlbl := MonadState_StateData_freshLabel_p _ _)
@@ -415,7 +417,7 @@ Section monadic2.
        ; freshLabel_p := 1%positive
        ; curBlock := None
        ; allBlocks := nil
-       ; tupVars := nil  (* TODO change this *)
+       ; tupVars := nil
        |}
     in
     let init_reader : ReaderData :=
@@ -440,17 +442,24 @@ Section monadic2.
 
   Require Import CoqCompile.Opt.CopyPropCpsK.
 
-  Definition cpsk2low (fs : list CPSK.decl) (e : CPSK.exp) : m Low.program :=
+  Definition cpsk2low_h (live : option (alist (var + CPSK.cont) (lset (@eq (var + CPSK.cont))))) (fs : list CPSK.decl) (e : CPSK.exp) : m Low.program :=
     let e := CopyProp.copyprop e in
     let binders : list (var * op) := map (fun d => let v := lowBinder d in (v, Var_o v)) fs in
     fs <- mapM (fun d => 
       match d with
         | CPSK.Fn_d f ks args e => 
           let e := CopyProp.copyprop e in
-          tl_decl2low f ks args binders e
+          tl_decl2low_h live f ks args binders e
         | _ => raise ("Decl other than function found in top-lvl")%string
       end) fs ;;
-    entry <- tl_decl2low (Named_v "coq_main"%string None) nil nil binders e ;;
+    entry <- tl_decl2low_h live (Named_v "coq_main"%string None) nil nil binders e ;;
     ret {| p_topdecl := entry::fs; p_entry := (Named_v "coq_main"%string None) |}.
 
+  Definition cpsk2low : list CPSK.decl -> CPSK.exp -> m Low.program :=
+    cpsk2low_h None.
+
+  Definition cpsk2low_dupdate (live : alist (var + CPSK.cont) (lset (@eq (var + CPSK.cont)))) : list CPSK.decl -> CPSK.exp -> m Low.program :=
+    cpsk2low_h (Some live).
+
 End monadic2.
+
