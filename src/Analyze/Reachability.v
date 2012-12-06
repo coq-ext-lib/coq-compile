@@ -84,6 +84,115 @@ Section REACHABLE.
   
 End REACHABLE.  
 
+Section LIVENESS.
+  
+  Variable reach : alist (var + cont) (lset (@eq (var + cont))).
+
+  (* let x = <1, 2>
+          .
+          .
+          .
+     let y = <3, 4>
+          .
+          .
+          .
+     in k z
+
+   *)
+
+  (* Do we need this??? *)
+  Fixpoint escape_cont_exp (e:exp) (acc:lset (@eq (var + cont))) : (lset (@eq (var + cont))) :=
+    match e with
+      | App_e o ks os => acc
+      | Let_e d e' => escape_cont_exp e' (Sets.union (escape_cont_decl d acc) acc)
+      | Letrec_e ds e' =>
+        escape_cont_exp e' (List.fold_left (fun acc' x => Sets.union (escape_cont_decl x acc) acc') ds acc)
+      | Switch_e o arms def =>
+        let arms_escape := List.fold_left (fun acc' x => 
+          let '(p, e) := x in Sets.union (escape_cont_exp e acc) acc') arms acc in
+        match def with
+          | Some e => Sets.union arms_escape (escape_cont_exp e acc)
+          | None => arms_escape
+        end
+      | Halt_e o1 o2 => acc 
+      | AppK_e k os => List.fold_left (fun acc' x => match x with
+                                                      | Var_o x => Sets.add (inl x) acc'
+                                                      | _ => acc'
+                                                    end) os acc
+      | LetK_e kves e' =>
+        List.fold_left (fun acc' x => let '(k,x,e) := x in
+          Sets.union (escape_cont_exp e acc) acc') kves acc
+    end
+  with escape_cont_decl (d:decl) (acc:lset (@eq (var + cont))) : (lset (@eq (var + cont))) :=
+    match d with
+      | Op_d x os => acc
+      | Prim_d x p os => acc 
+      | Fn_d x ks xs e => escape_cont_exp e acc
+      | Bind_d x w m os => acc
+    end.
+
+  Definition live_set (e:exp) : (lset (@eq (var + cont))) :=
+    (* let escape := Sets.union (free_vars_exp e) (escape_cont_exp e Sets.empty) in *)
+    let escape := free_vars_exp e in
+    fold (fun x acc => match Maps.lookup x reach with
+                         | Some s => Sets.union s acc
+                         | None => acc
+                       end) Sets.empty escape.
+
+  Definition var_of_decl (d:decl) : var :=
+    match d with
+      | Op_d x _ => x
+      | Prim_d x _ _ => x
+      | Fn_d x _ _ _ => x
+      | Bind_d x _ _ _ => x
+    end.
+
+  Fixpoint live_exp (e:exp) (dom:alist (var + cont) (lset (@eq (var + cont)))) :
+    alist (var + cont) (lset (@eq (var + cont))) :=
+    match e with
+      | App_e o ks os => dom
+      | Let_e d e' =>
+        let live_stuff := live_set e' in
+        let x := var_of_decl d in
+        let live_stuff := match Maps.lookup (inl x) dom with
+                            | Some old_set => Sets.union old_set live_stuff
+                            | None => live_stuff
+                          end in
+        live_exp e' (Maps.add (inl x) live_stuff dom)
+      | Letrec_e ds e' =>
+        List.fold_left (fun acc d =>
+          let live_stuff := live_set e' in
+          let x := var_of_decl d in
+          let live_stuff := match Maps.lookup (inl x) acc with
+                              | Some old_set => Sets.union old_set live_stuff
+                              | None => live_stuff
+                            end in
+          live_exp e' (Maps.add (inl x) live_stuff acc)) ds dom
+      | Switch_e o arms def =>
+        let dom' := List.fold_left (fun acc x => let '(p, e') := x in 
+          Maps.combine (fun k v1 v2 => Sets.union v1 v2) (live_exp e' acc) acc) arms dom in
+        match def with
+          | Some e' => Maps.combine (fun k v1 v2 => Sets.union v1 v2) (live_exp e' dom') dom'
+          | None => dom'
+        end
+      | Halt_e o1 o2 => dom
+      | AppK_e k os => dom
+      | LetK_e kxse e' =>
+        let dom' := List.fold_left (fun acc x => let '(k, xs, e') := x in
+          live_exp e' acc) kxse dom in
+        live_exp e' dom'
+    end
+  with live_decl (d:decl) (dom:alist (var + cont) (lset (@eq (var + cont)))) :
+    alist (var + cont) (lset (@eq (var + cont))) :=
+    match d with
+      | Op_d x os => dom
+      | Prim_d x p os => dom
+      | Fn_d x ks xs e => live_exp e dom
+      | Bind_d x w m os => dom
+    end.
+
+End LIVENESS.
+
 (*
 Module TEST_REACHABLE.
   Require Import CoqCompile.Parse.
@@ -287,6 +396,16 @@ Module TEST_REACHABLE.
     let '(r,tr) := (cfa_n 0 test3_cpsk 10) in to_string r.
   Time Eval vm_compute in to_string (test3_reach).
 
+  Eval vm_compute in
+    to_string
+    match test3_reach with
+      | inl err => inl err
+      | inr reach => match reach with
+                       | Some reach => inr (live_exp reach test3_cpsk Maps.empty)
+                       | None => inl "reachability analysis failed"%string
+                     end
+    end.
+
   Definition test4_reach :=
     let '(r, tr) := cfa_n 0 test4_cpsk 10 in
     match r with
@@ -334,6 +453,16 @@ Module TEST_REACHABLE.
   Time Eval vm_compute in
     let '(r,tr) := (cfa_n 0 test7_cpsk 20) in to_string r.
   Time Eval vm_compute in to_string (test7_reach).    
+
+  Eval vm_compute in
+    to_string
+    match test7_reach with
+      | inl err => inl err
+      | inr reach => match reach with
+                       | Some reach => inr (live_exp reach test7_cpsk Maps.empty)
+                       | None => inl "reachability analysis failed"%string
+                     end
+    end.
 
 End TEST_REACHABLE.
 *)
