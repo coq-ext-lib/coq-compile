@@ -80,10 +80,11 @@ Low has several interesting design decisions:
 \section{Input/Output}
 \label{sec:io}
 
-The compiler provides a small runtime library that enables compilation of computations that perform I/O. These operations are exposed to Coq using a simple IO mond that supports the standard \lstinline!return! and \lstinline!bind! in addition to \lstinline!printChar : ascii -> IO unit!. Extraction rules are specified for these functions and, if the program is compiled with I/O support, these functions are included by the compiler.
+The compiler provides a small runtime library that enables compilation of computations that perform I/O. These operations are exposed to Coq using a simple IO mond that supports the standard \verb!return! and \lstinline!bind! in addition to \lstinline!printChar : ascii -> IO unit!. Extraction rules are specified for these functions and, if the program is compiled with I/O support, these functions are included by the compiler, implemented directly in CpsK.
 
-\lstinline!printChar! is implemented as a monadic operation in CpsK. \todo{two options for implementation}
+\lstinline!printChar! is a monadic operation in CpsK (used by \coqe{Bind_d}). It takes 2 arguments: the world (like all monadic operations) and a pointer to the ascii to print. This make code-generation easy because we can write the code to destructure the ascii in C, performing all the necessary bit-wise operations in C. The drawback to this implementation is that it requires allocation in order to invoke. For example, even if we are printing a constant, it is necessary to perform an allocation (which is something that LLVM can not optimize). 
 
+An alternative formulation (actually our original) is to have \coqe{printChar} take 9 arguments for the world and the 8 bits of the \coqe{ascii}. This exposes more opportunities for our Coq-level optimization while making code generation only slightly more cumbersome. 
 
 \section{Garbage Collection}
 \label{sec:gc}
@@ -180,7 +181,7 @@ bumpptr_t coq_gc(void) {
 \section{Abstract Interpretation}
 \label{sec:abstract-interp}
 
-We implemented a Horn-style~\cite{van2010abstracting} abstract interpreter for the CpsK language in the sense that we tried to design our abstract interpreter so that it mirrored our concrete interpreter as much as possible. We parameterize it over an abstract domain (Figure~\ref{fig:absinterp}) so it can be instantiated with different domains for different analyses. 
+We wrote an abstract interpreter for the CpsK language in the style of Van Horn~\cite{van2010abstracting}, i.e. the implementation is modeled after the implementation of the concrete interpreter. The abstract interpreter is parameterized over an abstract domain shown in Figure~\ref{fig:absinterp}. In addition, abstract values ($\hat{V}$) have abstract transfer functions for each of the primitive operations, e.g. tuple projection, closure creation, function call, etc.
 
 \begin{figure}
 \centering
@@ -221,7 +222,7 @@ D: & \;\; \{{\tt env}: PP \rightarrow \hat{V} ; \;\;\; {\tt heap}: \text{loc} \r
 \caption{Instantiation of abstract domain for 0-CFA.}
 \label{fig:cfa0}
 \end{figure}
-Figure~\ref{fig:cfa0} shows an instantiation of our abstract interpreter to perform a context-insensitive Control Flow Analysis (0-CFA). We treat program points as either a variable or continuation because they are uniquely named. Abstract locations are just the variable names occurring in {\tt MkTuple} declarations. The domain $D$ is a record of an environment and heap. The environment maps program points to abstract values, while the heap maps an abstract location to a list of abstract values representing the values each position of a tuple can take on. We did not put closures in the heap because we are doing a context-insensitive analysis. 
+Figure~\ref{fig:cfa0} shows an instantiation of our abstract interpreter to perform a context-insensitive Control Flow Analysis (0-CFA). Program points are either variables or continuations since all results are named in Cps. Abstract locations are the variable names occurring in {\tt MkTuple} declarations. The domain $D$ is a record of an environment (mapping program points to abstract values) and heap (which maps abstract locations to lists of abstract values representing the pointwise components of the tuple). We did not put closures in the heap because our analysis is not context sensitive.
 
 \section{Destructive Updates}
 \label{sec:destructive-updates}
@@ -320,19 +321,10 @@ l1(inscope: ; args: ):
 
 \section{Contification}
 \label{sec:contification}
-
-%%<<<<<<< Updated upstream
-\section{Stack Allocation}
-\label{sec:stack-alloc}
-%% The core of the idea was presented in Kennedy~\cite{kennedy07cps}. Rather than storing everything in the heap, we'd like to stack allocate information that is accessed in a statically determinable pattern. The benefit, we hope, is that we avoid a lot of heap allocation and thus garbage collection, esspecially before we have optimizations like un-currying and partial applications that are only passed forward.
-
-%% The use of LLVM may provide difficulties for this task since LLVM has a built-in allocation stack. When we perform this type of operation, we want to replace the current stack frame with the stack frame of the continuation and then tail call the function that we pass the continuation to but preserving the continuations environment (which just replaced our stack frame). The basic proposal for doing this is shown in Figure~\ref{fig:stack-alloc}. 
-
-%% =======
 The current back-end stack allocates continuation environments so it is desireable to use continuations rather than full-blown, first-class, heap-allocated closures when we can do it. We have implemented contification based on Kennedy's algorithm~\cite{kennedy07cps}. Several examples of contification at work can be seen in the snippets in Figure~\ref{fig:contification}.
-%%>>>>>>> Stashed changes
-\begin{figure}
-
+\begin{figure}[htb]
+\centering
+\begin{minipage}{0.4\textwidth}
    \begin{lstlisting}[gobble=6,caption={Before contification}]
       let f(%c1; x_2) := 
         let x_3 := mkTuple(Con('S'),x_2) in
@@ -343,6 +335,10 @@ The current back-end stack allocates continuation environments so it is desireab
         HALT main_6 <init-world> in
       f(%f7; x_4)
     \end{lstlisting}
+\end{minipage}
+\begin{minipage}{0.1\textwidth}
+\end{minipage}
+\begin{minipage}{0.4\textwidth}
     \begin{lstlisting}[gobble=6,caption={After contification}]
       letK %f1(x_2) := 
         let x_3 := mkTuple(Con('S'),x_2) in
@@ -353,6 +349,30 @@ The current back-end stack allocates continuation environments so it is desireab
         HALT main_6 <init-world> in
       return %f1(x_4)
     \end{lstlisting}
+\end{minipage}
+
+%% \begin{minipage}{0.4\textwidth}
+%%    \begin{lstlisting}[gobble=6,caption={Before contification}]
+%%       let f(%c1; x_2) :=
+%%         let x_3 := mkTuple(Con('S'),x_2) in
+%%         return %c1(x_3) in
+%%       let x_4 := mkTuple(Con('S'),Con('O')) in
+%%       letK %f7(a_5) := 
+%%         let main_6 := a_5 in
+%%         HALT main_6 <init-world> in
+%%       f(%f7; x_4)
+%%     \end{lstlisting}
+%%     \begin{lstlisting}[gobble=6,caption={After contification}]
+%%       letK %f1(x_2) :=
+%%         let x_3 := mkTuple(Con('S'),x_2) in
+%%         return %f7(x_3) in
+%%       let x_4 := mkTuple(Con('S'),Con('O')) in
+%%       letK %f7(a_5) := 
+%%         let main_6 := a_5 in
+%%         HALT main_6 <init-world> in
+%%       return %f1(x_4)
+%%     \end{lstlisting}
+%% \end{minipage}
 
 \caption{Applications of contification. Note that the function \lstinline!f! is converted into a continuation since it does not escape and all of its call sites pass it the same continuation arguments.}
 \label{fig:contification}
@@ -360,7 +380,10 @@ The current back-end stack allocates continuation environments so it is desireab
 
 The pass is similar in structure to dead-code elimination and proceeds bottom up. Escaping values (i.e. values placed in tuples or closed over by local functions) are recorded in addition to a mapping from function names to the list of continuation arguments they are applied to. At a declaration for function \lstinline!f! we can contify \lstinline!f! if it does not escape and all application occurances are applied with the same continuation arguments. 
 
-A similar algorithm applies to recursive function declarations though we have not implemented it. The difficulty is the same as the difficulty of factoring recursive \lstinline!let! declarations, we need to construct a graph of dependencies 
+\section*{Future}
+We plan to make the entire repository publically avaialable on GitHub under and organization so that it has communal ownership from all of its collaborators.
+
+%% A similar algorithm applies to recursive function declarations but we have to handle the problem of renamed continuations. We assume let-factoring (not implemented) so we only consider the problem of contifying the entire set of declarations. 
 
 
 %% \section{Stack Allocation}
@@ -419,7 +442,7 @@ A similar algorithm applies to recursive function declarations though we have no
 %% \section{Garbage Collection}
 %% \label{sec:gc}
 
-\bibliographystyle{natbib}
+\bibliographystyle{plain}
 \bibliography{bib}{}
 
 \end{document}
