@@ -4,8 +4,9 @@
 \usepackage{fullpage}
 \usepackage{hyperref}
 \usepackage{color}
+\usepackage{amsmath}
 
-\lstset{mathescape=true,basicstyle=\small,frame=lines}
+\lstset{mathescape=true,basicstyle=\small\ttfamily,frame=lines}
 
 \title{cs252r: coq compilation \& runtime}
 \author{Daniel Huang \and Gregory Malecha \and Scott Moore}
@@ -86,35 +87,151 @@ The compiler provides a small runtime library that enables compilation of comput
 \section{Garbage Collection}
 \label{sec:gc}
 
-The first phase of the project will be to implement a simple semispace collector \`a la Cheney's algorithm. Part of this initial effort will be abstracting the code generation phase in the Coq part of the compiler to allow more flexibility during the LLVM codegen and runtime.
+Our runtime supports three basic types: \emph{integers}, \emph{pointers}, and \emph{records}. Integers have a low-order bit of one and are used to encode both constructors and machine words, though our current front-end does not emit non-constructor integers. Pointers and integers are both stored in words large enough to encode a pointer on the target architecture, and can be distinguished by their low-order bit, since objects in the runtime are at least 4-byte aligned. A record is a sequence of $n > 1$ integers or pointers preceeded by a header word indicating the length of the record. The runtime does not permit pointers into the middle of objects. As a result, headers can be stored as an integer with no tag, eliminating additional arithmetic when indexing a record.
 
-The second phase of the project will be to implement a more sophisticated garbage collection algorithm. This algorithm could be \emph{concurrent} or \emph{parallel} or both. A concurrent collector would be appealing to gain parallelism even though our underlying language is sequential (at least our current implementation). Even in a non-concurrent setting, a parallel collector would improve our throughput and latency. In either case, we would probably use two generations, reusing the semispace collector for the young generation.
+We implemented a semispace garbage collector based on Cheney's algorithm. The source code is given in Listing~\ref{code:forward}. The collector is similar to Appel's copying collector, but is simplified by our data representation. A brief description of the algorithm follows.
 
-A quick literature search shows there is some existing work on implementing concurrent or parallel collectors for functional langauges:
-\begin{itemize}
-\item In Haskell: ``Parallel Generational-Copying Garbage Collection with a Block-Structured Heap''~\cite{marlow:parallel}
-\item In ML: ``Very Concurrent Mark-\&-Sweep Garbage Collection without Fine-Grain Synchronization''~\cite{Huelsbergen}
-\item ``The Garbage Collection Handbook''~\cite{gcbook} provides a comprehensive overview of possible approaches and implementation issues.
-\end{itemize}
+\paragraph{Finding stack roots} To find the local roots from which to traverse the reachable heap, we rely on LLVM's ``shadow stack'' plugin. We emit explicit stack allocations for all local variables that may point into the heap, and mark these as roots using the \lstinline!@llvm.gcroot! intrinsic. The shadow stack plugin emits additional code during function prologues and epilogues to construct a linked list of frame maps recording the addresses of the marked roots. This entry to this linked list is accessible to the garbage collector via a global variable. There are two advantages to recording roots dynamically this way: it is highly portable, and does not require writing low-level code to walk through stack frames. On the other hand, frame maps can be computed statically and generating the shadow stack has significant overhead.
 
-My hope is that some of these implementation issues are mitigated by our purely-functional setting.
+Our generated code stores heap pointers into these stack slots immediately before function calls and invocations of the garbage collector, and reloads the possibly modified pointers afterwards. As an optimization, we only store and reload roots for live variables and set roots for dead variables to null.
 
+\paragraph{Forwarding pointers} The core of Cheney's algorithm is a routine for \emph{forwarding} pointers---copying pointed-to objects into ``tospace'' and updating pointers to the new locations. \lstinline!forward(universal_t *objref)! takes as input a pointer to a word that may itself be a pointer into the heap. If the word is not a pointer into ``fromspace'', it doesn't need to be updated. If the word is a pointer into ``fromspace'', there are two possibilites:
+\begin{enumerate}
+\item The pointed-to object has not been copied to ``tospace''. The object is copied into the free space at the end of ``tospace''. In ``fromspace'', the header is replaced a tag denoting that the object has been copied. We use 0 because it is an invalid record length, and header tags never need to be differentiated from pointers. A forwarding pointer to the object's new location is overwritten in the first slot of the record.
+\item The pointed-to object was already copied to ``tospace''. We detect an object has already been copied by looking for the forwarding pointer tag in the header, and then update the pointer being forwarded with the forwarding pointer we stored when copying the object.
+\end{enumerate}
+Cheney's algorithm copies the live heap in a breadth first search from the roots. First, the roots in the shadow stack are forwarded into ``tospace'' and then objects in ``tospace'' are traversed as a queue, forwarding any pointers encountered and copying reachable objects.
+
+\paragraph{Memory protection} To catch garbage collection errors as quickly as possible, we read and write protect the unused semispace when not actively garbage collection. This was a key debugging technique for making sure stack roots were being updated correctly.
+
+\paragraph{Allocation} We use a bump pointer allocator for speedy allocation. Because LLVM does not support pinning global values in registers, all functions we emit take a structure containing the current base and limit pointers as an argument, and return a structure that contains a new base and limit pointer and the functions actual return value. Because these structs are ``Plain Old Data'' types, LLVM will emit code that passes these values in registers whenever possible. This has the added advantage of allowing LLVM to spill the allocator registers when doing so would result in more efficient code.
+
+\begin{figure}
+\lstset{language=C,caption={Copying collector},label={code:forward}, basicstyle={\footnotesize\ttfamily}}
+\begin{lstlisting}
+void forward(universal_t *objref) {
+  universal_t *ptr = *((universal_t **)objref);
+  if (is_ptr(ptr) && (ptr >= curbot && ptr < curtop)) {
+    /* ptr is a pointer to an object in fromspace */
+    if (is_rec(ptr)) {
+      /* Get a pointer to the header */
+      universal_t *header = hdr(ptr);
+      /* Retrieve the length of the record (plus one for the header) */
+      universal_t len = rec_len(ptr) + 1;
+      /* Copy the object starting at the header into tosapce */
+      universal_t *i = header;;
+      universal_t *j = endptr;
+      while (len-- > 0) {
+	*j++ = *i++;
+      }
+      /* Set the forwarding pointer in fromspace and update the record's tag */
+      *ptr = (universal_t)(endptr + 1);
+      *header = UINTPTR_MAX;
+      /* Move the end of the queue forward */
+      endptr = j;
+    }
+    /* ptr must be a forwarding pointer. It either already was, or we 
+       forwarded it above. Update the objref to point to the new object */
+    *objref = *((universal_t *)ptr);
+  }
+}
+
+void visitGCRoot(void **root, const void *meta) {
+  forward((universal_t *)root);
+}
+
+bumpptr_t coq_gc(void) {
+  universal_t *tospace = (curbot == tobot) ? frombot : tobot;
+
+  /* ... omitted memory protection code ... */
+
+  /* initialize the queue in tospace */
+  queueptr = (curbot == frombot) ? tobot : frombot;
+  endptr = queueptr;
+
+  /* Call forward on the roots */
+  visitGCRoots(&visitGCRoot);
+
+  /* iterate the worklist until we're done copying */
+  while (queueptr < endptr) {
+    universal_t *objref = queueptr+1;
+    assert(is_rec(objref)); /* all heap allocations are records */
+    queueptr += rec_len(objref) + 1;
+    do {
+      forward(objref++);
+    } while (objref < queueptr);
+  }
+
+  /* ... omitted memory protection code ... */
+
+  /* Swap spaces and return the new bump pointers */
+  curbot = (curbot == frombot) ? tobot : frombot;
+  curtop = (curtop == fromtop) ? totop : fromtop;
+
+  assert(curbot <= endptr && endptr <= curtop);
+
+  /* allocation starts at the end of the queue */
+  return (bumpptr_t) { .base = endptr, .limit = curtop };
+}
+\end{lstlisting}
+\end{figure}
 
 \section{Abstract Interpretation}
 \label{sec:abstract-interp}
 
+We implemented a Horn-style~\cite{van2010abstracting} abstract interpreter for the CpsK language in the sense that we tried to design our abstract interpreter so that it mirrored our concrete interpreter as much as possible. We parameterize it over an abstract domain (Figure~\ref{fig:absinterp}) so it can be instantiated with different domains for different analyses. 
 
+\begin{figure}
+\centering
+\begin{minipage}[t]{.2\textwidth}
+\begin{align*}
+C: & \text{Context} \\
+PP: & \text{Program point} \\
+\hat{V}: & \text{Abstract values} \\
+D: & \text{Domain}
+\end{align*}
+\end{minipage}
+\hspace{20pt}
+\begin{minipage}[t]{.43\textwidth}
+\begin{lstlisting}
+Class AbsDomain : Type :=
+{ lookup  : C -> PP -> D -> V
+; update  : C -> PP -> V -> D -> D
+; joinA   : D -> D -> D
+; bottomA : V 
+; topA    : V 
+; dom_leq : D -> D -> bool
+}.
+\end{lstlisting}
+\end{minipage}
+\caption{Select parameters of the abstract interpreter.}
+\label{fig:absinterp}
+\end{figure}
+
+\begin{figure}
+\begin{align*}
+& p \in PP, i \in Z, c \in \text{str}, k \in \text{cont}, x \in \text{var}, e \in \text{exp}, \ell \in \text{loc} \\
+C := & \;\; \text{unit} \\
+PP := & \;\; \text{var} + \text{cont} \\
+\hat{v} ::= & \;\; \texttt{Int}(i) \;\; | \;\; \texttt{Constructor}(c) \;\; | \;\; \texttt{Loc}(\ell) \;\; | \;\; \texttt{Closure}(p, \lambda \vec{k} \vec{x}. e) \\
+\hat{V}::= & \;\; \texttt{Any} \;\; | \;\; [\hat{v}_1, \hdots, \hat{v}_n] \\
+D: & \;\; \{{\tt env}: PP \rightarrow \hat{V} ; \;\;\; {\tt heap}: \text{loc} \rightarrow [\hat{V}_1, \hdots, \hat{V}_n] \}
+\end{align*}
+\caption{Instantiation of abstract domain for 0-CFA.}
+\label{fig:cfa0}
+\end{figure}
+Figure~\ref{fig:cfa0} shows an instantiation of our abstract interpreter to perform a context-insensitive Control Flow Analysis (0-CFA). We treat program points as either a variable or continuation because they are uniquely named. Abstract locations are just the variable names occurring in {\tt MkTuple} declarations. The domain $D$ is a record of an environment and heap. The environment maps program points to abstract values, while the heap maps an abstract location to a list of abstract values representing the values each position of a tuple can take on. We did not put closures in the heap because we are doing a context-insensitive analysis. 
 
 \section{Destructive Updates}
 \label{sec:destructive-updates}
 
-We focused on optimizing the state monad. The main idea is to destructively update the previous state, instead of allocating new space. We assume that previous optimization passes will inline the definitions of bind to expose tuples that can be updated destructively. We based our optimization loosely off the ideas described by Dimoulas and Wand~\cite{dimoulas2009higher}, which presents an algorithm for detecting and transforming higher-order programs to use destructive updates. We summarize the optimization below. 
+The main idea of a destructive update is to reuse previously allocated memory instead of allocating fresh space if we can prove that all pointers to the old memory are dead. One interesting application of this optimization is for programs that use the state monad. After an inlining pass inlines the definitions of bind to expose the state tuples explicitly, we can destructively update state that is threaded through the program instead of allocating new space for each bind. We based our optimization off the ideas described by Dimoulas and Wand in~\cite{dimoulas2009higher}, which presents an algorithm for detecting and transforming higher-order programs to use destructive updates. We summarize the optimization below. 
 
 \begin{itemize}
-\item Perform control flow analysis ${\tt cfa} : {\rm CpsK.exp} \rightarrow (PP \rightarrow \mathcal{P}(\hat{v}))$. 
-\item Perform reachability analysis ${\tt reach} : (PP \rightarrow \mathcal{P}(\hat{v})) \rightarrow (PP \rightarrow {\rm set} \; PP)$, using the result of the CFA, to compute for each program point the set of program points that flow to it.
-\item Perform liveness analysis ${\tt live} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow (PP \rightarrow {\rm set} \; PP)$, using the reachability analysis, to compute for each program point, the set of variables that are live (in use) at the point.
-\item Transform program ${\tt dupate} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow {\rm Low.program}$, using the live variable map to compute which variables can be destructively updated. Figures ~\ref{fig:dupdate1} ~\ref{fig:dupdate2} ~\ref{fig:dupdate3} demonstrate the results of running our optimization.
+\item Perform control flow analysis ${\tt cfa} : {\rm CpsK.exp} \rightarrow (PP \rightarrow \mathcal{P}(\hat{V}))$ using abstract interpretation. 
+\item Perform reachability analysis ${\tt reach} : (PP \rightarrow \mathcal{P}(\hat{v})) \rightarrow (PP \rightarrow {\rm set} \; PP)$ using the result of the CFA, to compute for each program point the set of program points that flow to it (i.e., transitive closure on the domain produced by CFA).
+\item Perform liveness analysis ${\tt live} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow (PP \rightarrow {\rm set} \; PP)$. We use the reachability analysis to compute for a given program point, which variables reach definitions in the rest of the expression to determine which variables are still live. 
+\item Transform program ${\tt dupate} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow {\rm Low.program}$. During lowering from a CpsK program to a Low program, we keep around a set of tuple variables in scope. When we encounter a {\tt MkTuple} operation, we check to see if there is a tuple variable in scope that is dead. If so, we perform a destructive update by reusing the dead variable instead of calling {\tt malloc}. Figures ~\ref{fig:dupdate1} ~\ref{fig:dupdate2} ~\ref{fig:dupdate3} demonstrate the results of running our optimization.
 \end{itemize}
 
 \begin{figure}
@@ -143,9 +260,9 @@ l1(inscope: ; args: ):
 }
 \end{lstlisting}
 \end{minipage}
-\label{fig:dupdate1}
 \caption{In this example, only the last variable z is
    used. Consequently, we can write y into x, and z into y. }
+\label{fig:dupdate1}
 \end{figure}
 
 \begin{figure}
@@ -178,10 +295,10 @@ l1(inscope: ; args: ):
 }
 \end{lstlisting}
 \end{minipage}
-\label{fig:dupdate2}
 \caption{In this example, w can destructively update y since y is
   dead. The variable y could not use x because a future program point
   w uses it. At program point z, w is dead, so z can update w. }
+\label{fig:dupdate2}
 \end{figure}
 
 \begin{figure}
@@ -215,10 +332,10 @@ l1(inscope: ; args: ):
 }
 \end{lstlisting}
 \end{minipage}
-\label{fig:dupdate3}
 \caption{In this example, w destructively updates y since y is
   dead. At program point z, we must allocate since both w and x are
   being used, and w is already using y. }
+\label{fig:dupdate3}
 \end{figure}
 
 %Peforming optimizations for monadic computation will involve two
@@ -249,11 +366,6 @@ l1(inscope: ; args: ):
 
 \section{Contification}
 \label{sec:contification}
-
-
-\section{Monadic Computation}
-\label{sec:mon-com}
-
 
 \section{Stack Allocation}
 \label{sec:stack-alloc}
@@ -307,9 +419,6 @@ Other potentially interesting papers:
 \item ``Optimizing nested loops using local CPS conversion''~\cite{reppy02optimizing}
 \item ``A Lambda Term Representation Inspired by Linear Ordered Logic''~\cite{abel11lambda}
 \end{itemize}
-
-\section{Garbage Collection}
-\label{sec:gc}
 
 \bibstyle{natbib}
 
