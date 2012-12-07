@@ -3,11 +3,14 @@
 \usepackage{listings}
 \usepackage{fullpage}
 \usepackage{hyperref}
+\usepackage{color}
 
 \lstset{mathescape=true,basicstyle=\small,frame=lines}
 
 \title{cs252r: coq compilation \& runtime}
 \author{Daniel Huang \and Gregory Malecha \and Scott Moore}
+
+\newcommand{\todo}[1]{\textcolor{red}{#1}}
 
 \begin{document}
 
@@ -35,8 +38,50 @@ Distinguished continutations are handled efficiently by our compiler enabling us
 \section{The Driver}
 \label{sec:driver}
 
+The driver is built from using standard Coq extraction to ML to provide an efficient way to run the top-level compiler. For example, we can compile and run the standard HelloWorld program using the following command line:
+
+\begin{verbatim}
+$ ./Wrapper.byte - ...
+$ ./helloworld.native
+Hello World!
+\end{verbatim}
+
+In in addition to the driver, we also have an interpreter for our CpsK language. The semantics are faithful to the real semantics with the exception that there is no semantic distinction between continuations and closures. The former should be not be allowed to escape. We rely on our syntactic distinction to enforce this though it may be possible to break this requirement. The interpreter can be run using:
+
+\begin{verbatim}
+$  (even 10)
+$
+....
+\end{verbatim}
+
 \section{Intermediate Languages}
 \label{sec:il}
+
+Our compiler is based on two core intermediate languages, CpsK and Low, both shown in Figure~\ref{fig:cpsk-low}.
+\begin{figure}
+
+TODO
+
+\caption{}
+\label{fig:cpsk-low}
+\end{figure}
+
+The motivation for Low is to provide a higher-level, but imperative language to serve as an intermediate point between CpsK and LLVM. This enables the final code generation phase to be simpler and focus more on garbage collection while avoiding the need to do large transformations to the structure of code.
+
+Low has several interesting design decisions:
+\begin{description}
+\item[Functional Blocks]
+\item[Explicit Memory Operations]
+\item[Inline Calls]
+\end{description}
+
+\section{Input/Output}
+\label{sec:io}
+
+The compiler provides a small runtime library that enables compilation of computations that perform I/O. These operations are exposed to Coq using a simple IO mond that supports the standard \lstinline!return! and \lstinline!bind! in addition to \lstinline!printChar : ascii -> IO unit!. Extraction rules are specified for these functions and, if the program is compiled with I/O support, these functions are included by the compiler.
+
+\lstinline!printChar! is implemented as a monadic operation in CpsK. \todo{two options for implementation}
+
 
 \section{Garbage Collection}
 \label{sec:gc}
@@ -57,6 +102,8 @@ My hope is that some of these implementation issues are mitigated by our purely-
 
 \section{Abstract Interpretation}
 \label{sec:abstract-interp}
+
+
 
 \section{Destructive Updates}
 \label{sec:destructive-updates}
