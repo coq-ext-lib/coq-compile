@@ -9,7 +9,7 @@
 
 \lstset{mathescape=true,basicstyle=\small\ttfamily,frame=lines,language=coq}
 
-\title{cs252r: coq compilation \& runtime}
+\title{cs252r: Coq Compilation \& Runtime}
 \author{Daniel Huang \and Gregory Malecha \and Scott Moore}
 
 \newcommand{\todo}[1]{\textcolor{red}{#1}}
@@ -93,7 +93,7 @@ Definition main := even 10.
 
 Our compiler is based on two core intermediate languages, CpsK and Low, shown in Listings~\ref{code:cpsk}~and~\ref{code:low}.
 
-\paragraph{CpsK}
+\paragraph{CpsK} We modified the Cps representation in two ways. First, we made continuations second class. This allows us to differentiate between functions and continuations, allowing a number of optimizations including stack allocation of continuations~\cite{kennedy07cps}. Second, we added a monadic bind operation that allows us pass an explicit world to model the side effects of IO operations.
 
 \begin{figure}
 \lstset{language=coq,caption={CpsK intermediate language},label={code:cpsk}, basicstyle={\footnotesize\ttfamily}}
@@ -120,7 +120,14 @@ with decl : Type :=
 \end{lstlisting}
 \end{figure}
 
-\paragraph{Low}
+\paragraph{Low} The motivation for Low is to provide a higher-level, but imperative language to serve as an intermediate point between CpsK and LLVM. This means that the final code generation phase can focus more on the details of calling convention, allocation, and garbage collection while avoiding the need to do large transformations of the code. Low has several interesting design decisions:
+\begin{description}
+\lstset{language=low,caption={Low intermediate language},label={code:low}, basicstyle={\footnotesize\ttfamily}}
+\item[Functional Blocks] Basic blocks in Low take two sets of parameters: \lstinline!inscope! and arguments. \lstinline!inscope! arguments are lexically in scope in all blocks that call this block. Arguments are used to specify arguments to continuations. This allows us to generate LLVM code for basic blocks independently of control flow and then generate phi nodes in a follow up pass.
+\item[Continuation-passing style] While Low is an imperative language, it still encodes continuations at a high level. Function calls take lists of continuations as arguments. Continuations can either be local, compiled as basic blocks in the same function, or a parameter. In codegen, local continuations passed to calls are compiled to jumps following the call, and parameter continuations are compiled to return statements.
+\lstset{language=cpsk,caption={Low intermediate language},label={code:low}, basicstyle={\footnotesize\ttfamily}}
+\item[Explicit Memory Operations] The transformation from CpsK to Low replaces \lstinline!mkTuple! and projection with low-level memory operations \lstset{language=low,caption={Low intermediate language},label={code:low}, basicstyle={\footnotesize\ttfamily}} \lstinline!malloc!, \lstinline!alloc!, \lstinline!load!, and \lstinline!store!. Malloc and alloc are interesting because they support multiple allocations. This allows the code generator to lower recursive allocations to a single large allocation, eliminating the need for partial initialization to prevent garbage collection errors.
+\end{description}
 
 \begin{figure}
 \lstset{language=coq,caption={Low intermediate language},label={code:low}, basicstyle={\footnotesize\ttfamily}}
@@ -171,15 +178,6 @@ Record program := mk_program {
 }.
 \end{lstlisting}
 \end{figure}
-
-The motivation for Low is to provide a higher-level, but imperative language to serve as an intermediate point between CpsK and LLVM. This enables the final code generation phase to be simpler and focus more on garbage collection while avoiding the need to do large transformations to the structure of code.
-
-Low has several interesting design decisions:
-\begin{description}
-\item[Functional Blocks]
-\item[Explicit Memory Operations]
-\item[Inline Calls]
-\end{description}
 
 \section{Input/Output}
 \label{sec:io}
