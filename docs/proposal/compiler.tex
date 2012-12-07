@@ -5,8 +5,9 @@
 \usepackage{hyperref}
 \usepackage{color}
 \usepackage{amsmath}
+\usepackage{lstcoq}
 
-\lstset{mathescape=true,basicstyle=\small\ttfamily,frame=lines}
+\lstset{mathescape=true,basicstyle=\small\ttfamily,frame=lines,language=coq}
 
 \title{cs252r: coq compilation \& runtime}
 \author{Daniel Huang \and Gregory Malecha \and Scott Moore}
@@ -367,58 +368,103 @@ l1(inscope: ; args: ):
 \section{Contification}
 \label{sec:contification}
 
+%%<<<<<<< Updated upstream
 \section{Stack Allocation}
 \label{sec:stack-alloc}
-The core of the idea was presented in Kennedy~\cite{kennedy07cps}. Rather than storing everything in the heap, we'd like to stack allocate information that is accessed in a statically determinable pattern. The benefit, we hope, is that we avoid a lot of heap allocation and thus garbage collection, esspecially before we have optimizations like un-currying and partial applications that are only passed forward.
+%% The core of the idea was presented in Kennedy~\cite{kennedy07cps}. Rather than storing everything in the heap, we'd like to stack allocate information that is accessed in a statically determinable pattern. The benefit, we hope, is that we avoid a lot of heap allocation and thus garbage collection, esspecially before we have optimizations like un-currying and partial applications that are only passed forward.
 
-The use of LLVM may provide difficulties for this task since LLVM has a built-in allocation stack. When we perform this type of operation, we want to replace the current stack frame with the stack frame of the continuation and then tail call the function that we pass the continuation to but preserving the continuations environment (which just replaced our stack frame). The basic proposal for doing this is shown in Figure~\ref{fig:stack-alloc}. 
+%% The use of LLVM may provide difficulties for this task since LLVM has a built-in allocation stack. When we perform this type of operation, we want to replace the current stack frame with the stack frame of the continuation and then tail call the function that we pass the continuation to but preserving the continuations environment (which just replaced our stack frame). The basic proposal for doing this is shown in Figure~\ref{fig:stack-alloc}. 
 
+%% =======
+The current back-end stack allocates continuation environments so it is desireable to use continuations rather than full-blown, first-class, heap-allocated closures when we can do it. We have implemented contification based on Kennedy's algorithm~\cite{kennedy07cps}. Several examples of contification at work can be seen in the snippets in Figure~\ref{fig:contification}.
+%%>>>>>>> Stashed changes
 \begin{figure}
-\begin{tabular}{p{0.44\textwidth} c p{0.44\textwidth}}
-\begin{lstlisting}[language=c]
-void f(...) { 
-  // heap allocate the env
-  k_env = $\langle$env$\rangle$ ;
-  g(x, k) (** tail call g **)
-}
-\end{lstlisting}
-& \quad
-& 
-\begin{lstlisting}[language=c]
-void trampoline_f(...) {
-  // using alloca
-  k_env = $\langle$env$\rangle$ ;
-  // non-tail call of g
-  g(x)
-}
-void f(...) {
-  // tail call g
-  trampoline_f(...)
-}
-\end{lstlisting}
-\\
-(a) before stack allocation & &
-(b) after stack allocation \\ 
-\end{tabular}
-\caption{Strategy for stack allocation of continuations.}
-\label{fig:stack-alloc}
+
+   \begin{lstlisting}[gobble=6,caption={Before contification}]
+      let f(%c1; x_2) := 
+        let x_3 := mkTuple(Con('S'),x_2) in
+        return %c1(x_3) in
+      let x_4 := mkTuple(Con('S'),Con('O')) in
+      letK %f7(a_5) := 
+        let main_6 := a_5 in
+        HALT main_6 <init-world> in
+      f(%f7; x_4)
+    \end{lstlisting}
+    \begin{lstlisting}[gobble=6,caption={After contification}]
+      letK %f1(x_2) := 
+        let x_3 := mkTuple(Con('S'),x_2) in
+        return %f7(x_3) in
+      let x_4 := mkTuple(Con('S'),Con('O')) in
+      letK %f7(a_5) := 
+        let main_6 := a_5 in
+        HALT main_6 <init-world> in
+      return %f1(x_4)
+    \end{lstlisting}
+
+\caption{Applications of contification. Note that the function \lstinline!f! is converted into a continuation since it does not escape and all of its call sites pass it the same continuation arguments.}
+\label{fig:contification}
 \end{figure}
 
-Two alternatives to this approach are:
-\begin{enumerate}
-\item manually manage a separate data stack (in the style of XFI) where these operations can be performed explicitly.
-\item write LLVM intrinsics that perform explicit stack management and implement code generation for them to get the right behavior.
-\end{enumerate}
-The former seems like it may be feasible, the later seems like it could require considerable work though might be interesting to understand how these things work.
+The pass is similar in structure to dead-code elimination and proceeds bottom up. Escaping values (i.e. values placed in tuples or closed over by local functions) are recorded in addition to a mapping from function names to the list of continuation arguments they are applied to. At a declaration for function \lstinline!f! we can contify \lstinline!f! if it does not escape and all application occurances are applied with the same continuation arguments. 
 
-Other potentially interesting papers:
-\begin{itemize}
-\item ``Contification using dominators''~\cite{fluet01contification}
-\item ``The essence of compiling with continuations''~\cite{flanagan04essence}
-\item ``Local CPS conversion in a direct-style compiler''~\cite{reppy01local}
-\item ``Optimizing nested loops using local CPS conversion''~\cite{reppy02optimizing}
-\item ``A Lambda Term Representation Inspired by Linear Ordered Logic''~\cite{abel11lambda}
-\end{itemize}
+A similar algorithm applies to recursive function declarations though we have not implemented it. The difficulty is the same as the difficulty of factoring recursive \lstinline!let! declarations, we need to construct a graph of dependencies 
+
+
+%% \section{Stack Allocation}
+%% \label{sec:stack-alloc}
+%% The core of the idea was presented in Kennedy~\cite{kennedy07cps}. Rather than storing everything in the heap, we'd like to stack allocate information that is accessed in a statically determinable pattern. The benefit, we hope, is that we avoid a lot of heap allocation and thus garbage collection, esspecially before we have optimizations like un-currying and partial applications that are only passed forward.
+
+%% The use of LLVM may provide difficulties for this task since LLVM has a built-in allocation stack. When we perform this type of operation, we want to replace the current stack frame with the stack frame of the continuation and then tail call the function that we pass the continuation to but preserving the continuations environment (which just replaced our stack frame). The basic proposal for doing this is shown in Figure~\ref{fig:stack-alloc}. 
+
+%% \begin{figure}
+%% \begin{tabular}{p{0.44\textwidth} c p{0.44\textwidth}}
+%% \begin{lstlisting}[language=c]
+%% void f(...) { 
+%%   // heap allocate the env
+%%   k_env = $\langle$env$\rangle$ ;
+%%   g(x, k) (** tail call g **)
+%% }
+%% \end{lstlisting}
+%% & \quad
+%% & 
+%% \begin{lstlisting}[language=c]
+%% void trampoline_f(...) {
+%%   // using alloca
+%%   k_env = $\langle$env$\rangle$ ;
+%%   // non-tail call of g
+%%   g(x)
+%% }
+%% void f(...) {
+%%   // tail call g
+%%   trampoline_f(...)
+%% }
+%% \end{lstlisting}
+%% \\
+%% (a) before stack allocation & &
+%% (b) after stack allocation \\ 
+%% \end{tabular}
+%% \caption{Strategy for stack allocation of continuations.}
+%% \label{fig:stack-alloc}
+%% \end{figure}
+
+%% Two alternatives to this approach are:
+%% \begin{enumerate}
+%% \item manually manage a separate data stack (in the style of XFI) where these operations can be performed explicitly.
+%% \item write LLVM intrinsics that perform explicit stack management and implement code generation for them to get the right behavior.
+%% \end{enumerate}
+%% The former seems like it may be feasible, the later seems like it could require considerable work though might be interesting to understand how these things work.
+
+%% Other potentially interesting papers:
+%% \begin{itemize}
+%% \item ``Contification using dominators''~\cite{fluet01contification}
+%% \item ``The essence of compiling with continuations''~\cite{flanagan04essence}
+%% \item ``Local CPS conversion in a direct-style compiler''~\cite{reppy01local}
+%% \item ``Optimizing nested loops using local CPS conversion''~\cite{reppy02optimizing}
+%% \item ``A Lambda Term Representation Inspired by Linear Ordered Logic''~\cite{abel11lambda}
+%% \end{itemize}
+
+%% \section{Garbage Collection}
+%% \label{sec:gc}
 
 \bibstyle{natbib}
 
