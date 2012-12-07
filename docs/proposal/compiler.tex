@@ -367,11 +367,6 @@ l1(inscope: ; args: ):
 \section{Contification}
 \label{sec:contification}
 
-
-\section{Monadic Computation}
-\label{sec:mon-com}
-
-
 \section{Stack Allocation}
 \label{sec:stack-alloc}
 The core of the idea was presented in Kennedy~\cite{kennedy07cps}. Rather than storing everything in the heap, we'd like to stack allocate information that is accessed in a statically determinable pattern. The benefit, we hope, is that we avoid a lot of heap allocation and thus garbage collection, esspecially before we have optimizations like un-currying and partial applications that are only passed forward.
@@ -424,9 +419,6 @@ Other potentially interesting papers:
 \item ``Optimizing nested loops using local CPS conversion''~\cite{reppy02optimizing}
 \item ``A Lambda Term Representation Inspired by Linear Ordered Logic''~\cite{abel11lambda}
 \end{itemize}
-
-\section{Garbage Collection}
-\label{sec:gc}
 
 \bibstyle{natbib}
 
