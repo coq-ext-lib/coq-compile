@@ -237,16 +237,13 @@ The main idea of a destructive update is to reuse previously allocated memory in
 
 \begin{figure}
 \centering
-\begin{minipage}[t]{.4\textwidth}
+\begin{minipage}[t]{.31\textwidth}
 \begin{lstlisting}
 let x = MkTuple('S', '0') in
 let y = MkTuple('S', '0') in
 let z = MkTuple('S', '0') in
 z
 \end{lstlisting}
-\end{minipage}
-\hspace{20pt}
-\begin{minipage}[t]{.4\textwidth}
 \begin{lstlisting}
 coq_main() {
 l1(inscope: ; args: ):
@@ -260,15 +257,10 @@ l1(inscope: ; args: ):
   halt x_1
 }
 \end{lstlisting}
+\centering (a)
 \end{minipage}
-\caption{In this example, only the last variable z is
-   used. Consequently, we can write y into x, and z into y. }
-\label{fig:dupdate1}
-\end{figure}
-
-\begin{figure}
-\centering
-\begin{minipage}[t]{.4\textwidth}
+\hspace{5pt}
+\begin{minipage}[t]{.31\textwidth}
 \begin{lstlisting}
 let x = MkTuple('S', '0') in
 let y = MkTuple('S', '0') in
@@ -276,9 +268,6 @@ let w = MkTuple('S', x) in
 let z = MkTuple('S', '0') in
 z
 \end{lstlisting}
-\end{minipage}
-\hspace{20pt}
-\begin{minipage}[t]{.4\textwidth}
 \begin{lstlisting}
 coq_main() {
 l1(inscope: ; args: ):
@@ -295,16 +284,10 @@ l1(inscope: ; args: ):
   halt x_2
 }
 \end{lstlisting}
+\centering (b)
 \end{minipage}
-\caption{In this example, w can destructively update y since y is
-  dead. The variable y could not use x because a future program point
-  w uses it. At program point z, w is dead, so z can update w. }
-\label{fig:dupdate2}
-\end{figure}
-
-\begin{figure}
-\centering
-\begin{minipage}[t]{.4\textwidth}
+\hspace{5pt}
+\begin{minipage}[t]{.31\textwidth}
 \begin{lstlisting}
 let x = MkTuple('S', '0') in
 let y = MkTuple('S', '0') in
@@ -312,9 +295,6 @@ let w = MkTuple('S', x) in
 let z = MkTuple('S', '0') in
 w
 \end{lstlisting}
-\end{minipage}
-\hspace{20pt}
-\begin{minipage}[t]{.4\textwidth}
 \begin{lstlisting}
 coq_main() {
 l1(inscope: ; args: ):
@@ -332,38 +312,11 @@ l1(inscope: ; args: ):
   halt x_2
 }
 \end{lstlisting}
+\centering (c)
 \end{minipage}
-\caption{In this example, w destructively updates y since y is
-  dead. At program point z, we must allocate since both w and x are
-  being used, and w is already using y. }
-\label{fig:dupdate3}
+\caption{In example (a), only the last variable z is used. Consequently, we can write y into x, and z into y. In example (b), we can destructively update y since y is dead. The variable y could not use x because a future program point w uses it. At program point z, w is dead, so z can update w. In example (c), we destructively updates y since y is dead. At program point z, we must allocate since both w and x are being used, and w is already using y. Note that our analysis does not remove dead values from the code, so z is still allocated in this example. }
+\label{fig:dupdate}
 \end{figure}
-
-%Peforming optimizations for monadic computation will involve two
-%parts. First, since our CPS representation does not contain monadic
-%constructs, we need to run some sort of inference algorithm to recover
-%the monadic structure. For instance, recovering the state monad
-%might include running escape analysis to track the flow of function
-%arguments into functions that have ``bind-like'' signatures. The
-%second part will include the actual optimization once we have 
-%recovered the monadic structure. For the state monad, this might
-%include rewriting bind such that it does not construct a new state
-%with updated values each time, but rather update the original state
-%with the new values. 
-
-%I have included a few papers that I think will be useful for me to take a
-%look at
-%~\cite{ghani2007monadic,pudlak2011reader,tolmach1998optimizing}, and
-%would appreciate further suggestions. The
-%first~\cite{ghani2007monadic}, talks about how shortcut fusion can be
-%used to optimize monadic computations that only use monads to thread
-%information through the program (might be useful for state, etc.). The
-%second~\cite{pudlak2011reader} explains how to translate code using
-%reader monads into lambda expressions that do not contain variables. The
-%third~\cite{tolmach1998optimizing} describes an IR with monadic types,
-%how to translate a ML-like source language into that IR, and provides
-%an inference algorithm for translating terms in the ML-like source
-%language into the IR. 
 
 \section{Contification}
 \label{sec:contification}
