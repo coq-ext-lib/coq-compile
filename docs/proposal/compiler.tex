@@ -1,0 +1,271 @@
+\documentclass{article}
+
+\usepackage{listings}
+\usepackage{fullpage}
+\usepackage{hyperref}
+
+\lstset{mathescape=true,basicstyle=\small,frame=lines}
+
+\title{cs252r: coq compilation \& runtime}
+\author{Daniel Huang \and Gregory Malecha \and Scott Moore}
+
+\begin{document}
+
+\maketitle
+
+Our project is project expanded to encompass 5 main tasks. The foremost of those is to have a working compiler, i.e. we placed a large emphasis on generating runnable LLVM code. This resulted in five pieces:
+
+\begin{description}
+\item[Driver \& Test Tools]
+We built (and refactored the previous driver) to run our compiler with a number of options, e.g. outputting intermediate representations, running and not running optimizations, etc. This makes the compiler externally usuable and facilitates testing. In addition, we have extracted an interpreter that can be used to test optimizations. (Section~\ref{sec:driver})
+\item[Refactored ILs]
+Our initial tasks centered around refactoring the intermediate language. In the Cps representation, we syntactically distinguished continuations and extended the IL to support monadic operations in a world-passing style. In addition, we introduced a new intermediate language (Low) that separates the details of this Cps representation from the details of code-generation. (Section~\ref{sec:il})
+\item[Garbage Collection]
+GC-based functional languages require a reasonable garbage collector and runtime environment. We developed a Chaney-copying collector built using LLVM's GC intrinsics. (Section~\ref{sec:gc})
+\item[Input/Output]
+To support debugging, our runtime supports output operations to print ascii characters. These can be composed in Coq to implement displaying strings and other interesting data types. These operations are accessed via parameters exposed in Coq and compiled to special routines by our compiler. (Section~\ref{sec:io})
+\item[Abstract Interpretation] 
+We built an abstract interpreter for our Cps representation to facilitate more interesting analyses. We have instantiated it to do a standard control-flow analysis though it is phrased in a way that enables it to be used for a variety of analyses. (Section~\ref{sec:abstract-interp})
+\item[Destructive Updates]
+A major issue with functional languages is the creation of temporary data structures. For example, threading a state through computations in the state monad. To avoid the cost of many small allocations (primarily to ease the GC burden since allocation is reasonable fast) we have an optimization that uses the result of static analysis to reuse dead memory. (Section~\ref{sec:destructive-updates})
+\item[Contification]
+Distinguished continutations are handled efficiently by our compiler enabling us to stack allocate data associated with continuations. An optimization works on demoting first-class functions into continuations to increase the applicability of this process. (Section~\ref{sec:contification})
+\end{description}
+
+\section{The Driver}
+\label{sec:driver}
+
+\section{Intermediate Languages}
+\label{sec:il}
+
+\section{Garbage Collection}
+\label{sec:gc}
+
+The first phase of the project will be to implement a simple semispace collector \`a la Cheney's algorithm. Part of this initial effort will be abstracting the code generation phase in the Coq part of the compiler to allow more flexibility during the LLVM codegen and runtime.
+
+The second phase of the project will be to implement a more sophisticated garbage collection algorithm. This algorithm could be \emph{concurrent} or \emph{parallel} or both. A concurrent collector would be appealing to gain parallelism even though our underlying language is sequential (at least our current implementation). Even in a non-concurrent setting, a parallel collector would improve our throughput and latency. In either case, we would probably use two generations, reusing the semispace collector for the young generation.
+
+A quick literature search shows there is some existing work on implementing concurrent or parallel collectors for functional langauges:
+\begin{itemize}
+\item In Haskell: ``Parallel Generational-Copying Garbage Collection with a Block-Structured Heap''~\cite{marlow:parallel}
+\item In ML: ``Very Concurrent Mark-\&-Sweep Garbage Collection without Fine-Grain Synchronization''~\cite{Huelsbergen}
+\item ``The Garbage Collection Handbook''~\cite{gcbook} provides a comprehensive overview of possible approaches and implementation issues.
+\end{itemize}
+
+My hope is that some of these implementation issues are mitigated by our purely-functional setting.
+
+
+\section{Abstract Interpretation}
+\label{sec:abstract-interp}
+
+\section{Destructive Updates}
+\label{sec:destructive-updates}
+
+We focused on optimizing the state monad. The main idea is to destructively update the previous state, instead of allocating new space. We assume that previous optimization passes will inline the definitions of bind to expose tuples that can be updated destructively. We based our optimization loosely off the ideas described by Dimoulas and Wand~\cite{dimoulas2009higher}, which presents an algorithm for detecting and transforming higher-order programs to use destructive updates. We summarize the optimization below. 
+
+\begin{itemize}
+\item Perform control flow analysis ${\tt cfa} : {\rm CpsK.exp} \rightarrow (PP \rightarrow \mathcal{P}(\hat{v}))$. 
+\item Perform reachability analysis ${\tt reach} : (PP \rightarrow \mathcal{P}(\hat{v})) \rightarrow (PP \rightarrow {\rm set} \; PP)$, using the result of the CFA, to compute for each program point the set of program points that flow to it.
+\item Perform liveness analysis ${\tt live} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow (PP \rightarrow {\rm set} \; PP)$, using the reachability analysis, to compute for each program point, the set of variables that are live (in use) at the point.
+\item Transform program ${\tt dupate} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow {\rm Low.program}$, using the live variable map to compute which variables can be destructively updated. Figures ~\ref{fig:dupdate1} ~\ref{fig:dupdate2} ~\ref{fig:dupdate3} demonstrate the results of running our optimization.
+\end{itemize}
+
+\begin{figure}
+\centering
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+let x = MkTuple('S', '0') in
+let y = MkTuple('S', '0') in
+let z = MkTuple('S', '0') in
+z
+\end{lstlisting}
+\end{minipage}
+\hspace{20pt}
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+coq_main() {
+l1(inscope: ; args: ):
+  [x_1] = malloc(<int,int>)
+  store Con('S')@int into x_1 + 0
+  store Con('0')@int into x_1 + 1
+  store Con('S')@int into x_1 + 0
+  store Con('0')@int into x_1 + 1
+  store Con('S')@int into x_1 + 0
+  store Con('0')@int into x_1 + 1
+  halt x_1
+}
+\end{lstlisting}
+\end{minipage}
+\label{fig:dupdate1}
+\caption{In this example, only the last variable z is
+   used. Consequently, we can write y into x, and z into y. }
+\end{figure}
+
+\begin{figure}
+\centering
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+let x = MkTuple('S', '0') in
+let y = MkTuple('S', '0') in
+let w = MkTuple('S', x) in
+let z = MkTuple('S', '0') in
+z
+\end{lstlisting}
+\end{minipage}
+\hspace{20pt}
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+coq_main() {
+l1(inscope: ; args: ):
+  [x_1] = malloc(<int,int>)
+  store Con('S')@int into x_1 + 0
+  store Con('0')@int into x_1 + 1
+  [x_2] = malloc(<int,int>)
+  store Con('S')@int into x_2 + 0
+  store Con('0')@int into x_2 + 1
+  store Con('S')@int into x_2 + 0
+  store x_1@int into x_2 + 1
+  store Con('S')@int into x_2 + 0
+  store Con('0')@int into x_2 + 1
+  halt x_2
+}
+\end{lstlisting}
+\end{minipage}
+\label{fig:dupdate2}
+\caption{In this example, w can destructively update y since y is
+  dead. The variable y could not use x because a future program point
+  w uses it. At program point z, w is dead, so z can update w. }
+\end{figure}
+
+\begin{figure}
+\centering
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+let x = MkTuple('S', '0') in
+let y = MkTuple('S', '0') in
+let w = MkTuple('S', x) in
+let z = MkTuple('S', '0') in
+w
+\end{lstlisting}
+\end{minipage}
+\hspace{20pt}
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+coq_main() {
+l1(inscope: ; args: ):
+  [x_1] = malloc(<int,int>)
+  store Con('S')@int into x_1 + 0
+  store Con('0')@int into x_1 + 1
+  [x_2] = malloc(<int,int>)
+  store Con('S')@int into x_2 + 0
+  store Con('0')@int into x_2 + 1
+  store Con('S')@int into x_2 + 0
+  store x_1@int into x_2 + 1
+  [x_4] = malloc(<int,int>)
+  store Con('S')@int into x_4 + 0
+  store Con('0')@int into x_4 + 1
+  halt x_2
+}
+\end{lstlisting}
+\end{minipage}
+\label{fig:dupdate3}
+\caption{In this example, w destructively updates y since y is
+  dead. At program point z, we must allocate since both w and x are
+  being used, and w is already using y. }
+\end{figure}
+
+%Peforming optimizations for monadic computation will involve two
+%parts. First, since our CPS representation does not contain monadic
+%constructs, we need to run some sort of inference algorithm to recover
+%the monadic structure. For instance, recovering the state monad
+%might include running escape analysis to track the flow of function
+%arguments into functions that have ``bind-like'' signatures. The
+%second part will include the actual optimization once we have 
+%recovered the monadic structure. For the state monad, this might
+%include rewriting bind such that it does not construct a new state
+%with updated values each time, but rather update the original state
+%with the new values. 
+
+%I have included a few papers that I think will be useful for me to take a
+%look at
+%~\cite{ghani2007monadic,pudlak2011reader,tolmach1998optimizing}, and
+%would appreciate further suggestions. The
+%first~\cite{ghani2007monadic}, talks about how shortcut fusion can be
+%used to optimize monadic computations that only use monads to thread
+%information through the program (might be useful for state, etc.). The
+%second~\cite{pudlak2011reader} explains how to translate code using
+%reader monads into lambda expressions that do not contain variables. The
+%third~\cite{tolmach1998optimizing} describes an IR with monadic types,
+%how to translate a ML-like source language into that IR, and provides
+%an inference algorithm for translating terms in the ML-like source
+%language into the IR. 
+
+\section{Contification}
+\label{sec:contification}
+
+
+\section{Monadic Computation}
+\label{sec:mon-com}
+
+
+\section{Stack Allocation}
+\label{sec:stack-alloc}
+The core of the idea was presented in Kennedy~\cite{kennedy07cps}. Rather than storing everything in the heap, we'd like to stack allocate information that is accessed in a statically determinable pattern. The benefit, we hope, is that we avoid a lot of heap allocation and thus garbage collection, esspecially before we have optimizations like un-currying and partial applications that are only passed forward.
+
+The use of LLVM may provide difficulties for this task since LLVM has a built-in allocation stack. When we perform this type of operation, we want to replace the current stack frame with the stack frame of the continuation and then tail call the function that we pass the continuation to but preserving the continuations environment (which just replaced our stack frame). The basic proposal for doing this is shown in Figure~\ref{fig:stack-alloc}. 
+
+\begin{figure}
+\begin{tabular}{p{0.44\textwidth} c p{0.44\textwidth}}
+\begin{lstlisting}[language=c]
+void f(...) { 
+  // heap allocate the env
+  k_env = $\langle$env$\rangle$ ;
+  g(x, k) (** tail call g **)
+}
+\end{lstlisting}
+& \quad
+& 
+\begin{lstlisting}[language=c]
+void trampoline_f(...) {
+  // using alloca
+  k_env = $\langle$env$\rangle$ ;
+  // non-tail call of g
+  g(x)
+}
+void f(...) {
+  // tail call g
+  trampoline_f(...)
+}
+\end{lstlisting}
+\\
+(a) before stack allocation & &
+(b) after stack allocation \\ 
+\end{tabular}
+\caption{Strategy for stack allocation of continuations.}
+\label{fig:stack-alloc}
+\end{figure}
+
+Two alternatives to this approach are:
+\begin{enumerate}
+\item manually manage a separate data stack (in the style of XFI) where these operations can be performed explicitly.
+\item write LLVM intrinsics that perform explicit stack management and implement code generation for them to get the right behavior.
+\end{enumerate}
+The former seems like it may be feasible, the later seems like it could require considerable work though might be interesting to understand how these things work.
+
+Other potentially interesting papers:
+\begin{itemize}
+\item ``Contification using dominators''~\cite{fluet01contification}
+\item ``The essence of compiling with continuations''~\cite{flanagan04essence}
+\item ``Local CPS conversion in a direct-style compiler''~\cite{reppy01local}
+\item ``Optimizing nested loops using local CPS conversion''~\cite{reppy02optimizing}
+\item ``A Lambda Term Representation Inspired by Linear Ordered Logic''~\cite{abel11lambda}
+\end{itemize}
+
+\section{Garbage Collection}
+\label{sec:gc}
+
+\bibstyle{natbib}
+
+\bibliography{bib}
+
+\end{document}

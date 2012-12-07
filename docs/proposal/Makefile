@@ -1,3 +1,9 @@
+compiler.pdf: compiler.tex bib.bib
+	@ pdflatex compiler
+	@ bibtex compiler
+	@ pdflatex compiler
+	@ pdflatex compiler
+
 proposal.pdf: proposal.tex bib.bib
 	@ pdflatex proposal
 	@ bibtex proposal
