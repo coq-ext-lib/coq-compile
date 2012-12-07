@@ -48,13 +48,45 @@ $ ./helloworld.native
 Hello World!
 \end{verbatim}
 
-In in addition to the driver, we also have an interpreter for our CpsK language. The semantics are faithful to the real semantics with the exception that there is no semantic distinction between continuations and closures. The former should be not be allowed to escape. We rely on our syntactic distinction to enforce this though it may be possible to break this requirement. The interpreter can be run using:
+In in addition to the driver, we also have an interpreter for our CpsK language. The semantics are faithful to the real semantics with the exception that there is no semantic distinction between continuations and closures. The former should be not be allowed to escape. We rely on our syntactic distinction to enforce this though it may be possible to break this requirement. A run of the interpreter is shown in Figure~\ref{fig:interp}.
 
+\begin{figure}
+\centering
+\vspace{10pt}
+\begin{minipage}[t]{.55\textwidth}
 \begin{verbatim}
-$  (even 10)
+$./Extraction/CpsKInterpTL.byte -n 1000 -i Even 
+-t main -o even.res
+Input: Even
+Term: main
+Output: even.res
+----
+
+SUCCESS!!!!!!!!!!!!!!!!!!!!!!!!!!!
 $
-....
+$ cat even.res
+Con(True)
 \end{verbatim}
+\end{minipage}
+\begin{minipage}[t]{.3\textwidth}
+\begin{lstlisting}
+Fixpoint even (n:nat) : bool :=
+  match n with
+    | O => true
+    | S n => odd n
+  end
+with odd (n:nat) : bool :=
+  match n with
+    | O => false
+    | S n => even n
+  end.
+
+Definition main := even 10.
+\end{lstlisting}
+\end{minipage}
+\caption{Example run of our extracted CpsK interpreter on the Coq program even (shown on right)}
+\label{fig:interp}
+\end{figure}
 
 \section{Intermediate Languages}
 \label{sec:il}
