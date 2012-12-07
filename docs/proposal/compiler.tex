@@ -24,10 +24,10 @@ Our project is project expanded to encompass 5 main tasks. The foremost of those
 We built (and refactored the previous driver) to run our compiler with a number of options, e.g. outputting intermediate representations, running and not running optimizations, etc. This makes the compiler externally usuable and facilitates testing. In addition, we have extracted an interpreter that can be used to test optimizations. (Section~\ref{sec:driver})
 \item[Refactored ILs]
 Our initial tasks centered around refactoring the intermediate language. In the Cps representation, we syntactically distinguished continuations and extended the IL to support monadic operations in a world-passing style. In addition, we introduced a new intermediate language (Low) that separates the details of this Cps representation from the details of code-generation. (Section~\ref{sec:il})
-\item[Garbage Collection]
-GC-based functional languages require a reasonable garbage collector and runtime environment. We developed a Chaney-copying collector built using LLVM's GC intrinsics. (Section~\ref{sec:gc})
 \item[Input/Output]
 To support debugging, our runtime supports output operations to print ascii characters. These can be composed in Coq to implement displaying strings and other interesting data types. These operations are accessed via parameters exposed in Coq and compiled to special routines by our compiler. (Section~\ref{sec:io})
+\item[Garbage Collection]
+GC-based functional languages require a reasonable garbage collector and runtime environment. We developed a Chaney-copying collector built using LLVM's GC intrinsics. (Section~\ref{sec:gc})
 \item[Abstract Interpretation] 
 We built an abstract interpreter for our Cps representation to facilitate more interesting analyses. We have instantiated it to do a standard control-flow analysis though it is phrased in a way that enables it to be used for a variety of analyses. (Section~\ref{sec:abstract-interp})
 \item[Destructive Updates]
