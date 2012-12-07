@@ -59,13 +59,85 @@ $
 \section{Intermediate Languages}
 \label{sec:il}
 
-Our compiler is based on two core intermediate languages, CpsK and Low, both shown in Figure~\ref{fig:cpsk-low}.
+Our compiler is based on two core intermediate languages, CpsK and Low, shown in Listings~\ref{code:cpsk}~and~\ref{code:low}.
+
+\paragraph{CpsK}
+
 \begin{figure}
+\lstset{language=coq,caption={CpsK intermediate language},label={code:cpsk}, basicstyle={\footnotesize\ttfamily}}
+\begin{lstlisting}
+(** CpsK exp are a sequence of let-bindings that either terminate with a function application or fork using a switch into a tree of nested CpsK expressions. *)
+Inductive exp : Type := 
+| App_e : op -> list cont -> list op -> exp
+| Let_e : decl -> exp -> exp
+| Letrec_e : list decl -> exp -> exp
+  (** Switch is only used on small integer values and unlike Match, doesn't do any pattern matching.  The optional expression at the end is a default in case none of the patterns matches the value. *)
+| Switch_e : op -> list (pattern * exp) -> option exp -> exp
+| Halt_e : op -> op -> exp
+| AppK_e : cont -> list op -> exp
+| LetK_e : list (cont * list var * exp) -> exp -> exp
+with decl : Type := 
+  (** let x := v *)
+| Op_d : var -> op -> decl
+  (** let x := p(v1,...,vn) *)
+| Prim_d : var -> primop -> list op -> decl
+  (** let f := fun (x1,...,xn) => e *)
+| Fn_d : var -> list cont -> list var -> exp -> decl
+  (** let (x,w') := m(w,v1,..,vn) => e *)
+| Bind_d : var -> var -> mop -> list op -> decl.
+\end{lstlisting}
+\end{figure}
 
-TODO
+\paragraph{Low}
 
-\caption{}
-\label{fig:cpsk-low}
+\begin{figure}
+\lstset{language=coq,caption={Low intermediate language},label={code:low}, basicstyle={\footnotesize\ttfamily}}
+\begin{lstlisting}
+Inductive primtyp :=
+| Int_t : primtyp
+| Ptr_t : primtyp -> primtyp
+| Struct_t : list primtyp -> primtyp.
+
+Inductive instr :=
+| Primop_i : var -> primop -> list op -> instr
+| Alloca_i : list (var * primtyp) -> instr
+| Malloc_i : list (var * primtyp) -> instr
+(* Load_i(var,type,offset,ptr) => var = *((type* )(ptr+offset)) *)
+| Load_i : var -> primtyp -> Z -> op -> instr
+(* Store_i(type,value,offset,ptr) => *(ptr+offset) = value *)
+| Store_i : primtyp -> op -> Z -> op -> instr
+| Bind_i : var -> mop -> list op -> instr.
+
+(* A function can be called with a list of continuations that were either passed as arguments (referred to by the index of the formal) or that were bound locally (referred to by the label of the generated code block and a list of arguments, which may include the return value). *)
+Definition cont : Type := (nat + label)%type.
+
+Inductive term :=
+| Halt_tm : op -> term
+| Call_tm : var -> op -> list op -> list (cont * list op) -> term
+(* Return to a passed-in continuation *)
+| Cont_tm : cont -> list op -> term
+| Switch_tm : op -> list (pattern * label * list op) -> option (label * list op) -> term.
+
+Record block := mk_block {
+  b_args : list var;
+  b_scope : list var;
+  b_insns : list instr;
+  b_term : term
+}.
+
+Record function := mk_function {
+  f_name  : fname ;
+  f_args  : list var ;
+  f_conts : nat ;
+  f_body  : alist label block ; 
+  f_entry : label
+}.
+
+Record program := mk_program {
+  p_topdecl : list function ;
+  p_entry : fname
+}.
+\end{lstlisting}
 \end{figure}
 
 The motivation for Low is to provide a higher-level, but imperative language to serve as an intermediate point between CpsK and LLVM. This enables the final code generation phase to be simpler and focus more on garbage collection while avoiding the need to do large transformations to the structure of code.
@@ -90,7 +162,7 @@ The compiler provides a small runtime library that enables compilation of comput
 
 Our runtime supports three basic types: \emph{integers}, \emph{pointers}, and \emph{records}. Integers have a low-order bit of one and are used to encode both constructors and machine words, though our current front-end does not emit non-constructor integers. Pointers and integers are both stored in words large enough to encode a pointer on the target architecture, and can be distinguished by their low-order bit, since objects in the runtime are at least 4-byte aligned. A record is a sequence of $n > 1$ integers or pointers preceeded by a header word indicating the length of the record. The runtime does not permit pointers into the middle of objects. As a result, headers can be stored as an integer with no tag, eliminating additional arithmetic when indexing a record.
 
-We implemented a semispace garbage collector based on Cheney's algorithm. The source code is given in Listing~\ref{code:forward}. The collector is similar to Appel's copying collector, but is simplified by our data representation. A brief description of the algorithm follows.
+We implemented a semispace garbage collector based on Cheney's algorithm. The source code is given in Listing~\ref{code:forward}. The collector is similar to Appel's copying collector~\cite{Appel90aruntime}, but is simplified by our data representation. A brief description of the algorithm follows.
 
 \paragraph{Finding stack roots} To find the local roots from which to traverse the reachable heap, we rely on LLVM's ``shadow stack'' plugin. We emit explicit stack allocations for all local variables that may point into the heap, and mark these as roots using the \lstinline!@llvm.gcroot! intrinsic. The shadow stack plugin emits additional code during function prologues and epilogues to construct a linked list of frame maps recording the addresses of the marked roots. This entry to this linked list is accessible to the garbage collector via a global variable. There are two advantages to recording roots dynamically this way: it is highly portable, and does not require writing low-level code to walk through stack frames. On the other hand, frame maps can be computed statically and generating the shadow stack has significant overhead.
 
@@ -123,7 +195,7 @@ void forward(universal_t *objref) {
       universal_t *i = header;;
       universal_t *j = endptr;
       while (len-- > 0) {
-	*j++ = *i++;
+        *j++ = *i++;
       }
       /* Set the forwarding pointer in fromspace and update the record's tag */
       *ptr = (universal_t)(endptr + 1);
@@ -226,7 +298,7 @@ Figure~\ref{fig:cfa0} shows an instantiation of our abstract interpreter to perf
 \section{Destructive Updates}
 \label{sec:destructive-updates}
 
-The main idea of a destructive update is to reuse previously allocated memory instead of allocating fresh space if we can prove that all pointers to the old memory are dead. One interesting application of this optimization is for programs that use the state monad. After an inlining pass inlines the definitions of bind to expose the state tuples explicitly, we can destructively update state that is threaded through the program instead of allocating new space for each bind. We based our optimization off the ideas described by Dimoulas and Wand in~\cite{dimoulas2009higher}, which presents an algorithm for detecting and transforming higher-order programs to use destructive updates. We summarize the optimization below. 
+The main idea of a destructive update is to reuse previously allocated memory instead of allocating fresh space if we can prove that all pointers to the old memory are dead. One interesting application of this optimization is for programs that use the state monad. After an inlining pass inlines the definitions of bind to expose the state tuples explicitly, we can destructively update state that is threaded through the program instead of allocating new space for each bind. We based our optimization off the ideas described by Dimoulas and Wand in~\cite{dimoulas2009higher}, which presents an algorithm for detecting and transforming higher-order programs to use destructive updates. We summarize the optimization below.
 
 \begin{itemize}
 \item Perform control flow analysis ${\tt cfa} : {\rm CpsK.exp} \rightarrow (PP \rightarrow \mathcal{P}(\hat{V}))$ using abstract interpretation. 
@@ -238,15 +310,17 @@ The main idea of a destructive update is to reuse previously allocated memory in
 \begin{figure}
 \centering
 \begin{minipage}[t]{.4\textwidth}
+\lstset{language=cpsk, basicstyle={\footnotesize\ttfamily}}
 \begin{lstlisting}
-let x = MkTuple('S', '0') in
-let y = MkTuple('S', '0') in
-let z = MkTuple('S', '0') in
+let x := MkTuple('S', '0') in
+let y := MkTuple('S', '0') in
+let z := MkTuple('S', '0') in
 z
 \end{lstlisting}
 \end{minipage}
 \hspace{20pt}
 \begin{minipage}[t]{.4\textwidth}
+\lstset{language=low, basicstyle={\footnotesize\ttfamily}}
 \begin{lstlisting}
 coq_main() {
 l1(inscope: ; args: ):
@@ -269,16 +343,18 @@ l1(inscope: ; args: ):
 \begin{figure}
 \centering
 \begin{minipage}[t]{.4\textwidth}
+\lstset{language=cpsk, basicstyle={\footnotesize\ttfamily}}
 \begin{lstlisting}
-let x = MkTuple('S', '0') in
-let y = MkTuple('S', '0') in
-let w = MkTuple('S', x) in
-let z = MkTuple('S', '0') in
+let x := MkTuple('S', '0') in
+let y := MkTuple('S', '0') in
+let w := MkTuple('S', x) in
+let z := MkTuple('S', '0') in
 z
 \end{lstlisting}
 \end{minipage}
 \hspace{20pt}
 \begin{minipage}[t]{.4\textwidth}
+\lstset{language=low, basicstyle={\footnotesize\ttfamily}}
 \begin{lstlisting}
 coq_main() {
 l1(inscope: ; args: ):
@@ -305,16 +381,18 @@ l1(inscope: ; args: ):
 \begin{figure}
 \centering
 \begin{minipage}[t]{.4\textwidth}
+\lstset{language=cpsk, basicstyle={\footnotesize\ttfamily}}
 \begin{lstlisting}
-let x = MkTuple('S', '0') in
-let y = MkTuple('S', '0') in
-let w = MkTuple('S', x) in
-let z = MkTuple('S', '0') in
+let x := MkTuple('S', '0') in
+let y := MkTuple('S', '0') in
+let w := MkTuple('S', x) in
+let z := MkTuple('S', '0') in
 w
 \end{lstlisting}
 \end{minipage}
 \hspace{20pt}
 \begin{minipage}[t]{.4\textwidth}
+\lstset{language=low, basicstyle={\footnotesize\ttfamily}}
 \begin{lstlisting}
 coq_main() {
 l1(inscope: ; args: ):
@@ -368,18 +446,10 @@ l1(inscope: ; args: ):
 \section{Contification}
 \label{sec:contification}
 
-%%<<<<<<< Updated upstream
-\section{Stack Allocation}
-\label{sec:stack-alloc}
-%% The core of the idea was presented in Kennedy~\cite{kennedy07cps}. Rather than storing everything in the heap, we'd like to stack allocate information that is accessed in a statically determinable pattern. The benefit, we hope, is that we avoid a lot of heap allocation and thus garbage collection, esspecially before we have optimizations like un-currying and partial applications that are only passed forward.
-
-%% The use of LLVM may provide difficulties for this task since LLVM has a built-in allocation stack. When we perform this type of operation, we want to replace the current stack frame with the stack frame of the continuation and then tail call the function that we pass the continuation to but preserving the continuations environment (which just replaced our stack frame). The basic proposal for doing this is shown in Figure~\ref{fig:stack-alloc}. 
-
-%% =======
 The current back-end stack allocates continuation environments so it is desireable to use continuations rather than full-blown, first-class, heap-allocated closures when we can do it. We have implemented contification based on Kennedy's algorithm~\cite{kennedy07cps}. Several examples of contification at work can be seen in the snippets in Figure~\ref{fig:contification}.
-%%>>>>>>> Stashed changes
-\begin{figure}
 
+\begin{figure}
+  \lstset{language=cpsk, basicstyle={\footnotesize\ttfamily}}
    \begin{lstlisting}[gobble=6,caption={Before contification}]
       let f(%c1; x_2) := 
         let x_3 := mkTuple(Con('S'),x_2) in
@@ -466,7 +536,23 @@ A similar algorithm applies to recursive function declarations though we have no
 %% \section{Garbage Collection}
 %% \label{sec:gc}
 
+Two alternatives to this approach are:
+\begin{enumerate}
+\item manually manage a separate data stack (in the style of XFI) where these operations can be performed explicitly.
+\item write LLVM intrinsics that perform explicit stack management and implement code generation for them to get the right behavior.
+\end{enumerate}
+The former seems like it may be feasible, the later seems like it could require considerable work though might be interesting to understand how these things work.
+
+Other potentially interesting papers:
+\begin{itemize}
+\item ``Contification using dominators''~\cite{fluet01contification}
+\item ``The essence of compiling with continuations''~\cite{flanagan04essence}
+\item ``Local CPS conversion in a direct-style compiler''~\cite{reppy01local}
+\item ``Optimizing nested loops using local CPS conversion''~\cite{reppy02optimizing}
+\item ``A Lambda Term Representation Inspired by Linear Ordered Logic''~\cite{abel11lambda}
+\end{itemize}
+
 \bibliographystyle{natbib}
-\bibliography{bib}{}
+\bibliography{bib}
 
 \end{document}
