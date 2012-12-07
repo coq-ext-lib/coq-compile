@@ -208,7 +208,7 @@ Module Compile.
           match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
             | inr (decls,main) =>
-              match (CpsK2Low.cpsk2low _ decls main) with
+              match traceTraceT ((CpsK2Low.cpsk2low _ decls main)) with
                 | inl e => e
                 | inr low => String Char.chr_newline (to_string low)
               end
@@ -228,7 +228,7 @@ Module Compile.
       match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure l)) with
         | inl e => e
         | inr (decls,main) =>
-          match (CpsK2Low.cpsk2low _ decls main) with
+          match traceTraceT ((CpsK2Low.cpsk2low _ decls main)) with
             | inl e => e
             | inr low => String Char.chr_newline (to_string low)
           end
@@ -247,7 +247,7 @@ Module Compile.
       match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io l)) with
         | inl e => e
         | inr (decls,main) =>
-          match (CpsK2Low.cpsk2low _ decls main) with
+          match traceTraceT ((CpsK2Low.cpsk2low _ decls main)) with
             | inl e => e
             | inr low => String Char.chr_newline (to_string low)
           end

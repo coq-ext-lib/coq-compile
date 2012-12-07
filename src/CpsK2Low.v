@@ -21,6 +21,7 @@ Require Import ExtLib.Data.Map.FMapAList.
 Require Import ExtLib.Data.Monads.EitherMonad.
 Require Import ExtLib.Data.Monads.ReaderMonad.
 Require Import ExtLib.Programming.Show.
+Require Import CoqCompile.TraceMonad.
 
 Section maps.
   Import CPSK.
@@ -57,6 +58,7 @@ Section maps.
     Context {VarMap_m : MonadReader (map_var op) m}.
     Context {ContMap_m : MonadReader (map_cont (Low.cont * list var)) m}.
     Context {TupVars_m : MonadState (lset (@eq var)) m}.
+    Context {Trace_m : MonadTrace string m}.
 
     Definition freshVar : m var :=
       x <- modify (MS := Fresh_m) (fun x => Psucc x) ;;
@@ -161,18 +163,26 @@ Section maps.
       end.
 
     Require Import Coq.Arith.Compare_dec.
-    Definition updateVar {T} (x : Env.var) (vs : list op) (size:nat) (c : m T) : m T := 
-      foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z vs ;;
+    Definition updateVar {T} (x : Env.var) (vs : list op) (size:nat) (c : m T) : m T :=
+      x <- opgen (Var_o x) ;;
+      foldM (fun v idx => emit_instr (Store_i Int_t v idx x) ;; ret (idx + 1)%Z) 0%Z vs ;;
       if leb size (length vs) then c else 
-        foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z (list_repeat (size - length vs) (Int_o 0)) ;;
+        foldM (fun v idx => emit_instr (Store_i Int_t v idx x) ;; ret (idx + 1)%Z) 0%Z (list_repeat (size - length vs) (Int_o 0)) ;;
         c.
-    
+
+    Definition convertVars (input:lset (@eq Env.var)) : m (lset (@eq Env.var)) :=
+      varMap <- ask ;;
+      ret (fold (fun x acc => match Maps.lookup x varMap with
+                                | Some (Var_o v) =>Sets.add v acc
+                                | _ => acc
+                              end) input Sets.empty).
+
     (*  size: length of the tuple we want
      *  v: program point
      *  e: remaining exp
      *  returns: a tuple variable and its size if its dead and can be used for a destructive update
      *)
-
+    Print var.
     Definition updateable (size : nat) (v : var) (e : exp) : m (option (var * nat)) :=
       tup_vars <- get (MonadState := TupVars_m) ;;
       match live with
@@ -184,6 +194,8 @@ Section maps.
                   | inl v => Sets.add v acc
                   | inr _ => acc
                 end) Sets.empty live_set in
+              live_set <- convertVars live_set ;; 
+              tup_vars <- convertVars tup_vars ;;
               let usable_vars := Sets.difference tup_vars live_set in
               let rando := fold (fun (x:var) acc => 
                 match acc with
@@ -196,9 +208,13 @@ Section maps.
                     end
                 end) None usable_vars in
               match rando with
-                | None => put (Sets.add v tup_vars) ;; ret None
+                | None => 
+                  mlog ("did not find a var " ++ "live: " ++ to_string live_set ++ " tups: " ++ to_string tup_vars)%string ;;
+                  put (Sets.add v tup_vars) ;; ret None
                 | Some (v',n) =>
-                  put (Sets.remove v' tup_vars) ;;
+                  mlog ("found a var " ++ "live: " ++ to_string live_set ++ " tups: " ++ to_string tup_vars)%string ;;
+                  modify (Sets.add v) ;;
+                  modify (Sets.remove v') ;;
                   ret (Some (v',n))
               end
             | None => put (Sets.add v tup_vars) ;; ret None
@@ -237,11 +253,10 @@ Section maps.
                   emit_instr (Malloc_i ((x, (Struct_t (list_repeat (length vs) Int_t)))::nil)) ;;
                   foldM (fun v idx => emit_instr (Store_i Int_t v idx (Var_o x)) ;; ret (idx + 1)%Z) 0%Z vs ;;
                   withNewVar x (Var_o x) c
-                | Some (dv, size) =>
-                  (** select a variable from dead_vars **)
-                  let v := dv in
-                  (** emit updates **)                  
-                  updateVar v vs size (withNewVar x (Var_o v) c)
+                | Some (v, size) =>
+                  (** emit updates **)
+                  x' <- opgen (Var_o v) ;;
+                  updateVar v vs size (withNewVar x x' c)
               end
             | CpsCommon.Proj_p => 
               match vs with
@@ -365,6 +380,7 @@ Section monadic2.
   Variable m : Type -> Type.
   Context {Monad_m : Monad m}.
   Context {Exc_m : MonadExc string m}.
+  Context {Trace_m : MonadTrace string m}.
 
   Record StateData : Type :=
   { freshVar_p : positive
@@ -405,15 +421,15 @@ Section monadic2.
   Instance MonadReader_ReaderData_contMap m (M : Monad m) : MonadReader _ (readerT ReaderData m) :=
     ReaderProd contMap (fun x d => {| varMap := d.(varMap) ; contMap := x |}).
 
-  Arguments tl_cpsk2low {_ _ _ _ LIVE TUPS m Mon MExc MSvar MSlbl MStup _ _ _ _ _} (e) : rename.
+  Arguments tl_cpsk2low {_ _ _ _ LIVE TUPS m Mon MExc MSvar MSlbl MStup MStrace _ _ _ _ _} (e) : rename.
  
-  Definition tl_decl2low_h (live : option (alist (var + CPSK.cont) (lset (@eq (var + CPSK.cont))))) (name : var) (ks : list CPSK.cont) (args : list var) (tops : list (var * op)) (e : CPSK.exp) : m Low.function :=
+  Definition tl_decl2low_h (live : option (alist (var + CPSK.cont) (lset (@eq (var + CPSK.cont))))) (name : var) (ks : list CPSK.cont) (args : list var) (tops : list (var * op)) (e : CPSK.exp) : m (Low.function) :=
     let c := tl_cpsk2low 
       (map_var := alist var) (FM_var := DMap_alist RelDec_var_eq)
       (map_cont := alist CPSK.cont) (FM_cont := DMap_alist CPSK.RelDec_cont_eq)
       (LIVE := live)  
       (TUPS := tuples_arity_exp e)  
-      (m := stateT StateData (readerT ReaderData m))
+      (m := stateT StateData (readerT ReaderData ( m)))
       (MSvar := MonadState_StateData_freshVar _ _)
       (MSlbl := MonadState_StateData_freshLabel_p _ _)
       e in
@@ -439,11 +455,11 @@ Section monadic2.
     in
     c' <- runReaderT (runStateT c init_state) init_reader ;;
     let '(entry_label, _, state) := c' in
-    ret {| f_name := name
+    ret ({| f_name := name
          ; f_args := args
          ; f_conts := length ks
          ; f_body := state.(allBlocks)
-         ; f_entry := entry_label |}.
+         ; f_entry := entry_label |}).
 
   Require Import CoqCompile.Opt.CopyPropCpsK.
 
