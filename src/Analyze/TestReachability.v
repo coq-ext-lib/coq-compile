@@ -202,6 +202,7 @@ Module TEST_REACHABLE.
 
   Definition test8_cpsk : CPSK.exp := CpsKConvert.CPS_pure test8_lam.
 
+  (*
   Definition test9_lam : Lambda.exp :=
     gen(
     def x := S_c Z_c in
@@ -209,6 +210,14 @@ Module TEST_REACHABLE.
     def a := S_c x in
     def z := S_c Z_c in
     a).
+    *)
+
+  Definition test9_lam : Lambda.exp :=
+    gen(
+    def x := S_c Z_c in
+    def y := S_c Z_c in
+    def z := S_c Z_c in
+    z).
 
   Definition test9_cpsk : CPSK.exp := CpsKConvert.CPS_pure test9_lam.
 

@@ -27,31 +27,144 @@ Because these projects are all closely tied to the backend, i.e. both stack allo
 \section{Monadic Computation}
 \label{sec:mon-com}
 
-Peforming optimizations for monadic computation will involve two
-parts. First, since our CPS representation does not contain monadic
-constructs, we need to run some sort of inference algorithm to recover
-the monadic structure. For instance, recovering the state monad
-might include running escape analysis to track the flow of function
-arguments into functions that have ``bind-like'' signatures. The
-second part will include the actual optimization once we have 
-recovered the monadic structure. For the state monad, this might
-include rewriting bind such that it does not construct a new state
-with updated values each time, but rather update the original state
-with the new values. 
+We focused on optimizing the state monad. The main idea is to destructively update the previous state, instead of allocating new space. We assume that previous optimization passes will inline the definitions of bind to expose tuples that can be updated destructively. We based our optimization loosely off the ideas described by Dimoulas and Wand~\cite{dimoulas2009higher}, which presents an algorithm for detecting and transforming higher-order programs to use destructive updates. We summarize the optimization below. 
 
-I have included a few papers that I think will be useful for me to take a
-look at
-~\cite{ghani2007monadic,pudlak2011reader,tolmach1998optimizing}, and
-would appreciate further suggestions. The
-first~\cite{ghani2007monadic}, talks about how shortcut fusion can be
-used to optimize monadic computations that only use monads to thread
-information through the program (might be useful for state, etc.). The
-second~\cite{pudlak2011reader} explains how to translate code using
-reader monads into lambda expressions that do not contain variables. The
-third~\cite{tolmach1998optimizing} describes an IR with monadic types,
-how to translate a ML-like source language into that IR, and provides
-an inference algorithm for translating terms in the ML-like source
-language into the IR. 
+\begin{itemize}
+\item Perform control flow analysis ${\tt cfa} : {\rm CpsK.exp} \rightarrow (PP \rightarrow \mathcal{P}(\hat{v}))$. 
+\item Perform reachability analysis ${\tt reach} : (PP \rightarrow \mathcal{P}(\hat{v})) \rightarrow (PP \rightarrow {\rm set} \; PP)$, using the result of the CFA, to compute for each program point the set of program points that flow to it.
+\item Perform liveness analysis ${\tt live} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow (PP \rightarrow {\rm set} \; PP)$, using the reachability analysis, to compute for each program point, the set of variables that are live (in use) at the point.
+\item Transform program ${\tt dupate} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow {\rm Low.program}$, using the live variable map to compute which variables can be destructively updated. Figures ~\ref{fig:dupdate1} ~\ref{fig:dupdate2} ~\ref{fig:dupdate3} demonstrate the results of running our optimization.
+\end{itemize}
+
+\begin{figure}
+\centering
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+let x = MkTuple('S', '0') in
+let y = MkTuple('S', '0') in
+let z = MkTuple('S', '0') in
+z
+\end{lstlisting}
+\end{minipage}
+\hspace{20pt}
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+coq_main() {
+l1(inscope: ; args: ):
+  [x_1] = malloc(<int,int>)
+  store Con(""S"")@int into x_1 + 0
+  store Con(""0"")@int into x_1 + 1
+  store Con(""S"")@int into x_1 + 0
+  store Con(""0"")@int into x_1 + 1
+  store Con(""S"")@int into x_1 + 0
+  store Con(""0"")@int into x_1 + 1
+  halt x_1
+}
+\end{lstlisting}
+\end{minipage}
+\label{fig:dupdate1}
+\caption{In this example, only the last variable z is
+   used. Consequently, we can write y into x, and z into y. }
+\end{figure}
+
+\begin{figure}
+\centering
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+let x = MkTuple('S', '0') in
+let y = MkTuple('S', '0') in
+let w = MkTuple('S', x) in
+let z = MkTuple('S', '0') in
+z
+\end{lstlisting}
+\end{minipage}
+\hspace{20pt}
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+coq_main() {
+l1(inscope: ; args: ):
+  [x_1] = malloc(<int,int>)
+  store Con(""S"")@int into x_1 + 0
+  store Con(""0"")@int into x_1 + 1
+  [x_2] = malloc(<int,int>)
+  store Con(""S"")@int into x_2 + 0
+  store Con(""0"")@int into x_2 + 1
+  store Con(""S"")@int into x_2 + 0
+  store x_1@int into x_2 + 1
+  store Con(""S"")@int into x_2 + 0
+  store Con(""0"")@int into x_2 + 1
+  halt x_2
+}
+\end{lstlisting}
+\end{minipage}
+\label{fig:dupdate2}
+\caption{In this example, w can destructively update y since y is
+  dead. The variable y could not use x because a future program point
+  w uses it. At program point z, w is dead, so z can update w. }
+\end{figure}
+
+\begin{figure}
+\centering
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+let x = MkTuple('S', '0') in
+let y = MkTuple('S', '0') in
+let w = MkTuple('S', x) in
+let z = MkTuple('S', '0') in
+w
+\end{lstlisting}
+\end{minipage}
+\hspace{20pt}
+\begin{minipage}[t]{.4\textwidth}
+\begin{lstlisting}
+coq_main() {
+l1(inscope: ; args: ):
+  [x_1] = malloc(<int,int>)
+  store Con(""S"")@int into x_1 + 0
+  store Con(""0"")@int into x_1 + 1
+  [x_2] = malloc(<int,int>)
+  store Con(""S"")@int into x_2 + 0
+  store Con(""0"")@int into x_2 + 1
+  store Con(""S"")@int into x_2 + 0
+  store x_1@int into x_2 + 1
+  [x_4] = malloc(<int,int>)
+  store Con(""S"")@int into x_4 + 0
+  store Con(""0"")@int into x_4 + 1
+  halt x_2
+}
+\end{lstlisting}
+\end{minipage}
+\label{fig:dupdate3}
+\caption{In this example, w destructively updates y since y is
+  dead. At program point z, we must allocate since both w and x are
+  being used, and w is already using y. }
+\end{figure}
+
+%Peforming optimizations for monadic computation will involve two
+%parts. First, since our CPS representation does not contain monadic
+%constructs, we need to run some sort of inference algorithm to recover
+%the monadic structure. For instance, recovering the state monad
+%might include running escape analysis to track the flow of function
+%arguments into functions that have ``bind-like'' signatures. The
+%second part will include the actual optimization once we have 
+%recovered the monadic structure. For the state monad, this might
+%include rewriting bind such that it does not construct a new state
+%with updated values each time, but rather update the original state
+%with the new values. 
+
+%I have included a few papers that I think will be useful for me to take a
+%look at
+%~\cite{ghani2007monadic,pudlak2011reader,tolmach1998optimizing}, and
+%would appreciate further suggestions. The
+%first~\cite{ghani2007monadic}, talks about how shortcut fusion can be
+%used to optimize monadic computations that only use monads to thread
+%information through the program (might be useful for state, etc.). The
+%second~\cite{pudlak2011reader} explains how to translate code using
+%reader monads into lambda expressions that do not contain variables. The
+%third~\cite{tolmach1998optimizing} describes an IR with monadic types,
+%how to translate a ML-like source language into that IR, and provides
+%an inference algorithm for translating terms in the ML-like source
+%language into the IR. 
 
 \section{Stack Allocation}
 \label{sec:stack-alloc}
@@ -121,7 +234,7 @@ A quick literature search shows there is some existing work on implementing conc
 
 My hope is that some of these implementation issues are mitigated by our purely-functional setting.
 
-\bibliographystyle{natbib}
+\bibstyle{natbib}
 
 \bibliography{bib}
 
