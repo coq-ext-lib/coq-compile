@@ -1,5 +1,6 @@
 Require Import String List.
 Require Import CoqCompile.CpsK.
+Require Import CoqCompile.CpsKUtil.
 Require Import ExtLib.ExtLib.
 Require Import ExtLib.Structures.Monads.
 Require Import ExtLib.Structures.Sets.
@@ -96,6 +97,10 @@ Module Contify.
           Switch_e o arms' def'
       end.
 
+    Definition replaceAllCalls (cs : list (op * cont)) (e : exp) : exp :=
+      List.fold_left (fun acc e_c => let '(f,c) := e_c in 
+        replaceCalls f c acc) cs e.
+
     Definition var_to_cont (v : var) : m cont :=
       ret match v with 
             | Anon_v p => K "" p
@@ -117,7 +122,28 @@ Module Contify.
         | _ , _ => raise "inconsistent continutations "%string
       end.
 
-    Fixpoint contify_exp (e : exp) : m exp.    
+    Definition mark_escapes (rec : bool) (d : decl) : m unit :=
+      let fvars : lset (@eq (var + cont)) := free_vars_decl rec d in
+      iterM (fun x => match x with
+                        | inl v => escapes (Var_o v)
+                        | _ => ret tt
+                      end) fvars.
+
+    Definition remove_escapes {T} (ls : list var) (c : m T) : m T :=
+      censor (List.fold_left (fun acc v => Sets.remove v acc) ls) c.
+
+    Definition remove_calls {T} (ls : list var) (c : m T) : m T :=
+      censor (List.fold_left (fun acc v => Maps.remove v acc) ls) c.
+
+    Definition contifiable (f : var) (escapes : lset (@eq var)) (calls : alist var (lset (@eq (list cont)))) : option (list cont) :=
+      if Sets.contains f escapes then None
+      else match Maps.lookup f calls with
+             | None => Some nil (** it isn't used and it doesn't escape, it is dead code **)
+             | Some calls => isSingleton calls
+           end.
+             
+
+    Fixpoint contify_exp (e : exp) : m exp.
     refine (
       match e with
         | AppK_e k xs =>
@@ -138,38 +164,85 @@ Module Contify.
           def' <- mapM contify_exp def ;;
           ret (Switch_e o arms' def')
         | Let_e (Fn_d f ks xs e_body) e =>
-          e'_conts <- censor (Maps.remove f) (listens (Sets.contains f) (listens (Maps.lookup f) (contify_exp e))) ;;
-          let '(e',conts,escapes) := e'_conts in
-          match conts with
+          e'_conts <- remove_escapes xs (censor (Maps.remove f) (listen (MonadWriter := Escapes_m) (listen (MonadWriter := Contexts_m) (contify_exp e)))) ;;
+          let '(e',calls,escape_vars) := e'_conts in
+          let contifiable := contifiable f escape_vars calls in
+          match contifiable with
             | None =>
-              (* f is either dead or only passed forward, we can't contify it *)
               e_body' <- contify_exp e_body ;;
+              mark_escapes false (Fn_d f ks xs e_body') ;;
               ret (Let_e (Fn_d f ks xs e_body') e')
-            | Some conts =>
-              match escapes , isSingleton conts with
-                | false , Some args =>
-                  (** We can contify f **)
-                  k <- var_to_cont f ;;
-                  let e' := replaceCalls (Var_o f) k e' in
-                  e_body' <- withConts ks args (contify_exp e_body) ;;
-                  ret (LetK_e ((k, xs, e_body') :: nil) e')
-                | _ , _ => 
-                  (** We can't contify f **)
-                  e_body' <- contify_exp e_body ;;
-                  ret (Let_e (Fn_d f ks xs e_body') e')
-              end
+            | Some args =>
+              (** We can contify f **)
+              k <- var_to_cont f ;;
+              let e' := replaceCalls (Var_o f) k e' in
+              e_body' <- withConts ks args (contify_exp e_body) ;;
+              ret (LetK_e ((k, xs, e_body') :: nil) e')
           end
-        | Let_e (Prim_d v MkTuple_p xs) e => 
-          iterM escapes xs ;;
-          e' <- contify_exp e ;;
-          ret (Let_e (Prim_d v MkTuple_p xs) e')
         | Let_e d e => 
+          mark_escapes false d ;;
           e' <- contify_exp e ;;
           ret (Let_e d e')
         | Letrec_e ds e =>
-          (** ignore for now **)
           e' <- contify_exp e ;;
-          ret (Letrec_e ds e')          
+          let names := List.map (fun d => match d with
+                                            | Fn_d v _ _ _
+                                            | Prim_d v _ _ 
+                                            | Op_d v _ 
+                                            | Bind_d v _ _ _ => v
+                                         end) ds in
+          (** Only consider for contification if it contains only functions **)
+          let has_non_func := List.fold_left (fun acc d => match d with
+                                                             | Fn_d _ _ _ _ => acc
+                                                             | _ => true
+                                                           end) ds false in
+          if has_non_func then
+            (** mark the escapes and return **)
+            iterM (mark_escapes true) ds ;;
+            ret (Letrec_e ds e')
+          else
+            func_names <- mapM (fun d => match d with
+                                           | Fn_d v _ _ _ => ret v 
+                                           | _ => raise "unreachable"%string
+                                         end) ds ;;
+            e'_conts <- remove_escapes func_names (remove_calls func_names (listen (listen (
+              ds <- mapM (fun d =>
+                match d with
+                  | Fn_d v ks xs e => 
+                    e' <- remove_escapes xs (contify_exp e) ;;
+                    ret (Fn_d v ks xs e)
+                  | _ => raise "unreachable"%string
+                end) ds ;;
+              e' <- contify_exp e ;;
+              ret (ds, e')
+            )))) ;;
+            let '((ds',e'),conts,escape_vars) := e'_conts in
+            (** we can contify if all ds are contifiable **)
+            (fix continue (ds : list decl) (ks' : list (var * list var * exp)) :=
+              match ds with
+                | nil => 
+                  (** We can contify the let rec **)
+                  ks'' <- mapM (fun f => let '(f,_,_) := f in 
+                                 k' <- var_to_cont f ;;
+                                 ret (Var_o f, k')) ks' ;;
+                  let _ : alist op cont := ks'' in
+                  ks' <-
+                    mapM (fun kxse => let '(f,xs,e) := kxse in
+                      match Maps.lookup (Var_o f) ks'' with
+                        | None => raise "unreachable"%string
+                        | Some k => ret (k, xs, replaceAllCalls ks'' e)
+                      end) ks' ;;
+                  ret (LetK_e ks' (replaceAllCalls ks'' e'))
+                | Fn_d v ks xs e :: ds =>
+                  match contifiable v conts escape_vars with
+                    | None =>
+                      (** can't contify **)
+                      ret (Letrec_e ds' e')
+                    | Some args =>
+                      continue ds ((v, xs, e) :: ks')
+                  end
+                | _ => raise "unreachable"%string
+              end) ds' nil
         | LetK_e ks e =>
           ks' <- mapM (fun kxse => let '(k,xs,e) := kxse in
             e' <- contify_exp e ;;
@@ -223,11 +296,11 @@ Module Contify.
         with
         | inl _ => tt
         | inr x => 
-          let res := CpsKConvert.CPS_pure x in
+          let res := CpsKConvert.CPS_pure x in res (*
           match res with
             | Letrec_e (d :: nil) e => Let_e d e
             | _ => res
-          end
+          end *)
       end.
 
     Eval vm_compute in to_string simple_cps.

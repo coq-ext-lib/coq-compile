@@ -182,7 +182,6 @@ Section maps.
      *  e: remaining exp
      *  returns: a tuple variable and its size if its dead and can be used for a destructive update
      *)
-    Print var.
     Definition updateable (size : nat) (v : var) (e : exp) : m (option (var * nat)) :=
       tup_vars <- get (MonadState := TupVars_m) ;;
       match live with
