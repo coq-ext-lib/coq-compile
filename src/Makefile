@@ -14,18 +14,21 @@ TVS        := $(TESTS:%=%.v)
 
 ARGS :=-R . CoqCompile -R ../coq-ext-lib/theories ExtLib
 
-.PHONY: coq clean runtime test
+.PHONY: clean runtime test
 
-coq: Makefile.coq
-	$(MAKE) -f Makefile.coq
+.coq-done: $(VS)
+	@ $(MAKE) -f Makefile.coq
+	@ touch .coq-done
 
-extraction: coq
-	coqc $(ARGS) Extraction.v	
+coq: .coq-done
 
-compiler: extraction
+Extraction.vo: .coq-done
+	coqc $(ARGS) Extraction.v
+
+compiler: Extraction.vo
 	cd Extraction/; ocamlbuild -lib unix Wrapper.byte
 
-semantics : extraction
+semantics : Extraction.vo
 	cd Extraction/; ocamlbuild -lib unix CpsKInterpTL.byte
 
 Makefile.coq: Makefile $(VS)
