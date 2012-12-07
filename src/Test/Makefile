@@ -36,7 +36,7 @@ runtime:
 
 Ident: runtime Ident.v
 	coqc Ident.v
-	../Extraction/Wrapper.byte -O0 -i Ident -t call_ident -o ident.ll
+	../Extraction/Wrapper.byte -O1 -i Ident -t call_ident -o ident.ll
 	llvm-link coqrt.ll ident.ll -S -o ident-coqrt.ll
 	opt -S ident-coqrt.ll -o ident-opt.ll
 	llc ident-opt.ll -o ident-opt.s
@@ -44,7 +44,7 @@ Ident: runtime Ident.v
 
 Fact: runtime Fact.v
 	coqc Fact.v
-	../Extraction/Wrapper.byte -O0 -i Fact -t fact6 -o fact.ll
+	../Extraction/Wrapper.byte -O1 -i Fact -t fact6 -o fact.ll
 	llvm-link coqrt.ll fact.ll -S -o fact-coqrt.ll
 	opt -S fact-coqrt.ll -o fact-opt.ll
 	llc fact-opt.ll -o fact-opt.s
@@ -52,7 +52,7 @@ Fact: runtime Fact.v
 
 TRFact: runtime Fact.v
 	coqc Fact.v
-	../Extraction/Wrapper.byte -O0 -i Fact -t tr_fact6 -o trfact.ll
+	../Extraction/Wrapper.byte -O1 -i Fact -t tr_fact6 -o trfact.ll
 	llvm-link coqrt.ll trfact.ll -S -o trfact-coqrt.ll
 	opt -S trfact-coqrt.ll -o trfact-opt.ll
 	llc trfact-opt.ll -o trfact-opt.s
@@ -60,7 +60,7 @@ TRFact: runtime Fact.v
 
 True: runtime Even.v
 	coqc Even.v
-	../Extraction/Wrapper.byte -O0 -i Even -t true -o true.ll
+	../Extraction/Wrapper.byte -O1 -i Even -t true -o true.ll
 	llvm-link coqrt.ll true.ll -S -o true-coqrt.ll
 	opt -S true-coqrt.ll -o true-opt.ll
 	llc true-opt.ll -o true-opt.s
@@ -68,7 +68,7 @@ True: runtime Even.v
 
 False: runtime Even.v
 	coqc Even.v
-	../Extraction/Wrapper.byte -O0 -i Even -t false -o false.ll
+	../Extraction/Wrapper.byte -O1 -i Even -t false -o false.ll
 	llvm-link coqrt.ll false.ll -S -o false-coqrt.ll
 	opt -S false-coqrt.ll -o false-opt.ll
 	llc false-opt.ll -o false-opt.s
@@ -76,7 +76,7 @@ False: runtime Even.v
 
 GC: runtime Even.v
 	coqc Even.v
-	../Extraction/Wrapper.byte -O0 -i Even -t gc_test -o gc.ll
+	../Extraction/Wrapper.byte -O1 -i Even -t gc_test -o gc.ll
 	llvm-link coqrt.ll gc.ll -S -o gc-coqrt.ll
 	opt -S gc-coqrt.ll -o gc-opt.ll
 	llc gc-opt.ll -o gc-opt.s
@@ -84,23 +84,15 @@ GC: runtime Even.v
 
 HelloWorld: runtime HelloWorld.v
 	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib HelloWorld.v
-	../Extraction/Wrapper.byte -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i HelloWorld -t main -o helloworld.ll
+	../Extraction/Wrapper.byte -O1 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i HelloWorld -t main -o helloworld.ll
 	llvm-link coqrt.ll helloworld.ll -S -o helloworld-coqrt.ll
 	opt -S helloworld-coqrt.ll -o helloworld-opt.ll
 	llc helloworld-opt.ll -o helloworld-opt.s
 	clang -lrt helloworld-opt.s shadowstack.o -o helloworld.native
 
-HelloWorld2: runtime HelloWorld2.v
-	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib HelloWorld2.v
-	../Extraction/Wrapper.byte -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i HelloWorld2 -t main -o helloworld2.ll
-	llvm-link coqrt.ll helloworld2.ll -S -o helloworld2-coqrt.ll
-	opt -S helloworld2-coqrt.ll -o helloworld2-opt.ll
-	llc helloworld2-opt.ll -o helloworld2-opt.s
-	clang -lrt helloworld2-opt.s shadowstack.o -o helloworld2.native
-
 IOFact: runtime IOFact.v
 	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib IOFact.v
-	../Extraction/Wrapper.byte -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IOFact -t main -o iofact.ll
+	../Extraction/Wrapper.byte -O1 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IOFact -t main -o iofact.ll
 	llvm-link coqrt.ll iofact.ll -S -o iofact-coqrt.ll
 	opt -S iofact-coqrt.ll -o iofact-opt.ll
 	llc iofact-opt.ll -o iofact-opt.s
@@ -108,14 +100,14 @@ IOFact: runtime IOFact.v
 
 IONat: runtime IONat.v
 	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib IONat.v
-	../Extraction/Wrapper.byte -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IONat -t main -o ionat.ll
+	../Extraction/Wrapper.byte -O1 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IONat -t main -o ionat.ll
 	llvm-link coqrt.ll ionat.ll -S -o ionat-coqrt.ll
 	opt -S ionat-coqrt.ll -o ionat-opt.ll
 	llc ionat-opt.ll -o ionat-opt.s
 	clang -lrt ionat-opt.s shadowstack.o -o ionat.native
 
 Compiler: runtime Compiler.v
-	../Extraction/Wrapper.byte -O0 -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -e Compiler.scheme -q -o compiler.ll
+	../Extraction/Wrapper.byte -O1 -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -e Compiler.scheme -q -o compiler.ll
 	llvm-link rt.ll compiler.ll -S -o compiler-rt.ll
 	opt -S compiler-rt.ll -o compiler-opt.ll
 	llc compiler-opt.ll -o compiler-opt.s
