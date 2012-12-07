@@ -380,7 +380,14 @@ The current back-end stack allocates continuation environments so it is desireab
 
 The pass is similar in structure to dead-code elimination and proceeds bottom up. Escaping values (i.e. values placed in tuples or closed over by local functions) are recorded in addition to a mapping from function names to the list of continuation arguments they are applied to. At a declaration for function \lstinline!f! we can contify \lstinline!f! if it does not escape and all application occurances are applied with the same continuation arguments. 
 
-\section*{Future}
+\section*{Experiences \& The Future}
+The development process in Coq has been interesting and instructive. Throughout the course of development we have noticed a number of issues that make ext-lib~\cite{coq-ext-lib} more difficult to program with than, for example, the Haskell libraries. 
+
+The benefits to using Coq is the existance of incremental development strategies such as \coqe{refine} that allow you to see the context at any point. In addition the tight integration of the interpreter makes it reasonably easy to test code.
+
+The cons to Coq development, however, are numerous. To be feasible for rapid development, ext-lib would require numerous changes but even with these changes it is difficult to recommend Coq as a opposed to a more traditional language. While things seem to work when they are correct, error messages for type-class resolution are either non-existant (type class resolution essentially diverges) or incredibly opaque. \coqe{refine} helps this to a limited extent. The use of the fixpoint monad (from ext-lib) drastically reduces the problem of general recursion.
+
+
 We plan to make the entire repository publically avaialable on GitHub under and organization so that it has communal ownership from all of its collaborators.
 
 %% A similar algorithm applies to recursive function declarations but we have to handle the problem of renamed continuations. We assume let-factoring (not implemented) so we only consider the problem of contifying the entire set of declarations. 
