@@ -253,16 +253,17 @@ Module ClosureConvert.
             ksF      <- mapM freshCont ks ;;
             vsF      <- mapM freshFor vs ;;
             env_varF <- fresh "env" ;;
+            env_var_F <- fresh "env" ;;
             e <- buildClosures (Var_o env_varF) func_names Fcode_names
                  (** for recursive tuples, indexing starts at 0 since the environment is unboxed **)
-                 (unpackEnv (Var_o env_varF) env 0 
+                 (unpackEnv (Var_o env_var_F) env 0 
                  (withConts ks ksF
                  (withVars vs vsF (cloconv_exp' e)))) ;;
             (** get my code name **)
             match Maps.lookup v funcCodeNames with
               | None => raise "Function name not found"%string
               | Some cptr =>
-                liftDecl (Fn_d cptr ksF (env_varF :: vsF) e) ;;
+                liftDecl (Fn_d cptr ksF (env_varF :: vsF) (Let_e (Prim_d env_var_F Proj_p ((Int_o (PreOmega.Z_of_nat' 1)) :: (Var_o env_varF) :: nil)) e)) ;;
                 wrapF <- freshFor v ;;
                 ksF      <- mapM freshCont ks ;;
                 vsF      <- mapM freshFor vs ;;
@@ -276,7 +277,7 @@ Module ClosureConvert.
           | _ => ret None
         end) ds ;;
       let Fwrap_names : list var := filter_map (fun x => x) Fwrap_names in
-      
+
       Ftuple_names <- mapM freshFor tuple_names ;;
       Fclosure_names <- mapM freshFor func_names ;;
 
