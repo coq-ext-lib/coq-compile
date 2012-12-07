@@ -4,6 +4,7 @@
 \usepackage{fullpage}
 \usepackage{hyperref}
 \usepackage{color}
+\usepackage{amsmath}
 
 \lstset{mathescape=true,basicstyle=\small,frame=lines}
 
@@ -103,18 +104,59 @@ My hope is that some of these implementation issues are mitigated by our purely-
 \section{Abstract Interpretation}
 \label{sec:abstract-interp}
 
+We implemented a Horn-style ~\cite{van2010abstracting} abstract interpreter for the CpsK language. We parameterize it over an abstract domain so it can be instantiated different domains to perform different analyses. We show the abstract domain in Figure~\ref{fig:absinterp}.
 
+\begin{figure}
+\centering
+\begin{minipage}[t]{.2\textwidth}
+\begin{align*}
+C: & \text{Context} \\
+PP: & \text{Program point} \\
+\hat{V}: & \text{Abstract values} \\
+D: & \text{Domain}
+\end{align*}
+\end{minipage}
+\hspace{20pt}
+\begin{minipage}[t]{.43\textwidth}
+\begin{lstlisting}
+Class AbsDomain : Type :=
+{ lookup  : C -> PP -> D -> V
+; update  : C -> PP -> V -> D -> D
+; joinA   : D -> D -> D
+; bottomA : V 
+; topA    : V 
+; dom_leq : D -> D -> bool
+}.
+\end{lstlisting}
+\end{minipage}
+\caption{Select parameters of the abstract interpreter.}
+\label{fig:absinterp}
+\end{figure}
+
+\begin{figure}
+\begin{align*}
+& p \in PP, i \in Z, c \in \text{str}, k \in \text{cont}, x \in \text{var}, e \in \text{exp}, \ell \in \text{loc} \\
+C := & \;\; \text{unit} \\
+PP := & \;\; \text{var} + \text{cont} \\
+\hat{v} ::= & \;\; \texttt{Int}(i) \;\; | \;\; \texttt{Constructor}(c) \;\; | \;\; \texttt{Loc}(\ell) \;\; | \;\; \texttt{Closure}(p, \lambda \vec{k} \vec{x}. e) \\
+\hat{V}::= & \;\; \texttt{Any} \;\; | \;\; [\hat{v}_1, \hdots, \hat{v}_n] \\
+D: & \;\; \{{\tt env}: PP \rightarrow \hat{V} L ; \;\;\; {\tt heap}: \text{loc} \rightarrow [\hat{V}_1, \hdots, \hat{V}_n] \}
+\end{align*}
+\caption{Instantiation of abstract domain for 0-CFA.}
+\label{fig:cfa0}
+\end{figure}
+For 0-CFA for our CpsK language (Figure~\ref{fig:cfa0}), we can treat program points as either a variable or continuation since they are uniquely named. Furthermore, we can treat abstract locations as just a variable name. 
 
 \section{Destructive Updates}
 \label{sec:destructive-updates}
 
-We focused on optimizing the state monad. The main idea is to destructively update the previous state, instead of allocating new space. We assume that previous optimization passes will inline the definitions of bind to expose tuples that can be updated destructively. We based our optimization loosely off the ideas described by Dimoulas and Wand~\cite{dimoulas2009higher}, which presents an algorithm for detecting and transforming higher-order programs to use destructive updates. We summarize the optimization below. 
+The main idea of a destructive update is to reuse previously allocated space instead of allocating new space if we can prove that all pointers to the old space are dead. One interesting application of this optimization is for programs that use the state monad. After an inlining pass inlines the definitions of bind to expose the state tuples explicitly, we can destructively update state that is threaded through the program instead of allocating new space for each bind. We based our optimization off the ideas described by Dimoulas and Wand in ~\cite{dimoulas2009higher}, which presents an algorithm for detecting and transforming higher-order programs to use destructive updates. We summarize the optimization below. 
 
 \begin{itemize}
-\item Perform control flow analysis ${\tt cfa} : {\rm CpsK.exp} \rightarrow (PP \rightarrow \mathcal{P}(\hat{v}))$. 
-\item Perform reachability analysis ${\tt reach} : (PP \rightarrow \mathcal{P}(\hat{v})) \rightarrow (PP \rightarrow {\rm set} \; PP)$, using the result of the CFA, to compute for each program point the set of program points that flow to it.
-\item Perform liveness analysis ${\tt live} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow (PP \rightarrow {\rm set} \; PP)$, using the reachability analysis, to compute for each program point, the set of variables that are live (in use) at the point.
-\item Transform program ${\tt dupate} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow {\rm Low.program}$, using the live variable map to compute which variables can be destructively updated. Figures ~\ref{fig:dupdate1} ~\ref{fig:dupdate2} ~\ref{fig:dupdate3} demonstrate the results of running our optimization.
+\item Perform control flow analysis ${\tt cfa} : {\rm CpsK.exp} \rightarrow (PP \rightarrow \mathcal{P}(\hat{V}))$ using abstract interpretation. 
+\item Perform reachability analysis ${\tt reach} : (PP \rightarrow \mathcal{P}(\hat{v})) \rightarrow (PP \rightarrow {\rm set} \; PP)$ using the result of the CFA, to compute for each program point the set of program points that flow to it (i.e., transitive closure on the domain produced by CFA).
+\item Perform liveness analysis ${\tt live} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow (PP \rightarrow {\rm set} \; PP)$. We use the reachability analysis to compute for a given program point, which variables reach definitions in the rest of the expression to determine which variables are still live. 
+\item Transform program ${\tt dupate} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow {\rm Low.program}$. During lowering from a CpsK program to a Low program, we keep around a set of tuple variables in scope. When we encounter a {\tt MkTuple} operation, we check to see if there is a tuple variable in scope that is dead. If so, we perform a destructive update by reusing to the dead variable instead of calling {\tt malloc}. Figures ~\ref{fig:dupdate1} ~\ref{fig:dupdate2} ~\ref{fig:dupdate3} demonstrate the results of running our optimization.
 \end{itemize}
 
 \begin{figure}
@@ -143,9 +185,9 @@ l1(inscope: ; args: ):
 }
 \end{lstlisting}
 \end{minipage}
-\label{fig:dupdate1}
 \caption{In this example, only the last variable z is
    used. Consequently, we can write y into x, and z into y. }
+\label{fig:dupdate1}
 \end{figure}
 
 \begin{figure}
@@ -178,10 +220,10 @@ l1(inscope: ; args: ):
 }
 \end{lstlisting}
 \end{minipage}
-\label{fig:dupdate2}
 \caption{In this example, w can destructively update y since y is
   dead. The variable y could not use x because a future program point
   w uses it. At program point z, w is dead, so z can update w. }
+\label{fig:dupdate2}
 \end{figure}
 
 \begin{figure}
@@ -215,10 +257,10 @@ l1(inscope: ; args: ):
 }
 \end{lstlisting}
 \end{minipage}
-\label{fig:dupdate3}
 \caption{In this example, w destructively updates y since y is
   dead. At program point z, we must allocate since both w and x are
   being used, and w is already using y. }
+\label{fig:dupdate3}
 \end{figure}
 
 %Peforming optimizations for monadic computation will involve two
