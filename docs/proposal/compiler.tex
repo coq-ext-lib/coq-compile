@@ -230,7 +230,7 @@ The main idea of a destructive update is to reuse previously allocated memory in
 
 \begin{itemize}
 \item Perform control flow analysis ${\tt cfa} : {\rm CpsK.exp} \rightarrow (PP \rightarrow \mathcal{P}(\hat{V}))$ using abstract interpretation. 
-\item Perform reachability analysis ${\tt reach} : (PP \rightarrow \mathcal{P}(\hat{v})) \rightarrow (PP \rightarrow {\rm set} \; PP)$ using the result of the CFA, to compute for each program point the set of program points that flow to it (i.e., transitive closure on the domain produced by CFA).
+\item Perform reachability analysis ${\tt reach} : (PP \rightarrow \mathcal{P}(\hat{V})) \rightarrow (PP \rightarrow {\rm set} \; PP)$ using the result of the CFA, to compute for each program point the set of program points that flow to it (i.e., transitive closure on the domain produced by CFA).
 \item Perform liveness analysis ${\tt live} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow (PP \rightarrow {\rm set} \; PP)$. We use the reachability analysis to compute for a given program point, which variables reach definitions in the rest of the expression to determine which variables are still live. 
 \item Transform program ${\tt dupate} : {\rm CpsK.exp} \rightarrow (PP \rightarrow {\rm set} \; PP) \rightarrow {\rm Low.program}$. During lowering from a CpsK program to a Low program, we keep around a set of tuple variables in scope. When we encounter a {\tt MkTuple} operation, we check to see if there is a tuple variable in scope that is dead. If so, we perform a destructive update by reusing the dead variable instead of calling {\tt malloc}. Figures ~\ref{fig:dupdate1} ~\ref{fig:dupdate2} ~\ref{fig:dupdate3} demonstrate the results of running our optimization.
 \end{itemize}
@@ -466,8 +466,7 @@ A similar algorithm applies to recursive function declarations though we have no
 %% \section{Garbage Collection}
 %% \label{sec:gc}
 
-\bibstyle{natbib}
-
-\bibliography{bib}
+\bibliographystyle{natbib}
+\bibliography{bib}{}
 
 \end{document}
