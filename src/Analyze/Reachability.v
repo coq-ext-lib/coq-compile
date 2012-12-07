@@ -216,7 +216,8 @@ Section monadic.
     catch (
       domain <- cfa_n _ 0 e fuel ;;
       let sanitized := sanitize (env _ domain) in
-      match reachable sanitized Maps.empty fuel with
+      let sanitized_heap := sanitize (heap _ domain) in
+      match reachable sanitized sanitized_heap fuel with
         | None => raise "reachable ran out of fuel"%string
         | Some dom' =>
         let live := live_exp dom' e Maps.empty in
@@ -434,12 +435,12 @@ Module TEST_REACHABLE.
 
   Definition ident_cpsk : CPSK.exp :=
     Eval vm_compute in
-      match test5_lam as plus_e return match plus_e with
+      match ident_lam as plus_e return match plus_e with
                                          | inl _ => unit
                                          | inr x => CPSK.exp
                                        end with
         | inl _ => tt
-        | inr e => CpsKConvert.CPS_pure e 
+        | inr e => (CpsKConvert.CPS_pure e) 
       end.
 
   Section monadic.
@@ -453,7 +454,15 @@ Module TEST_REACHABLE.
     Context {Trace_m : MonadTrace string m}.
     Context {Exc_m : MonadExc string m}.
 
+    Require Import CoqCompile.CloConvK.
+    Require Import CoqCompile.Low.
+    Require Import CoqCompile.CpsK2Low.
+    Definition ident_cc : m (list decl * exp) :=
+      CloConvK.ClosureConvert.cloconv_exp ident_cpsk.
+
     Definition ident_reach : m D :=
+      ident_cpsk <- ident_cc ;;
+      let ident_cpsk := Letrec_e (fst ident_cpsk) (snd ident_cpsk) in
       dom <- cfa_n m 0 ident_cpsk 10 ;; 
       let dom' := reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 10 in
       match dom' with
@@ -461,13 +470,26 @@ Module TEST_REACHABLE.
         | None => raise "reachable: out of fuel"%string
       end.
     
-    Definition ident_live : m (alist (var + cont) (lset (@eq (var + cont)))) :=
+    Definition ident_live : m (alist (var + CPSK.cont) (lset (@eq (var + CPSK.cont)))) :=
+      ident_cpsk <- ident_cc ;;
+      let ident_cpsk := Letrec_e (fst ident_cpsk) (snd ident_cpsk) in
       reach <- ident_reach ;;
       ret (live_exp reach ident_cpsk Maps.empty).
+
+    Definition ident_low : m Low.program :=
+      live <- ident_live ;;
+      ident_cc <- ident_cc ;;
+      cpsk2low_dupdate _ live (fst ident_cc) (snd ident_cc).
 
   End monadic.
 
   Require Import ExtLib.Data.Monads.IdentityMonad.
+  Eval vm_compute in to_string (CloConvK.ClosureConvert.cloconv_exp ident_cpsk).
+  Eval vm_compute in 
+    match (traceTraceT (ident_low _)) with
+      | inl err => err
+      | inr dom => to_string dom
+    end.
   Eval vm_compute in 
     match (traceTraceT (ident_reach _)) with
       | inl err => err
@@ -478,16 +500,6 @@ Module TEST_REACHABLE.
       | inl err => err
       | inr dom => to_string dom
     end.
-
-  Eval vm_compute in to_string ident_cpsk.
-  Time Eval vm_compute in to_string ident_reach.
-
-    Definition ident_reach :=
-      let '(r, tr) := cfa_n _ 0 ident_cpsk 10 in
-        match r with
-          | inl err => inl err
-          | inr dom => inr (reachable (sanitize (env _ dom)) (sanitize (heap _ dom)) 10)
-        end.
 
   
 (*
@@ -573,5 +585,4 @@ Module TEST_REACHABLE.
 *)
 
 End TEST_REACHABLE.
-
 *)

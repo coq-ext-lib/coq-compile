@@ -172,19 +172,20 @@ Section maps.
      *  e: remaining exp
      *  returns: a tuple variable and its size if its dead and can be used for a destructive update
      *)
-    Definition updateable (size : nat) (v : Env.var) (e : exp) : m (option (Env.var * nat)) :=
-      tup_vars <- get ;;
+
+    Definition updateable (size : nat) (v : var) (e : exp) : m (option (var * nat)) :=
+      tup_vars <- get (MonadState := TupVars_m) ;;
       match live with
-        | Some live =>
-          match Maps.lookup (inl v) live with 
+        | Some live' =>
+          match Maps.lookup (K := var + cont) (inl v) live' with 
             | Some live_set =>
-              let live_set := fold (fun x acc => 
+              let live_set : (lset (@eq Env.var)) := fold (fun x acc => 
                 match x with
                   | inl v => Sets.add v acc
                   | inr _ => acc
                 end) Sets.empty live_set in
               let usable_vars := Sets.difference tup_vars live_set in
-              let rando := fold (fun x acc => 
+              let rando := fold (fun (x:var) acc => 
                 match acc with
                   | Some v => Some v
                   | None => 
@@ -196,9 +197,9 @@ Section maps.
                 end) None usable_vars in
               match rando with
                 | None => put (Sets.add v tup_vars) ;; ret None
-                | Some (v,n) => 
-                  put (Sets.remove v tup_vars) ;;
-                  ret (Some (v,n))
+                | Some (v',n) =>
+                  put (Sets.remove v' tup_vars) ;;
+                  ret (Some (v',n))
               end
             | None => put (Sets.add v tup_vars) ;; ret None
           end
