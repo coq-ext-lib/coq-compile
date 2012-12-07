@@ -314,7 +314,7 @@ l1(inscope: ; args: ):
 \end{lstlisting}
 \centering (c)
 \end{minipage}
-\caption{In example (a), only the last variable z is used. Consequently, we can write y into x, and z into y. In example (b), we can destructively update y since y is dead. The variable y could not use x because a future program point w uses it. At program point z, w is dead, so z can update w. In example (c), we destructively updates y since y is dead. At program point z, we must allocate since both w and x are being used, and w is already using y. }
+\caption{In example (a), only the last variable z is used. Consequently, we can write y into x, and z into y. In example (b), we can destructively update y since y is dead. The variable y could not use x because a future program point w uses it. At program point z, w is dead, so z can update w. In example (c), we destructively updates y since y is dead. At program point z, we must allocate since both w and x are being used, and w is already using y. Note that our analysis does not remove dead values from the code, so z is still allocated in this example. }
 \label{fig:dupdate}
 \end{figure}
 
