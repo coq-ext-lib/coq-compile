@@ -43,7 +43,7 @@ Distinguished continutations are handled efficiently by our compiler enabling us
 The driver is built from using standard Coq extraction to ML to provide an efficient way to run the top-level compiler. For example, we can compile and run the standard HelloWorld program using the following command line:
 
 \begin{verbatim}
-$ ./Wrapper.byte - ...
+$ ./compile.native - ...
 $ ./helloworld.native
 Hello World!
 \end{verbatim}
@@ -55,7 +55,7 @@ In in addition to the driver, we also have an interpreter for our CpsK language.
 \vspace{10pt}
 \begin{minipage}[t]{.55\textwidth}
 \begin{verbatim}
-$./Extraction/CpsKInterpTL.byte -n 1000 -i Even 
+$./Extraction/interp.native -n 1000 -i Even 
 -t main -o even.res
 Input: Even
 Term: main
