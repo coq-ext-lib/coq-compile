@@ -16,7 +16,7 @@ ARGS :=-R . CoqCompile -R ../coq-ext-lib/theories ExtLib
 
 .PHONY: clean runtime test
 
-.coq-done: $(VS)
+.coq-done: Makefile.coq
 	@ $(MAKE) -f Makefile.coq
 	@ touch .coq-done
 
@@ -48,10 +48,11 @@ test-gc: coq compiler runtime
 	$(MAKE) -C Test test-gc
 
 clean:: Makefile.coq
-	$(MAKE) -f Makefile.coq clean
-	$(MAKE) -C Runtime clean
-	$(MAKE) -C Test clean
-	rm -f Makefile.coq .depend
+	@ rm -f .coq-done
+	@ $(MAKE) -f Makefile.coq clean
+	@ $(MAKE) -C Runtime clean
+	@ $(MAKE) -C Test clean
+	@ rm -f Makefile.coq .depend
 
 admit:
 	@ grep -n -e 'admit' -e 'Admitted' -e 'Parameter' ${VS}

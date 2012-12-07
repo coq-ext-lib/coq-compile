@@ -253,8 +253,8 @@ Module ClosureConvert.
             ksF      <- mapM freshCont ks ;;
             vsF      <- mapM freshFor vs ;;
             env_varF <- fresh "env" ;;
-            env_var_F <- fresh "env" ;;
-            e <- buildClosures (Var_o env_varF) func_names Fcode_names
+            env_var_F <- fresh "env" ;; 
+            e <- buildClosures (Var_o env_var_F) func_names Fcode_names
                  (** for recursive tuples, indexing starts at 0 since the environment is unboxed **)
                  (unpackEnv (Var_o env_var_F) env 0 
                  (withConts ks ksF
@@ -263,7 +263,10 @@ Module ClosureConvert.
             match Maps.lookup v funcCodeNames with
               | None => raise "Function name not found"%string
               | Some cptr =>
-                liftDecl (Fn_d cptr ksF (env_varF :: vsF) (Let_e (Prim_d env_var_F Proj_p ((Int_o (PreOmega.Z_of_nat' 1)) :: (Var_o env_varF) :: nil)) e)) ;;
+                liftDecl (Fn_d cptr ksF (env_varF :: vsF) 
+                            (Let_e (Prim_d env_var_F Proj_p (Int_o (PreOmega.Z_of_nat' 1) :: Var_o env_varF :: nil))
+                                   e)) ;;
+(*
                 wrapF <- freshFor v ;;
                 ksF      <- mapM freshCont ks ;;
                 vsF      <- mapM freshFor vs ;;
@@ -273,6 +276,8 @@ Module ClosureConvert.
                   (Let_e (Prim_d tmpF Proj_p (Int_o (PreOmega.Z_of_nat' 1) :: Var_o env_varF :: nil))
                     (App_e (Var_o cptr) ksF (Var_o tmpF :: map Var_o vsF)))) ;;
                 ret (Some wrapF)
+*)
+                ret (Some cptr)
             end
           | _ => ret None
         end) ds ;;

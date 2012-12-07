@@ -231,7 +231,7 @@ Section CPSEVAL.
       | Bind_d x w m vs => 
         vs' <- mapM (eval_op env) vs ;;
         sideEffect m vs' ;;
-        ret env (** TODO **)
+        ret (extend (extend env (inl w) (Con_v "Tt")) (inl x) (Con_v "Tt"))
     end.
 
   Definition eval_cont (env:alist (var + cont) value) (k:cont) : m value :=
@@ -326,13 +326,16 @@ Section CPSEVAL.
       | inr (ds,e) => inr (Letrec_e ds e)
     end.
 
-  Definition evalstr (n:N) (io cc : bool) (s:string) : string + (list value * heap * list (mop * list value)) := 
-    parse <- Parse.parse_topdecls s ;;
-    let cps := if io then CPS_io parse else CPS_pure parse in
-    let program := if cc then cloconv cps else inr cps in
-    match program with
-      | inl err => inl err
-      | inr exp => eval n exp
+  Definition evalstr (n:N) (io cc : bool) (s:string) : string * (string + (list value * heap * list (mop * list value))) := 
+    match Parse.parse_topdecls s with
+      | inl e => (s, inl e)
+      | inr parse =>
+        let cps := if io then CPS_io parse else CPS_pure parse in
+        let program := if cc then cloconv cps else inr cps in
+        match program with
+          | inl err => (to_string program, inl err)
+          | inr exp => (to_string program, eval n exp)
+        end
     end.
 
   (*

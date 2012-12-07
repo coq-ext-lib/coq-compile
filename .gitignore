@@ -8,3 +8,4 @@ coq-ext-lib
 .dir-locals.el
 deps.dot
 deps.pdf
+.coq-done
