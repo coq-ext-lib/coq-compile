@@ -11,7 +11,7 @@ let dupdate = ref false
 let comp_args = ref ""
 let lit = ref (None : string option)
 let quiet = ref false
-let to_low = ref false
+let stop = ref Compile.Compile.LLVM_stop
 
 let params =
   [("-o" , Arg.String (fun s -> output := s), "<file> Place output into <file>");
@@ -25,7 +25,10 @@ let params =
    ("-O1", Arg.Unit (fun () -> opt := Compile.Compile.Opt.coq_O1), " Optimizer Level 1");
    ("-O2", Arg.Unit (fun () -> opt := Compile.Compile.Opt.coq_O2), " Optimizer Level 2");
    ("-io", Arg.Unit (fun () -> io := true), " Wrapping with IO monad");
-   ("-emit-low", Arg.Unit (fun () -> to_low := true), " Generate low instead of llvm");
+   ("-stop", Arg.String (fun s -> if s = "llvm" then stop := Compile.Compile.LLVM_stop else 
+			          if s = "low" then stop := Compile.Compile.Low_stop else
+				  if s = "cc" then stop := Compile.Compile.Clo_stop else
+				  assert false), "Stage to stop at");
    ("-dupdate", Arg.Unit (fun () -> dupdate := true), " Use destructive updates");
    ("-arg", Arg.String (fun s -> comp_args := !comp_args ^ " " ^ s), " Parameters to pass to coqc")
  ];;
@@ -34,7 +37,7 @@ let anon = (fun x -> failwith "Bad argument")
 
 let compile_from_str source =
   if not !quiet then print_string source ;
-  match Compile.topcompile !opt !io (explode source) !to_low !dupdate with
+  match Compile.topcompile !opt !io (explode source) !stop !dupdate with
     | Compile.Inl s -> print_endline (implode s) 
     | Compile.Inr assembly -> 
 	let out_ref = open_out !output in
