@@ -266,12 +266,34 @@ Module Contify.
     Require Import CoqCompile.Parse.
 
 (*
-    Definition f x := S x.
-    Definition main := (f, f 1).
+    Fixpoint even (x : nat) :=
+      match x with
+        | 0 => true
+        | S n => odd n
+      end
+    with odd (x : nat) :=
+      match x with
+        | 0 => false
+        | S n => even n
+      end.
+    Definition main := even 1.
 
     Extraction Language Scheme.
     Recursive Extraction main.
 *)
+
+    Definition even :=
+      "(define even (lambda (x)
+  (match x
+     ((O) `(True))
+     ((S n) (odd n)))))
+  
+(define odd (lambda (x)
+  (match x
+     ((O) `(False))
+     ((S n) (even n)))))
+  
+(define main (even `(S ,`(O))))"%string.
 
     Definition simple :=
       "(define f (lambda (x) `(S ,x)))
@@ -329,6 +351,30 @@ Module Contify.
 
     Eval vm_compute in to_string simple_no_cps.
     Eval vm_compute in to_string (contify simple_no_cps).
+
+    Definition even_lam := 
+      Eval vm_compute in
+      Parse.parse_topdecls even.
+
+    Definition even_cps : CPSK.exp :=
+      Eval vm_compute in
+      match even_lam as parsed return match parsed with
+                                      | inl _ => unit
+                                      | inr _ => CPSK.exp 
+                                    end
+        with
+        | inl _ => tt
+        | inr x => 
+          let res := CpsKConvert.CPS_pure x in res (*
+          match res with
+            | Letrec_e (d :: nil) e => Let_e d e
+            | _ => res
+          end *)
+      end.
+
+    Eval vm_compute in to_string even_cps.
+    Eval vm_compute in to_string (contify even_cps).
+
 
   End TESTS.
 *)    
