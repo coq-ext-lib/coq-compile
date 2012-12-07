@@ -126,7 +126,7 @@ Section CPSEVAL.
     end.
 
   (** Evaluate the primops given closed values *)      
-  Definition eval_primop (p:primop) (vs: list value) : m value :=
+  Definition eval_primop (p:primop) (vs: list value) (d: decl) : m value :=
     match p, vs with 
       | Eq_p, (Int_v i)::(Int_v j)::nil => ret (if eq_dec i j then (Con_v "True") else (Con_v "False"))
       | Eq_p, (Con_v i)::(Con_v j)::nil => ret (if eq_dec i j then (Con_v "True") else (Con_v "False"))
@@ -150,10 +150,10 @@ Section CPSEVAL.
             (** Check that [v] is a tuple *)
           | Tuple_v vs => 
             match nth_error vs (Z.abs_nat i) with 
-              | None => raise "projection out of bounds"
+              | None => raise ("projection out of bounds: " ++ to_string d)%string 
               | Some v => ret v
             end
-          | _ => raise "projection from non-tuple"
+          | _ => raise ("projection from non-tuple: " ++ to_string d)%string
         end
       | _, _ => 
         let pop := to_string p in
@@ -226,12 +226,12 @@ Section CPSEVAL.
         ret (extend env (inl f) p)
       | Prim_d x p vs => 
         vs' <- mapM (eval_op env) vs ;;
-        v <- eval_primop p vs' ;;
+        v <- eval_primop p vs' d ;;
         ret (extend env (inl x) v)
       | Bind_d x w m vs => 
         vs' <- mapM (eval_op env) vs ;;
         sideEffect m vs' ;;
-        ret env (** TODO **)
+        ret (extend (extend env (inl w) (Con_v "Tt")) (inl x) (Con_v "Tt"))
     end.
 
   Definition eval_cont (env:alist (var + cont) value) (k:cont) : m value :=
@@ -318,9 +318,25 @@ Section CPSEVAL.
 
   Require Import CoqCompile.Parse.
   Require Import CoqCompile.CpsKConvert.
-  Definition evalstr (n:N) (s:string) : string + (list value * heap * list (mop * list value)) := 
-    parse <- Parse.parse_topdecls s ;;
-    eval n (CPS_pure parse).
+  Require CoqCompile.CloConvK.
+
+  Definition cloconv (e : exp) : string + exp :=
+    match CloConvK.ClosureConvert.cloconv_exp e with
+      | inl err => inl err
+      | inr (ds,e) => inr (Letrec_e ds e)
+    end.
+
+  Definition evalstr (n:N) (io cc : bool) (s:string) : string * (string + (list value * heap * list (mop * list value))) := 
+    match Parse.parse_topdecls s with
+      | inl e => (s, inl e)
+      | inr parse =>
+        let cps := if io then CPS_io parse else CPS_pure parse in
+        let program := if cc then cloconv cps else inr cps in
+        match program with
+          | inl err => (to_string program, inl err)
+          | inr exp => (to_string program, eval n exp)
+        end
+    end.
 
   (*
     Section TEST_EVAL.

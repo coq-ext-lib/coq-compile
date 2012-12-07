@@ -131,54 +131,82 @@ Module Compile.
     Global Instance Show_lam : Show Lambda.exp :=
     { show := fun x => "todo"%string }.
 
-    Definition topCompile (io : bool) (e:Lambda.exp) (stop_at_low : bool) (dupdate : bool) 
-      : m match stop_at_low with
-            | true => Low.program
-            | false => LLVM.module
+    Inductive CompileTo : Type :=
+    | Lam_stop
+    | Cps_stop
+    | Clo_stop
+    | Opt_stop
+    | Low_stop
+    | LLVM_stop.
+
+    Definition topCompile (io : bool) (e:Lambda.exp) (stop_at : CompileTo) (dupdate : bool) 
+      : m match stop_at with
+            | Lam_stop => Lambda.exp
+            | LLVM_stop => LLVM.module
+            | Low_stop => Low.program
+            | _ => CPSK.exp
           end :=
       mctor <- makeCtorMap e ;;
       cps_e <- phase "CpsConvert"%string 
-        (match io return Lambda.exp -> m CPSK.exp with
-           | true => fun x => ret (CpsKConvert.CPS_io x)
-           | false => fun x => ret (CpsKConvert.CPS_pure x)
-         end) e ;;
+      (match io return Lambda.exp -> m CPSK.exp with
+         | true => fun x => ret (CpsKConvert.CPS_io x)
+         | false => fun x => ret (CpsKConvert.CPS_pure x)
+       end) e ;;
       let _ : CPSK.exp := cps_e in
       opt_e <- phase "Optimize"%string cps_opt cps_e ;;
       let _ : CPSK.exp := opt_e in
       clo_conv_e <- phase "Closure Convert"%string (@CloConvK.ClosureConvert.cloconv_exp _ _ _) opt_e ;;
-      low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x)))
-                   (fun x =>
-                     liveMap <- (if dupdate
-                                   then
-                                     construct_live_map _ (CPSK.Letrec_e (fst clo_conv_e) (snd clo_conv_e)) 100
-                                   else ret None) ;;
-                     CoqCompile.CpsK2Low.cpsk2low_h _ liveMap (fst x) (snd x)) clo_conv_e ;;
-      match stop_at_low as stop_at_low 
-        return m match stop_at_low with
-                   | true => Low.program
-                   | false => LLVM.module
+      match stop_at as stop_at
+        return m match stop_at with
+                   | Lam_stop => Lambda.exp
+                   | LLVM_stop => LLVM.module
+                   | Low_stop => Low.program
+                   | _ => CPSK.exp
                  end
         with
-        | true => ret low
-        | false => 
-          phase "Codegen" (CodeGen.generateProgram word_size mctor) low
+        | Clo_stop => ret (CPSK.Letrec_e (fst clo_conv_e) (snd clo_conv_e))
+        | stop_at =>
+          low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x)))
+                             (fun x =>
+                               liveMap <- (if dupdate
+                                 then
+                                   construct_live_map _ (CPSK.Letrec_e (fst clo_conv_e) (snd clo_conv_e)) 100
+                                 else ret None) ;;
+          CoqCompile.CpsK2Low.cpsk2low_h _ liveMap (fst x) (snd x)) clo_conv_e ;;
+          match stop_at as stop_at 
+            return m match stop_at with
+                       | Lam_stop => Lambda.exp
+                       | LLVM_stop => LLVM.module
+                       | Low_stop => Low.program
+                       | _ => CPSK.exp
+                     end
+            with
+            | Low_stop => ret low
+            | LLVM_stop => 
+              phase "Codegen" (CodeGen.generateProgram word_size mctor) low
+            | _ =>
+              raise "Unsupported stop stage"%string
+          end
       end.
 
-
     (** Test Hooks **)
-    Definition topCompile_string (io : bool) (e : Lambda.exp) (stop_at_low dupdate : bool) : string + string :=
-      match unIdent (traceTraceT (unEitherT (topCompile io e stop_at_low dupdate))) with
+    Definition topCompile_string (io : bool) (e : Lambda.exp) (stop_at : CompileTo) (dupdate : bool) : string + string :=
+      match unIdent (traceTraceT (unEitherT (topCompile io e stop_at dupdate))) with
         | (inl e, t) => inl (e ++ to_string t)%string
         | (inr mod', t) => 
           let str := 
-            match stop_at_low as stop_at_low 
-              return match stop_at_low with
-                       | true => Low.program
-                       | false => LLVM.module
+            match stop_at as stop_at
+              return match stop_at with
+                       | Lam_stop => Lambda.exp
+                       | LLVM_stop => LLVM.module
+                       | Low_stop => Low.program
+                       | _ => CPSK.exp
                      end -> string
               with
-              | true => to_string
-              | false => to_string
+              | Lam_stop => to_string
+              | LLVM_stop => to_string
+              | Low_stop => to_string
+              | _ => to_string
             end
           in
           inr (str mod')
@@ -253,7 +281,7 @@ Module Compile.
           end
       end.
 
-    Definition topCompileFromStr (io : bool) (e:string) (stop dupdate : bool) : string + string :=
+    Definition topCompileFromStr (io : bool) (e:string) (stop : CompileTo) (dupdate : bool) : string + string :=
       parse <- Parse.parse_topdecls e ;;
       topCompile_string io parse stop dupdate.
 

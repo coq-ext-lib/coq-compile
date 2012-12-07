@@ -90,19 +90,19 @@ Module Reduce.
           | Times_p, ((Int_o i)::(Int_o j)::nil) => ret (Some (Int_o (i*j)))
           | Eq_p, (v1::v2::nil) => 
             same <- same_op v1 v2 ;;
-            ret (if same then Some (Con_o "true"%string) else None)
+            ret (if same then Some (Con_o "True"%string) else None)
           | Neq_p, (v1::v2::nil) => 
             diff <- diff_op v1 v2 ;;
-            ret (if diff then Some (Con_o "true"%string) else None)
+            ret (if diff then Some (Con_o "True"%string) else None)
           | Lt_p, ((Int_o i)::(Int_o j)::nil) =>
-            ret (Some (Con_o (if Z.ltb i j then "true" else "false")%string))
+            ret (Some (Con_o (if Z.ltb i j then "True" else "False")%string))
           | Lte_p, ((Int_o i)::(Int_o j)::nil) =>
-            ret (Some (Con_o ((if orb (Z.ltb i j) (Z.eqb i j) then "true" else "false")%string)))
-          | Ptr_p, ((Con_o _)::nil) => ret (Some (Con_o "false"%string))
+            ret (Some (Con_o ((if orb (Z.ltb i j) (Z.eqb i j) then "True" else "False")%string)))
+          | Ptr_p, ((Con_o _)::nil) => ret (Some (Con_o "False"%string))
           | Ptr_p, ((Var_o x)::nil) =>
             r <- asks (lookup x) ;;
             ret match r with
-                  | Some (Prim_d _ MkTuple_p vs) => Some (Con_o "true"%string)
+                  | Some (Prim_d _ MkTuple_p vs) => Some (Con_o "True"%string)
                   | _ => None
                 end
           | Proj_p, ((Int_o i)::(Var_o x)::nil) =>
