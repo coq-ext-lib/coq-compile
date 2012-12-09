@@ -33,16 +33,17 @@ let _ =
       begin
 	Printf.printf "Input: %s\nTerm: %s\nOutput: %s\n----\n" s t !output;
 	let source = Extraction.extract !comp_args s t in
-	match CoqCpsKSemantics.topeval (make_N !fuel) !io !cc (CoqUtil.explode source) with
+	let coq_source = CoqUtil.explode source in
+	match CoqCpsKSemantics.topeval (CoqUtil.make_N !fuel) !io !cc coq_source with
           | (p,CoqCpsKSemantics.Inl s) ->
-	    if !print then print_endline (implode p) ;
+	    if !print then print_endline (CoqUtil.implode p) ;
 	    print_string "\nERROR------------------------\n" ;
 	    print_endline (CoqUtil.implode s) 
       	  | (p,CoqCpsKSemantics.Inr ((vs, heap), mops)) ->
-	    if !print then print_endline (implode p) ;
+	    if !print then print_endline (CoqUtil.implode p) ;
             let vstr = List.fold_left (fun acc v -> List.append acc (CoqCpsKSemantics.val2str v)) [] vs in
 	    let out_ref = open_out !output in
-	    output_string out_ref (implode vstr) ;
+	    output_string out_ref (CoqUtil.implode vstr) ;
 	    print_string "\nSUCCESS!!!!!!!!!!!!!!!!!!!!!!!!!!!\n" 
       end
     | _, _ -> print_string "Missing input or term.\n"

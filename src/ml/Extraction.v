@@ -16,11 +16,11 @@ Require Import CoqCompile.Compile.
 
 Definition topcompile :=
   Compile.Compile.topCompileFromStr 8.
-Time Extraction "Extraction/CoqCompile.ml" topcompile.
+Time Extraction "CoqCompile.ml" topcompile.
 
 Require Import CoqCompile.CpsKSemantics.
 Definition topeval := evalstr.
-Time Extraction "Extraction/CoqCpsKSemantics.ml" topeval.
+Time Extraction "CoqCpsKSemantics.ml" topeval.
 
 (* Just for testing purposes. *)
 (*

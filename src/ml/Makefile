@@ -1,6 +1,6 @@
 EXTLIB_R := -R ../../coq-ext-lib/theories ExtLib
 
-all: CoqCpsKSemantics.ml CoqCompiler.ml
+all: CoqCpsKSemantics.ml CoqCompile.ml
 	@ ocamlbuild -lib unix all.otarget
 
 coq:
