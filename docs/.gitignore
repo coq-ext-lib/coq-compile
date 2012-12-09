@@ -1,0 +1,7 @@
+syntax: glob
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.pdf

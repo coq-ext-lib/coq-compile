@@ -20,7 +20,7 @@ void coq_done(bumpptr_t bumpptrs, universal_t o) {
 }
 
 void coq_error() {
-  fprintf(stderr, "Error: out of memory.\n");
+  fprintf(stderr, "Error: runtime error.\n");
   exit(-1);
 }
 

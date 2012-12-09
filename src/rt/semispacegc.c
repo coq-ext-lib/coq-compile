@@ -109,12 +109,10 @@ bumpptr_t gc_init(size_t capacity) {
   return (bumpptr_t) { .base = curbot, .limit = curtop };
 }
 
-void forward(universal_t *objref,universal_t offset) {
+void forward(universal_t *objref) {
   universal_t *ptr = *((universal_t **)objref);
   if (is_ptr(ptr) && (ptr >= curbot && ptr < curtop)) {
     /* ptr is a pointer into an object in fromspace */
-    /* go to the begining of the object */
-    ptr = ptr - offset;
     if (is_rec(ptr)) {
       /* Get a pointer to the header */
       universal_t *header = hdr(ptr);
@@ -134,12 +132,12 @@ void forward(universal_t *objref,universal_t offset) {
     }
     /* ptr must be a forwarding pointer. It either already was, or we 
        forwarded it above. Update the objref to point to the new object */
-    *objref = (universal_t)&(*(universal_t **)ptr)[offset] ;
+    *objref = *(universal_t *)ptr;
   }
 }
 
 void visitGCRoot(void **root, const void *meta) {
-  forward((universal_t *)root,(universal_t)meta);
+  forward((universal_t *)root);
 }
 
 bumpptr_t coq_gc(void) {
@@ -154,6 +152,10 @@ bumpptr_t coq_gc(void) {
   queueptr = (curbot == frombot) ? tobot : frombot;
   endptr = queueptr;
 
+  if (debug) {
+    fprintf(stderr, "Starting gc collection... ");
+  }
+
   /* Call forward on the roots */
   visitGCRoots(&visitGCRoot);
 
@@ -163,8 +165,12 @@ bumpptr_t coq_gc(void) {
     assert(is_rec(objref)); /* all heap allocations are records */
     queueptr += rec_len(objref) + 1;
     do {
-      forward(objref++,0);
+      forward(objref++);
     } while (objref < queueptr);
+  }
+
+  if (debug) {
+    fprintf(stderr, "done.\n");
   }
 
   /* Protect the not in use space to detect errors */
@@ -214,8 +220,10 @@ alloc_t coq_alloc(bumpptr_t bumpptrs, universal_t words) {
     assert(curbot <= bumpptrs.base && bumpptrs.base <= bumpptrs.limit);
     /* try again and exit on failure */
     newbase = &bumpptrs.base[words];
-    if (newbase > bumpptrs.limit)
-	  coq_error();
+    if (newbase > bumpptrs.limit) {
+      fprintf(stderr, "Error: out of memory.\n");
+      exit(-1);
+    }
   }
 
   allocations++;

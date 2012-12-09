@@ -1,4 +1,3 @@
-
 coq:
 	$(MAKE) -C coq
 
