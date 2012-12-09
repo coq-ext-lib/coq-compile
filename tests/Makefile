@@ -117,4 +117,4 @@ Compiler: runtime Compiler.v
 	clang -lrt -g compiler-opt.s shadowstack.o -o compiler.native
 
 clean:
-	rm -f *.ll *.s *.o *.native *.vo *.glob tmp_extr.*
+	rm -f *.ll *.s *.o *.native *.vo *.glob tmp_extr.* *.bc
