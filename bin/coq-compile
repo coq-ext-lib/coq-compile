@@ -16,6 +16,7 @@ def build_parser():
     parser.add_argument('-O2', action='store_const', dest='opt_meta', const=2, required=False)
     parser.add_argument('--llvm-opt', action='store_true', dest='llvm-opt', default=False, required=False)
     parser.add_argument('-o', action='store')
+    parser.add_argument('-io', action='store_true', dest='io', default=False, required=False)
     parser.add_argument('module.term', action='store')
 
     return parser
@@ -28,6 +29,7 @@ if __name__ == '__main__':
     (m,t) = options['module.term'].split('.', 1)
     output = options['o']
     output_ll = '%s.ll' % output
+    output_s = '%s.s' % output
     output_rt_bc = '%s.rt.bc' % output
     if output.endswith('.low'):
         emit_low = True
@@ -39,8 +41,9 @@ if __name__ == '__main__':
     if res != 0:
         sys.exit(res)
 
-    # TODO: handle optimization
-    cc = [COMPILER, '-i', m, '-t', t, '-o', output_ll]
+    cc = [COMPILER, '-i', m, '-t', t, '-o', output_ll] + \
+         ([] if not 'opt_meta' in options else ['-O%d' % options['opt_meta']]) + \
+         (['-io'] if options['io'] else [])
     print "Running..."
     print cc
     res = subprocess.call(cc)
@@ -54,12 +57,18 @@ if __name__ == '__main__':
     if res != 0:
         sys.exit(res)
 
+    # TODO: Add this
     if options['llvm-opt']:
         final = output_rt_bc
     else:
         final = output_rt_bc
 
-    native = ['clang', '-lrt', final, SHADOWSTACK_O, '-o', output]
+    llc = ['llc', final, '-o', output_s]
+    res = subprocess.call(llc)
+    if res != 0:
+        sys.exit(res)
+
+    native = ['clang', '-lrt', output_s, SHADOWSTACK_O, '-o', output]
     print "Running..."
     print native
     sys.exit(subprocess.call(native))

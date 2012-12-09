@@ -1,4 +1,6 @@
 COMPILER=../bin/coq-compile
+OPT=-O1 --llvm-opt
+IO_OPTS=-io --coq-args '-R ../lib CoqIO -R ../coq-ext-lib/theories/ ExtLib'
 
 all: Ident Fact TRFact True False GC HelloWorld
 
@@ -32,89 +34,42 @@ test: Ident Fact TRFact True False GC HelloWorld
 test-gc: GC
 	./gc.native -d --Xms=4k
 
-# runtime:
-# 	cp ../Runtime/coqrt.ll coqrt.ll
-# 	cp ../Runtime/shadowstack.o shadowstack.o
+runtime:
 
 Ident: runtime Ident.v
-	$(COMPILER) -O1 --llvm-opt -o ident.native Ident.call_ident 
-	# coqc Ident.v
-	# ../Extraction/Wrapper.native -O1 -i Ident -t call_ident -o ident.ll
-	# llvm-link coqrt.ll ident.ll -S -o ident-coqrt.ll
-	# opt -O3 -S ident-coqrt.ll -o ident-opt.ll
-	# llc ident-opt.ll -o ident-opt.s
-	# clang -lrt ident-opt.s shadowstack.o -o ident.native
+	$(COMPILER) $(OPT) -o ident.native Ident.call_ident 
 
 Fact: runtime Fact.v
-	coqc Fact.v
-	../Extraction/Wrapper.native -O1 -i Fact -t fact6 -o fact.ll
-	llvm-link coqrt.ll fact.ll -S -o fact-coqrt.ll
-	opt -O3 -S fact-coqrt.ll -o fact-opt.ll
-	llc fact-opt.ll -o fact-opt.s
-	clang -lrt fact-opt.s shadowstack.o -o fact.native
+	$(COMPILER) $(OPT) -o fact.native Fact.fact6
 
 TRFact: runtime Fact.v
-	coqc Fact.v
-	../Extraction/Wrapper.native -O1 -i Fact -t tr_fact6 -o trfact.ll
-	llvm-link coqrt.ll trfact.ll -S -o trfact-coqrt.ll
-	opt -O3 -S trfact-coqrt.ll -o trfact-opt.ll
-	llc trfact-opt.ll -o trfact-opt.s
-	clang -lrt trfact-opt.s shadowstack.o -o trfact.native
+	$(COMPILER) $(OPT) -o trfact.native Fact.tr_fact6
 
 True: runtime Even.v
-	coqc Even.v
-	../Extraction/Wrapper.native -O1 -i Even -t true -o true.ll
-	llvm-link coqrt.ll true.ll -S -o true-coqrt.ll
-	opt -O3 -S true-coqrt.ll -o true-opt.ll
-	llc true-opt.ll -o true-opt.s
-	clang -lrt true-opt.s shadowstack.o -o true.native
+	$(COMPILER) $(OPT) -o true.native Even.true
 
 False: runtime Even.v
-	coqc Even.v
-	../Extraction/Wrapper.native -O1 -i Even -t false -o false.ll
-	llvm-link coqrt.ll false.ll -S -o false-coqrt.ll
-	opt -O3 -S false-coqrt.ll -o false-opt.ll
-	llc false-opt.ll -o false-opt.s
-	clang -lrt false-opt.s shadowstack.o -o false.native
+	$(COMPILER) $(OPT) -o false.native Even.false
 
 GC: runtime Even.v
-	coqc Even.v
-	../Extraction/Wrapper.native -O1 -i Even -t gc_test -o gc.ll
-	llvm-link coqrt.ll gc.ll -S -o gc-coqrt.ll
-	opt -O3 -S gc-coqrt.ll -o gc-opt.ll
-	llc gc-opt.ll -o gc-opt.s
-	clang -lrt gc-opt.s shadowstack.o -o gc.native
+	$(COMPILER) $(OPT) -o gc.native Even.gc_test
 
 HelloWorld: runtime HelloWorld.v
-	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib HelloWorld.v
-	../Extraction/Wrapper.native -O1 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i HelloWorld -t main -o helloworld.ll
-	llvm-link coqrt.ll helloworld.ll -S -o helloworld-coqrt.ll
-	opt -O3 -S helloworld-coqrt.ll -o helloworld-opt.ll
-	llc helloworld-opt.ll -o helloworld-opt.s
-	clang -lrt helloworld-opt.s shadowstack.o -o helloworld.native
+	$(COMPILER) $(IO_OPTS) $(OPT) -o helloworld.native HelloWorld.main
 
 IOFact: runtime IOFact.v
-	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib IOFact.v
-	../Extraction/Wrapper.native -O1 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IOFact -t main -o iofact.ll
-	llvm-link coqrt.ll iofact.ll -S -o iofact-coqrt.ll
-	opt -O3 -S iofact-coqrt.ll -o iofact-opt.ll
-	llc iofact-opt.ll -o iofact-opt.s
-	clang -lrt iofact-opt.s shadowstack.o -o iofact.native
+	$(COMPILER) $(IO_OPTS) $(OPT) -o iofact.native IOFact.main
 
 IONat: runtime IONat.v
-	coqc -R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib IONat.v
-	../Extraction/Wrapper.native -O0 -io -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -i IONat -t main -o ionat.ll
-	llvm-link coqrt.ll ionat.ll -S -o ionat-coqrt.ll
-	opt -O3 -S ionat-coqrt.ll -o ionat-opt.ll
-	llc ionat-opt.ll -o ionat-opt.s
-	clang -lrt ionat-opt.s shadowstack.o -o ionat.native
+	$(COMPILER) $(IO_OPTS) $(OPT) -o ionat.native IONat.main
 
 Compiler: runtime Compiler.v
-	../Extraction/Wrapper.native -O1 -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -e Compiler.scheme -q -o compiler.ll
-	llvm-link rt.ll compiler.ll -S -o compiler-rt.ll
-	opt -O3 -S compiler-rt.ll -o compiler-opt.ll
-	llc compiler-opt.ll -o compiler-opt.s
-	clang -lrt -g compiler-opt.s shadowstack.o -o compiler.native
+	$(COMPILER) $(IO_OPTS) $(OPT) -o compiler.native IONat.main
+	# ../Extraction/Wrapper.native -O1 -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -e Compiler.scheme -q -o compiler.ll
+	# llvm-link rt.ll compiler.ll -S -o compiler-rt.ll
+	# opt -O3 -S compiler-rt.ll -o compiler-opt.ll
+	# llc compiler-opt.ll -o compiler-opt.s
+	# clang -lrt -g compiler-opt.s shadowstack.o -o compiler.native
 
 clean:
-	rm -f *.ll *.s *.o *.native *.vo *.glob tmp_extr.* *.bc
+	@ rm -f *.ll *.s *.o *.native *.vo *.glob tmp_extr.* *.bc
