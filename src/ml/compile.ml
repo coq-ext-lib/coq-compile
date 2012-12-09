@@ -1,5 +1,4 @@
 open String;;
-open Util;;
 
 let usage_string = "Usage: " ^ Sys.argv.(0) ^ " [-o output file] [-i Coq module] [-t Coq term]"
 let output = ref "out.ll"
@@ -37,11 +36,11 @@ let anon = (fun x -> failwith "Bad argument")
 
 let compile_from_str source =
   if not !quiet then print_string source ;
-  match CoqCompile.topcompile !opt !io (explode source) !stop !dupdate with
-    | CoqCompile.Inl s -> print_endline (implode s) 
+  match CoqCompile.topcompile !opt !io (CoqUtil.explode source) !stop !dupdate with
+    | CoqCompile.Inl s -> print_endline (CoqUtil.implode s) 
     | CoqCompile.Inr assembly -> 
 	let out_ref = open_out !output in
-	  output_string out_ref (implode assembly)
+	  output_string out_ref (CoqUtil.implode assembly)
 
 let _ = 
   Arg.parse params anon usage_string;
@@ -52,7 +51,7 @@ let _ =
 	    | Some s, Some t ->
 		begin
 		  Printf.printf "Input: %s\nTerm: %s\nOutput: %s\n----\n" s t !output;
-		  let source = extract !comp_args s t in
+		  let source = Extraction.extract !comp_args s t in
 		  compile_from_str source
 		end
 	    | _, _ -> print_string "Missing input or term.\n"

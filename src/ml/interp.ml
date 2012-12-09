@@ -1,5 +1,4 @@
 open String;;
-open Util;;
 
 let usage_string = "Usage: " ^ Sys.argv.(0) ^ " [-o output file] [-i Coq module] [-t Coq term]"
 let output = ref "out.ll"
@@ -33,12 +32,12 @@ let _ =
     | Some s, Some t -> 
       begin
 	Printf.printf "Input: %s\nTerm: %s\nOutput: %s\n----\n" s t !output;
-	let source = extract !comp_args s t in
-	match CoqCpsKSemantics.topeval (make_N !fuel) !io !cc (explode source) with
+	let source = Extraction.extract !comp_args s t in
+	match CoqCpsKSemantics.topeval (make_N !fuel) !io !cc (CoqUtil.explode source) with
           | (p,CoqCpsKSemantics.Inl s) ->
 	    if !print then print_endline (implode p) ;
 	    print_string "\nERROR------------------------\n" ;
-	    print_endline (implode s) 
+	    print_endline (CoqUtil.implode s) 
       	  | (p,CoqCpsKSemantics.Inr ((vs, heap), mops)) ->
 	    if !print then print_endline (implode p) ;
             let vstr = List.fold_left (fun acc v -> List.append acc (CoqCpsKSemantics.val2str v)) [] vs in

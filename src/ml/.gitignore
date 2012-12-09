@@ -1,6 +1,7 @@
-Compile.ml
-Compile.mli
-CpsKSemantics.ml
-CpsKSemantics.mli
+CoqCompile.ml
+CoqCompile.mli
+CoqCpsKSemantics.ml
+CoqCpsKSemantics.mli
 *.byte
+*.native
 _build

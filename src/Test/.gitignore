@@ -1,7 +1,0 @@
-*.ll
-*.bc
-*.s
-*.o
-*.native
-tmp_extr.*
-*.dSYM

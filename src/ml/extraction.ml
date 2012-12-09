@@ -1,32 +1,5 @@
 open String;;
 
-(* Our old friend... string implode/explode - this is from the OCaml bug
-   tracker *)
-
-let explode s =
-  let rec exp i l =
-    if i < 0 then l else exp (i - 1) (s.[i] :: l) in
-  exp (String.length s - 1) []
-
-let implode l =
-  let res = String.create (List.length l) in
-  let rec imp i = function
-  | [] -> res
-  | c :: l -> res.[i] <- c; imp (i + 1) l in
-  imp 0 l
-
-let rec make_pos n =
-  if n = 1
-    then CpsKSemantics.XH
-    else if (n mod 2) = 1
-           then CpsKSemantics.XI (make_pos (n/2))
-           else CpsKSemantics.XO (make_pos (n/2))
-
-let rec make_N n =
-  if n = 0
-    then CpsKSemantics.N0
-    else CpsKSemantics.Npos (make_pos n)
-
 let extract (args : string) (m: string) (t: string) =
   let extr = open_out "tmp_extr.v" in
   Printf.fprintf extr "Require %s.\nExtraction Language Scheme.\nRecursive Extraction %s.%s.\n"
