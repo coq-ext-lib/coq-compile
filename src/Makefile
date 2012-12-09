@@ -26,7 +26,7 @@ Extraction.vo: .coq-done
 	coqc $(ARGS) Extraction.v
 
 compiler: Extraction.vo
-	cd Extraction/; ocamlbuild -lib unix Wrapper.byte
+	cd Extraction/; ocamlbuild -lib unix Wrapper.native
 
 semantics : Extraction.vo
 	cd Extraction/; ocamlbuild -lib unix CpsKInterpTL.byte

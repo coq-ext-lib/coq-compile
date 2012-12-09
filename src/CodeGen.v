@@ -276,9 +276,9 @@ Section monadic.
         then
           var <- opgen (Var_o v) ;;
           var <- castTo PTR_TYPE var ;;
-          emitInstr (LLVM.Store_i false false PTR_TYPE (%var) PTR_PTR_TYPE (%r) None None false)
+          emitInstr (LLVM.Store_i false true PTR_TYPE (%var) PTR_PTR_TYPE (%r) None None false)
         else
-          emitInstr (LLVM.Store_i false false PTR_TYPE (LLVM.Constant LLVM.Null_c) PTR_PTR_TYPE (%r) None None false)) roots.
+          emitInstr (LLVM.Store_i false true PTR_TYPE (LLVM.Constant LLVM.Null_c) PTR_PTR_TYPE (%r) None None false)) roots.
 
   Definition reloadRoots {T} (k : m T) : m T :=
     roots <- get (MonadState := State_gcroots) ;;
@@ -290,9 +290,9 @@ Section monadic.
           isLive <- live v ;;
           if isLive
             then
-              ptr <- emitExp (LLVM.Load_e false false PTR_PTR_TYPE (%r) None None None false) ;;
+              ptr <- emitExp (LLVM.Load_e false true PTR_PTR_TYPE (%r) None None None false) ;;
               x <- castFrom PTR_TYPE (%ptr) ;;
-              emitInstr (LLVM.Store_i false false PTR_TYPE (LLVM.Constant LLVM.Null_c) PTR_PTR_TYPE (%r) None None false) ;;
+              emitInstr (LLVM.Store_i false true PTR_TYPE (LLVM.Constant LLVM.Null_c) PTR_PTR_TYPE (%r) None None false) ;;
               withNewValue v (%x) (recur roots)
             else
               recur roots
