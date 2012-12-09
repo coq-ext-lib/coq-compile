@@ -4,7 +4,7 @@ Fixpoint fact (n:nat) : nat :=
     | S n' => n * fact n'
   end.
 
-Require Import CoqCompile.IO.
+Require Import CoqIO.IO.
 Require Import ExtLib.Programming.Show.
 
 Import ShowNotation.

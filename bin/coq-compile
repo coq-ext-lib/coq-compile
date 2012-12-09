@@ -43,7 +43,8 @@ if __name__ == '__main__':
 
     cc = [COMPILER, '-i', m, '-t', t, '-o', output_ll] + \
          ([] if not 'opt_meta' in options else ['-O%d' % options['opt_meta']]) + \
-         (['-io'] if options['io'] else [])
+         (['-io'] if options['io'] else []) + \
+         ([] if options['coq_args'] is None else ['-arg', options['coq_args']])
     print "Running..."
     print cc
     res = subprocess.call(cc)

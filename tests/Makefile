@@ -64,7 +64,7 @@ IONat: runtime IONat.v
 	$(COMPILER) $(IO_OPTS) $(OPT) -o ionat.native IONat.main
 
 Compiler: runtime Compiler.v
-	$(COMPILER) $(IO_OPTS) $(OPT) -o compiler.native IONat.main
+	$(COMPILER) $(OPT) -o compiler.native IONat.main
 	# ../Extraction/Wrapper.native -O1 -arg "-R ../ CoqCompile -R ../../coq-ext-lib/theories/ ExtLib" -e Compiler.scheme -q -o compiler.ll
 	# llvm-link rt.ll compiler.ll -S -o compiler-rt.ll
 	# opt -O3 -S compiler-rt.ll -o compiler-opt.ll
