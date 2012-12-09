@@ -9,3 +9,6 @@ coq-ext-lib
 deps.dot
 deps.pdf
 .coq-done
+lib/
+bin/compile.native
+bin/interp.native

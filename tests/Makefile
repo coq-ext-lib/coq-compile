@@ -1,3 +1,5 @@
+COMPILER=../bin/coq-compile
+
 all: Ident Fact TRFact True False GC HelloWorld
 
 .PHONY: runtime
@@ -30,17 +32,18 @@ test: Ident Fact TRFact True False GC HelloWorld
 test-gc: GC
 	./gc.native -d --Xms=4k
 
-runtime:
-	cp ../Runtime/coqrt.ll coqrt.ll
-	cp ../Runtime/shadowstack.o shadowstack.o
+# runtime:
+# 	cp ../Runtime/coqrt.ll coqrt.ll
+# 	cp ../Runtime/shadowstack.o shadowstack.o
 
 Ident: runtime Ident.v
-	coqc Ident.v
-	../Extraction/Wrapper.native -O1 -i Ident -t call_ident -o ident.ll
-	llvm-link coqrt.ll ident.ll -S -o ident-coqrt.ll
-	opt -O3 -S ident-coqrt.ll -o ident-opt.ll
-	llc ident-opt.ll -o ident-opt.s
-	clang -lrt ident-opt.s shadowstack.o -o ident.native
+	$(COMPILER) -O1 --llvm-opt -o ident.native Ident.call_ident 
+	# coqc Ident.v
+	# ../Extraction/Wrapper.native -O1 -i Ident -t call_ident -o ident.ll
+	# llvm-link coqrt.ll ident.ll -S -o ident-coqrt.ll
+	# opt -O3 -S ident-coqrt.ll -o ident-opt.ll
+	# llc ident-opt.ll -o ident-opt.s
+	# clang -lrt ident-opt.s shadowstack.o -o ident.native
 
 Fact: runtime Fact.v
 	coqc Fact.v

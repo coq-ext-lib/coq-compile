@@ -1,0 +1,65 @@
+#!/usr/bin/python
+
+import os, sys
+import subprocess
+import argparse
+
+COMPILER=os.path.abspath(os.path.dirname(__file__) + '/compile.native')
+COQRT_BC=os.path.abspath(os.path.dirname(__file__) + '/../lib/coqrt.bc')
+SHADOWSTACK_O=os.path.abspath(os.path.dirname(__file__) + '/../lib/shadowstack.o')
+
+def build_parser():
+    parser = argparse.ArgumentParser(description='A driver for the coq compiler.')
+    parser.add_argument('--coq-args', default=None, required=False)
+    parser.add_argument('-O0', action='store_const', dest='opt_meta', const=0, required=False)
+    parser.add_argument('-O1', action='store_const', dest='opt_meta', const=1, required=False)
+    parser.add_argument('-O2', action='store_const', dest='opt_meta', const=2, required=False)
+    parser.add_argument('--llvm-opt', action='store_true', dest='llvm-opt', default=False, required=False)
+    parser.add_argument('-o', action='store')
+    parser.add_argument('module.term', action='store')
+
+    return parser
+
+if __name__ == '__main__':
+    parser = build_parser()
+    options = vars(parser.parse_args())
+    
+    #try:
+    (m,t) = options['module.term'].split('.', 1)
+    output = options['o']
+    output_ll = '%s.ll' % output
+    output_rt_bc = '%s.rt.bc' % output
+    if output.endswith('.low'):
+        emit_low = True
+    
+    coqc = ['coqc'] + ([] if options['coq_args'] is None else options['coq_args'].split()) + [m]
+    print "Running..."
+    print coqc
+    res = subprocess.call(coqc)
+    if res != 0:
+        sys.exit(res)
+
+    # TODO: handle optimization
+    cc = [COMPILER, '-i', m, '-t', t, '-o', output_ll]
+    print "Running..."
+    print cc
+    res = subprocess.call(cc)
+    if res != 0:
+        sys.exit(res)
+
+    link = ['llvm-link', COQRT_BC, output_ll, '-o', output_rt_bc]
+    print "Running..."
+    print link
+    res = subprocess.call(link)
+    if res != 0:
+        sys.exit(res)
+
+    if options['llvm-opt']:
+        final = output_rt_bc
+    else:
+        final = output_rt_bc
+
+    native = ['clang', '-lrt', final, SHADOWSTACK_O, '-o', output]
+    print "Running..."
+    print native
+    sys.exit(subprocess.call(native))

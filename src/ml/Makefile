@@ -2,6 +2,7 @@ EXTLIB_R := -R ../../coq-ext-lib/theories ExtLib
 
 all: CoqCpsKSemantics.ml CoqCompile.ml
 	@ ocamlbuild -lib unix all.otarget
+	@ cp interp.native compile.native ../../bin
 
 coq:
 	$(MAKE) -C ../coq
