@@ -619,7 +619,8 @@ Section monadic.
         emitInstr LLVM.Unreachable_i
       | Call_tm retVal fptr args conts =>
         generateCall retVal fptr args conts
-      | Cont_tm cont args =>
+      | Cont_tm cont locals args =>
+        localArgs <- mapM opgen locals ;;
         contArg <- generateBoxing args ;;
         match cont with
           | inl 0 =>
@@ -630,7 +631,7 @@ Section monadic.
             emitInstr (LLVM.Ret_i (Some (TYPE,(%retVal))))
           | inl _ => raise "Multiple continuations not supported yet"%string
           | inr lbl =>
-            addJump lbl (contArg::nil) ;;
+            addJump lbl (localArgs ++ (contArg::nil)) ;;
             emitInstr (LLVM.Br_uncond_i lbl)
         end
       | Switch_tm op arms default => 

@@ -50,7 +50,7 @@ Inductive term :=
 | Halt_tm : op -> term
 | Call_tm : var -> op -> list op -> list (cont * list op) -> term
 (* Return to a passed-in continuation *)
-| Cont_tm : cont -> list op -> term
+| Cont_tm : cont -> list op -> list op -> term
 | Switch_tm : op -> list (pattern * label * list op) -> option (label * list op) -> term.
 
 Record block := mk_block {
@@ -136,7 +136,9 @@ Section Printing.
         show v << " = " << show fn << "(" << sepBy "," (List.map show args) << ") return ["
         << sepBy "," (List.map (fun k => let '(k,args) := k in
           show k << "(" << show args << ")") ks) << "]"
-      | Cont_tm k args => "return " << show k << "(" << sepBy "," (List.map show args) << ")"
+      | Cont_tm k locals args => "return " << show k << "(" 
+        << sepBy "," (List.map show locals) << "; "
+        << sepBy "," (List.map show args) << ")"
       | Switch_tm o ps def =>
         "switch " << show o 
         << indent "  " (chr_newline << sepBy chr_newline (List.map (fun plos => let '(p,l,os) := plos in

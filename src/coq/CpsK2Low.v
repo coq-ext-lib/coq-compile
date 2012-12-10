@@ -30,6 +30,8 @@ Section maps.
   Context {FM_var : DMap Env.var map_var}.
   Variable map_cont : Type -> Type.
   Context {FM_cont : DMap CPSK.cont map_cont}.
+  Context {DS_cont : DSet (lset (@eq cont)) (@eq cont)}.
+  Context {DS_var : DSet (lset (@eq var)) (@eq var)}.
 
   (* This is what happens when you suck at abstraction ... u use alists >.< *)
   Variable live : option (alist (var + cont) (lset (@eq (var + cont)))).
@@ -138,16 +140,47 @@ Section maps.
       result <- newBlock l vs ls k ;;
       ret (l, result).
 
-    Definition gen_lbl_args (e:exp) : m (list var) :=
-      let vs := free_vars_exp (s := list (var + cont)) e in
-        let vs := filter (fun x => match x with
-                                     | inl _ => true
-                                     | inr _ => false
-                                   end) vs in
-        mapM (fun x => match x with
-                         | inl x => ret x
-                         | inr _ => raise "BUG: found continuation after filter"%string
-                       end) vs.
+    Fixpoint called_cont_exp (e : exp) : lset (@eq cont) :=
+      match e with
+        | Let_e _ e =>
+          called_cont_exp e
+        | Letrec_e _ e =>
+          called_cont_exp e
+        | Switch_e _ arms default =>
+          let defaultKs := match default with
+                             | None =>
+                               Sets.empty
+                             | Some e =>
+                               called_cont_exp e
+                           end in
+          let armKs := map (fun a => let '(p,e) := a in called_cont_exp e) arms in
+          fold Sets.union defaultKs armKs
+        | AppK_e k _ =>
+          Sets.singleton k
+        | LetK_e ks e =>
+          let calledKs := map (fun k => let '(_,_,e) := k in called_cont_exp e) ks in
+          let eKs := called_cont_exp e in
+          fold Sets.union eKs calledKs
+        | _ => Sets.empty
+      end.
+
+    Definition cont_args (k : cont) : m (lset (@eq var)) :=
+      r <- asks (MR := ContMap_m) (Maps.lookup k) ;;
+      match r with
+        | Some (_,vs) =>
+          ret (fold (fun v acc => Sets.add v acc) Sets.empty vs)
+        | None => 
+          ret Sets.empty
+      end.
+
+    Definition gen_lbl_args (e:exp) : m (lset (@eq var)) :=
+      let vs := free_vars_exp (s := lset (@eq (var + cont))) e in
+      let vs := reduce Sets.empty (fun v => match v with
+                                              | inl v => singleton v
+                                              | _ => Sets.empty
+                                            end) Sets.union vs in
+      let ks := called_cont_exp e in
+      reduceM (ret vs) cont_args (fun l r => ret (Sets.union l r)) ks.
 
     Fixpoint list_repeat {A} (n:nat) (a:A) : list A :=
       match n with
@@ -338,7 +371,7 @@ Section maps.
           k <- cont2low k ;;
           let '(k,args) := k in
           vs <- mapM opgen os ;;
-          emit_tm (Cont_tm k (args ++ vs))
+          emit_tm (Cont_tm k args vs)
         | LetK_e cves e => 
           lbls <- mapM (fun x => let '(k, vs, e) := x in 
             l <- freshLbl ;;
@@ -420,7 +453,7 @@ Section monadic2.
   Instance MonadReader_ReaderData_contMap m (M : Monad m) : MonadReader _ (readerT ReaderData m) :=
     ReaderProd contMap (fun x d => {| varMap := d.(varMap) ; contMap := x |}).
 
-  Arguments tl_cpsk2low {_ _ _ _ LIVE TUPS m Mon MExc MSvar MSlbl MStup MStrace _ _ _ _ _} (e) : rename.
+  Arguments tl_cpsk2low {_ _ _ _ _ _ LIVE TUPS m Mon MExc MSvar MSlbl MStup MStrace _ _ _ _ _} (e) : rename.
  
   Definition tl_decl2low_h (live : option (alist (var + CPSK.cont) (lset (@eq (var + CPSK.cont))))) (name : var) (ks : list CPSK.cont) (args : list var) (tops : list (var * op)) (e : CPSK.exp) : m (Low.function) :=
     let c := tl_cpsk2low 
