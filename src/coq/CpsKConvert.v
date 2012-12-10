@@ -62,6 +62,14 @@ Section cps_convert.
         ret (Named_v s (Some n))
     end.
 
+  Definition is_eta (e : exp) (vs : list var) : option cont :=
+    match e with
+      | AppK_e k es => 
+        if eq_dec (map Var_o vs) es then Some k else None
+      | _ => None
+    end.
+
+
   (** Convert a [Lambda.exp] into a CPS [exp].  The meta-level continuation [k] is used
       to build the "rest of the expression".  We work in the state monad so we can generate
       fresh variables.  In general, functions are changed to take an extra argument which
@@ -96,16 +104,12 @@ Section cps_convert.
           cps e2 (fun v2 => 
             a <- freshVar (Some "a") ;; 
             e <- k (Var_o a) ;;
-(*
-            match match_eta a e with
+            match is_eta e (a :: nil) with
               | None => 
-*)
                 f <- freshCont "f" ;; 
                 ret (LetK_e ((f, a::nil, e) :: nil) (App_e v1 (f::nil) (v2::nil)))
-(*
-              | Some c => ret (App_e v1 (v2::c::nil))
+              | Some c => ret (App_e v1 (c::nil) (v2::nil))
             end
-            *)
           ))
       | Lambda.Con_e c es => 
         (fix cps_es (es:list Lambda.exp) (vs:list op)(k:list op -> m exp) : m exp := 
@@ -143,27 +147,28 @@ Section cps_convert.
       | Lambda.Match_e e arms => 
         cps e (fun v => 
           x <- freshVar (Some "x") ;; 
-          e0 <- k (Var_o x) ; 
-          c <- freshCont "c" ;; 
-(*          cont <- match match_eta x e0 with
-                    | None => ret (Var_o c)
-                    | Some v' => ret v'
-                  end ;
-*)
-          arms' <- mapM (fun p_e => e' <- cps (snd (p_e)) (fun v => ret (AppK_e c (v::nil))) ;
-            ret (fst p_e, e')) arms ; 
+          e0 <- k (Var_o x) ;;
+          c <- match is_eta e0 (x :: nil) with
+                 | None => 
+                   c <- freshCont "c" ;;
+                   ret (c, fun m => LetK_e ((c, (x::nil), e0) :: nil) m)
+                 | Some k =>
+                   ret (k, fun m => m)
+               end ;;
+          let '(c,kont) := c in
+          arms' <- mapM (fun p_e => 
+            e' <- cps (snd (p_e)) (fun v => ret (AppK_e c (v::nil))) ;;
+            ret (fst p_e, e')) arms ;;
           is_ptr <- freshVar (Some "isptr") ;;
           tag <- freshVar (Some "tag") ;; 
-          m <- match partition v arms' with 
-                 | (constant_arms, pointer_arms, def) => 
-                   ret (Let_e (Prim_d is_ptr Ptr_p (v::nil))
+          let '(constant_arms, pointer_arms, def) := partition v arms' in
+          m <- ret (Let_e (Prim_d is_ptr Ptr_p (v::nil))
                      (Switch_e (Var_o is_ptr)
                        ((CpsCommon.Con_p "False"%string, switch_e v constant_arms def)::
                          (CpsCommon.Con_p "True"%string, 
                            (Let_e (Prim_d tag Proj_p ((Int_o 0)::v::nil))
-                             (switch_e (Var_o tag) pointer_arms def)))::nil) None))
-               end ;;
-          ret (LetK_e ((c, (x::nil), e0) :: nil) m))
+                             (switch_e (Var_o tag) pointer_arms def)))::nil) None)) ;;
+          ret (kont m))
     end.
 
   End monadic.
