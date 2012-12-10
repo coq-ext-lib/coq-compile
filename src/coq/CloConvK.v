@@ -208,9 +208,8 @@ Module ClosureConvert.
     refine (
       (** Check sanity: We don't permit Op_d, Prim_d, or Bind_d in letrec **)
       iterM (fun d => match d with
-                        | Fn_d _ _ _ _ => ret tt
-                        | Prim_d _ MkTuple_p _ => ret tt
-                        | _ => raise ("Invariant violation: found '" ++ to_string d ++ "' in letrec")%string
+                        | Bind_d _ _ _ _ => raise ("Invariant violation: found '" ++ to_string d ++ "' in letrec")%string
+                        | _ => ret tt
                       end) ds ;;
 
       (** Gather the current names **)
@@ -221,7 +220,8 @@ Module ClosureConvert.
         end) ds in
       let tuples := filter_map (fun d =>
         match d with
-          | Prim_d v MkTuple_p os => Some (v, os)
+          | Prim_d v p os => Some (v, fun v => os <- mapM cloconv_op os ;; ret (Prim_d v p os))
+          | Op_d v o => Some (v, fun v => o <- cloconv_op o ;; ret (Op_d v o))
           | _ => None
         end) ds in
       let func_names : list var := map (fun v => let '(v,_,_,_) := v in v) funcs in
@@ -298,8 +298,8 @@ Module ClosureConvert.
           Prim_d cloF MkTuple_p (Var_o wrapF :: Var_o env_varF :: nil)) (List.combine Fclosure_names Fwrap_names) in
 
         (** Create the tuples **)
-        tpl_decls <- mapM (fun tpl_f => let '((tpl, args), tplF) := tpl_f in
-          liftM (Prim_d tplF MkTuple_p) (mapM cloconv_op args)) (List.combine tuples Ftuple_names) ;;
+        tpl_decls <- mapM (fun tpl_f => let '((tpl, decl), tplF) := tpl_f in
+          decl tplF) (List.combine tuples Ftuple_names) ;;
 
         e <- cloconv_exp' e_body ;;
         ret (Letrec_e (env_decl :: clos_decls ++ tpl_decls) e)

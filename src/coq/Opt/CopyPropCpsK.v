@@ -43,6 +43,20 @@ Module CopyProp.
 
     Definition copyprop_k (k : cont) : m cont := ret k.
 
+    (** TODO: Move to library (copied from CloConvK) **)
+    Fixpoint filter_map {A B} (f : A -> option B) (ls : list A) : list B :=
+      match ls with
+        | nil => nil
+        | l :: ls => 
+          match f l with
+            | None => filter_map f ls
+            | Some v => v :: filter_map f ls
+          end
+      end.
+
+    Definition add_all {T} (ls : list (var * op)) : m T -> m T :=
+      local (fun acc => fold_left (fun acc x => Maps.add (fst x) (snd x) acc) ls acc).
+
     Fixpoint copyprop_exp (e:exp) : m exp :=
       match e with
         | AppK_e k vs => 
@@ -67,22 +81,27 @@ Module CopyProp.
               | Some d' => liftM (Let_e d') (copyprop_exp e)
             end)
         | Letrec_e ds e =>
-          (fix go ds (acc : list decl) : m exp :=
-            match ds with
-              | nil => match acc with
-                         | nil => copyprop_exp e
-                         | _ =>
-                           e <- copyprop_exp e ;;
-                           ret (Letrec_e acc e)
-                       end
-              | d :: ds =>
-                copyprop_decl d (fun od => 
-                  go ds match od with
-                          | None => acc
-                          | Some x => x :: acc
-                        end)
-            end
-          ) ds nil
+          let copies := filter_map (fun d =>
+            match d with
+              | Op_d v o => Some (v, o)
+              | _ => None
+            end) ds in
+          add_all copies 
+            ((fix go ds (acc : list decl) : m exp :=
+              match ds with
+                | nil => match acc with
+                           | nil => copyprop_exp e
+                           | _ =>
+                             e <- copyprop_exp e ;;
+                             ret (Letrec_e acc e)
+                         end
+                | d :: ds =>
+                  copyprop_decl d (fun od => 
+                    go ds match od with
+                            | None => acc
+                            | Some x => x :: acc
+                          end)
+              end) ds nil)
 
 
         | Switch_e v arms def =>
