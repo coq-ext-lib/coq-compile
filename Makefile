@@ -1,13 +1,17 @@
 PROJECT_NAME=coq-compile
 
-all: lib-update
+all: compiler
+
+compiler: lib-update
 	$(MAKE) -C src
 
 clean:
 	$(MAKE) -C src clean
+	$(MAKE) -C tests clean
+	@ rm -Rf lib bin/*.native
 
-test:
-	$(MAKE) -C src test
+test: compiler
+	$(MAKE) -C tests
 
 dist:
 	@ git archive HEAD -o $(PROJECT_NAME).tgz
@@ -24,5 +28,5 @@ html:
 .dir-locals.el: tools/setup.sh
 	@ sed s,PWD,$(shell pwd -P),g tools/dir-locals.el > .dir-locals.el
 
-.PHONY: all clean dist
+.PHONY: all compiler test clean dist
 .PHONY: lib-update

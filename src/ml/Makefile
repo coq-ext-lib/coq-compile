@@ -2,7 +2,13 @@ EXTLIB_R := -R ../../coq-ext-lib/theories ExtLib
 
 all: CoqCpsKSemantics.ml CoqCompile.ml
 	@ ocamlbuild -lib unix all.otarget
-	@ cp interp.native compile.native ../../bin
+	@ mkdir -p ../../bin
+	@ cp _build/interp.native _build/compile.native ../../bin
+
+clean:
+	@ ocamlbuild -clean all.otarget
+	@ rm -f *.vo *.glob
+	@ rm -f CoqCompile.ml CoqCompile.mli CoqCpsKSemantics.ml CoqCpsKSemantics.mli
 
 coq:
 	$(MAKE) -C ../coq
