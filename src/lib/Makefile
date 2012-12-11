@@ -1,4 +1,5 @@
 all: IO.vo
+	@ mkdir -p ../../lib
 	@ cp IO.vo ../../lib
 
 clean:

@@ -7,11 +7,11 @@ compiler: lib-update
 
 clean:
 	$(MAKE) -C src clean
-	$(MAKE) -C tests clean
+	$(MAKE) -C test clean
 	@ rm -Rf lib bin/*.native
 
-test: compiler
-	$(MAKE) -C tests
+check: compiler
+	$(MAKE) -C test
 
 dist:
 	@ git archive HEAD -o $(PROJECT_NAME).tgz
@@ -28,5 +28,5 @@ html:
 .dir-locals.el: tools/setup.sh
 	@ sed s,PWD,$(shell pwd -P),g tools/dir-locals.el > .dir-locals.el
 
-.PHONY: all compiler test clean dist
+.PHONY: all compiler check clean dist
 .PHONY: lib-update
