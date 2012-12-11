@@ -8,12 +8,12 @@ TODO overview, credits, license?
 
 ### Coq 8.4 ############################################################
 
-coq-ext-lib requires Coq 8.4 which you can get here:
-    http://coq.inria.fr/download
+coq-ext-lib requires Coq 8.4, which you can download from
+http://coq.inria.fr/download.
 
 Since it made some interface changes, you may also want the latest proof 
 general:
-   http://proofgeneral.inf.ed.ac.uk/devel
+   http://proofgeneral.inf.ed.ac.uk/devel.
 
 ### LLVM & Clang #######################################################
 
