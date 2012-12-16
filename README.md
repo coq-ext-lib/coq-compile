@@ -1,6 +1,30 @@
 # coq-compile ##########################################################
 
-TODO overview, credits, license?
+This is a compiler from Gallina (the logic language of the Coq proof
+assistant) to LLVM. In addition to the core logical language, the
+compiler also supports a limited number of extensions to perform input
+and output in order to make programs more useful.
+
+## Design Philosophy ###################################################
+
+The compiler is written exclusively in Coq in a Haskell-like style
+using coq-ext-lib, an augemented/alternative standard library that
+utilizes first-class abstractions like type classes rather than
+second-class abstractions like functors and modules.  See the
+coq-ext-lib project (https://github.com/coq-ext-lib/coq-ext-lib) for
+more information.
+
+## Credits #############################################################
+
+The compiler started as a course project in a graduate seminar on
+functional language compilers taught by Greg Morrisett
+(http://www.eecs.harvard.edu/~greg/). The course webpage is here
+(http://www.eecs.harvard.edu/~greg/cs252rfa12/). The primary
+contributers to the core compiler have been (in alphabetical order):
+
+Dan Huang (optimization & analysis)
+Gregory Malecha (core & optimization & analysis)
+Scott Moore (runtime)
 
 # Getting Started ######################################################
 
@@ -38,7 +62,11 @@ TODO
 
 # Contributing #########################################################
 
-TODO
+If you're interested in the compiler, we'd love for you to join the
+project and learn something about compilers and something about Coq.
+
+Check the issues page on GitHub and file a new issue for the feature(s)
+you'd like (if one doesn't already exist). 
 
 ## Development environment #############################################
 
