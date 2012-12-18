@@ -86,7 +86,7 @@ Module Compile.
     
     Definition O0 : optimization CPSK.exp := fun x => ret x.
     Definition O1 : optimization CPSK.exp := fun x => 
-      ret (CseCpsK.Cse.cse (DeadCodeCpsK.dce x)).
+      ret (* CseCpsK.Cse.cse *) (DeadCodeCpsK.dce x).
     Definition O2 : optimization CPSK.exp := fun x =>
       ret (ReduceCpsK.Reduce.reduce (CseCpsK.Cse.cse (DeadCodeCpsK.dce x))).
     
@@ -188,6 +188,27 @@ Module Compile.
     {| name := "Code Gen"
      ; run := fun x : denoteIR IR_Low =>
        CodeGen.generateProgram word_size mctor x
+     |}.
+
+    Definition Phase_Sane : Phase IR_Cps IR_Cps :=
+    {| name := "Sane"
+     ; run := fun x : denoteIR IR_Cps =>
+       catch (CpsK.CPSK.exp_sane x ;; ret x)
+             (fun err : string => raise err)
+    |}.
+
+    Require Import ExtLib.Data.Monads.FuelMonad.
+    Require CpsKSemantics.
+
+    Definition Phase_Check (fuel : N) : Phase IR_Cps IR_Cps :=
+    {| name := "Check"
+     ; run := fun x : denoteIR IR_Cps =>
+       let c := CpsKSemantics.eval_exp nil x in
+       match runStateT (runStateT (runGFixT c fuel) nil) nil with
+         | inl err => raise err
+         | inr (None, _ ,_) => mlog "out of fuel"%string ;; ret x
+         | inr (Some v, _, _) => mlog ("returned " ++ to_string v)%string ;; ret x
+       end
      |}.
 
     Definition getPhase (name : string) (ir : IR) : option { ir' : IR & Phase ir ir' } :=
