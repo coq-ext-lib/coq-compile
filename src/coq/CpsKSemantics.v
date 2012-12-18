@@ -32,19 +32,21 @@ Section CPSEVAL.
   | Con_v : Lambda.constructor -> value
   | Int_v : Z -> value
   | Ptr_v : nat -> value
-  | World_v : value.
+  | World_v : positive -> value.
   
-  Definition val2str (v:value) : string :=
-    match v with
-      | Con_v c => "Con(" ++ c ++ ")" 
-      | Int_v z => match z with
-                     | Z0 => "0"
-                     | Zpos p => nat2string10 (Pos.to_nat p)
-                     | Zneg p => "-" ++ nat2string10 (Pos.to_nat p)
-                   end
-      | Ptr_v n => "Ptr(" ++ nat2string10 n ++ ")"
-      | World_v => "World" 
-    end.
+  Section hiding_show.
+    Import ShowNotation.
+    Local Open Scope show_scope.
+  
+    Global Instance Show_value : Show value :=
+    { show v :=
+      match v with
+        | Con_v c => "Con(" << c << ")" 
+        | Int_v z => show z
+        | Ptr_v n => "Ptr(" << show n << ")"
+        | World_v n => "World#" << show n
+      end }.
+  End hiding_show.
 
   (** Allocated values *)
   Inductive heap_value : Type := 
@@ -80,7 +82,7 @@ Section CPSEVAL.
       | Con_o c => ret (Con_v c)
       | Int_o i => ret (Int_v i)
       | Var_o x => lookup env (inl x)
-      | InitWorld_o => ret World_v
+      | InitWorld_o => ret (World_v 1)
     end.
 
   (** Find the appropriate switch arm for a given small value. *)
@@ -157,7 +159,7 @@ Section CPSEVAL.
         end
       | _, _ => 
         let pop := to_string p in
-        let args := fold_left (fun acc v => acc ++ val2str v ++ ", ") vs "" in
+        let args := fold_left (fun acc v => acc ++ to_string v ++ ", ") vs "" in
         raise ("bad primitive application of: " ++ pop ++ " to " ++ args)%string
     end.
 
@@ -230,8 +232,13 @@ Section CPSEVAL.
         ret (extend env (inl x) v)
       | Bind_d x w m vs => 
         vs' <- mapM (eval_op env) vs ;;
-        sideEffect m vs' ;;
-        ret (extend (extend env (inl w) (Con_v "Tt")) (inl x) (Con_v "Tt"))
+        match vs' with
+          | World_v n :: vs =>
+            sideEffect m vs' ;;
+            ret (extend (extend env (inl w) (World_v (Psucc n))) (inl x) (Con_v "Tt"))
+          | _ => 
+            raise ("bad call to monadic op: (" ++ to_string d ++ ") args = [" ++ to_string vs' ++ "]")%string
+        end
     end.
 
   Definition eval_cont (env:alist (var + cont) value) (k:cont) : m value :=
@@ -283,7 +290,10 @@ Section CPSEVAL.
           v' <- eval_op env v ;;
           e <- find_arm v' arms def ;;
           recur env e
-        | Halt_e o w => x <- eval_op env o ;; ret (x::nil)
+        | Halt_e o w => 
+          x <- eval_op env o ;; 
+          w <- eval_op env w ;;
+          ret (x::w::nil)
         | AppK_e k os =>
           vs <- mapM (eval_op env) os ;;
           v <- eval_cont env k ;;
