@@ -45,7 +45,7 @@ Module Cse.
     Section monadic.
       Variable m : Type -> Type.
       Context {Mon_m : Monad m}.
-      Context {Reader_m : MonadReader (env_v var * env_e op) m}.
+      Context {Reader_m : MonadReader (env_v op * env_e op) m}.
       
       Import MonadNotation.
       Local Open Scope monad_scope.
@@ -56,23 +56,29 @@ Module Cse.
             x <- ask ;;
             match Maps.lookup v (fst x) with
               | None => ret (Var_o v)
-              | Some v => ret (Var_o v)
+              | Some o => ret o
             end
           | o => ret o 
         end.
+
+      Definition use_op {T} (v : var) (o : op) : m T -> m T :=
+        local (fun x => (add v o (fst x), snd x)).
+
+      Definition remember_def {T} (o : var) (v : CseValue) : m T -> m T :=
+        local (fun x => (fst x, add v (Var_o o) (snd x))).
 
       (** NOTE: This assumes no aliasing **)
       Fixpoint cse_decl {T} (d : decl) (cc : decl -> m T) : m T :=
         match d with
           | Op_d v o => 
             o <- cse_op o ;;
-            cc (Op_d v o)
+            use_op v o (cc (Op_d v o))
           | Prim_d v p os =>
             os <- mapM cse_op os ;;
             x <- ask ;;
             match Maps.lookup (Prim_s p os) (snd x) with
-              | None => local (fun x => (fst x, add (Prim_s p os) (Var_o v) (snd x))) (cc (Prim_d v p os))
-              | Some o => cc (Op_d v o)
+              | None => remember_def v (Prim_s p os) (cc (Prim_d v p os))
+              | Some o => use_op v o (cc (Op_d v o))
             end
           | Bind_d v w m os =>
             os <- mapM cse_op os ;;
@@ -81,8 +87,8 @@ Module Cse.
             e <- cse_exp e ;;
             x <- ask ;;
             match Maps.lookup (Fn_s vs ks e) (snd x) with
-              | None => local (fun x => (fst x, add (Fn_s vs ks e) (Var_o v) (snd x))) (cc (Fn_d v ks vs e))
-              | Some o => cc (Op_d v o)
+              | None => remember_def v (Fn_s vs ks e) (cc (Fn_d v ks vs e))
+              | Some o => use_op v o (cc (Op_d v o))
             end
         end
       with cse_exp (e : exp) : m exp :=
@@ -123,6 +129,9 @@ Module Cse.
             xs <- mapM cse_op xs ;;
             ret (AppK_e k xs)
           | LetK_e ks e =>
+            ks <- mapM (fun kxse => let '(k,xs,e) := kxse in
+              e <- cse_exp e ;;
+              ret (k, xs, e)) ks ;;              
             e <- cse_exp e ;;
             ret (LetK_e ks e)
         end.

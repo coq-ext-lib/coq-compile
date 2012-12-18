@@ -46,6 +46,8 @@ Section CPSEVAL.
         | Ptr_v n => "Ptr(" << show n << ")"
         | World_v n => "World#" << show n
       end }.
+
+    Definition val2str (v : value) : string := to_string v.
   End hiding_show.
 
   (** Allocated values *)

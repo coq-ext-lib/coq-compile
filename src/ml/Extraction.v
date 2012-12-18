@@ -20,7 +20,7 @@ Time Extraction "CoqCompile.ml" topcompile.
 
 Require Import CoqCompile.CpsKSemantics.
 Definition topeval := evalstr.
-Time Extraction "CoqCpsKSemantics.ml" topeval.
+Time Extraction "CoqCpsKSemantics.ml" topeval val2str.
 
 (* Just for testing purposes. *)
 (*
