@@ -27,6 +27,8 @@ let params =
    ("-stop", Arg.String (fun s -> if s = "llvm" then stop := CoqCompile.Compile.LLVM_stop else 
 			          if s = "low" then stop := CoqCompile.Compile.Low_stop else
 				  if s = "cc" then stop := CoqCompile.Compile.Clo_stop else
+				  if s = "opt" then stop := CoqCompile.Compile.OptCps_stop else
+				  if s = "optcc" then stop := CoqCompile.Compile.OptClo_stop else
 				  assert false), "Stage to stop at");
    ("-dupdate", Arg.Unit (fun () -> dupdate := true), " Use destructive updates");
    ("-arg", Arg.String (fun s -> comp_args := !comp_args ^ " " ^ s), " Parameters to pass to coqc")

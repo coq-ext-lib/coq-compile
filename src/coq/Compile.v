@@ -93,16 +93,6 @@ Module Compile.
     Definition runOpt {E} (o : optimization E) (e : E) : m E := o e.
   End Opt.
 
-    (* Definition m : Type -> Type := *)
-    (*   stateT Z (sum string). *)
-
-    (* Definition runM (cmd:m (map_ctor Z)) : string + map_ctor Z := *)
-    (*   let res := evalStateT cmd 2%Z in *)
-    (*   match res with *)
-    (*     | inl str => inl str *)
-    (*     | inr mctor => inr mctor *)
-    (*   end. *)
-
   Section Driver.
     Require CoqCompile.CpsKConvert.
     Require CoqCompile.CpsK2Low.
@@ -118,6 +108,63 @@ Module Compile.
     Variable word_size : nat.
     Variable cps_opt :  @Opt.optimization CPSK.exp.
 
+    Record Phase (T U : Type) : Type :=
+    { Phase_Show : Show T
+    ; name : string 
+    ; run : T -> m U
+    }.
+
+    Global Instance Show_lam : Show Lambda.exp :=
+    { show := fun x => "todo"%string }.
+
+    Definition Phase_CpsConvert (io : bool) : Phase Lambda.exp CPSK.exp :=
+    {| Phase_Show := _
+     ; name := "CpsConvert"
+     ; run := fun x =>
+       if io then
+         ret (CpsKConvert.CPS_io x)
+       else 
+         ret (CpsKConvert.CPS_pure x)
+     |}.
+
+    Definition Phase_Opt (o : Opt.optimization CPSK.exp) : Phase CPSK.exp CPSK.exp :=
+    {| Phase_Show := _
+     ; name := "Optimize"
+     ; run := fun x => Opt.runOpt o x
+     |}.
+
+    Definition Phase_CloConv : Phase CPSK.exp (list CPSK.decl * CPSK.exp) :=
+    {| Phase_Show := _
+     ; name := "Closure Convert" 
+     ; run := fun x =>
+       CloConvK.ClosureConvert.cloconv_exp x
+     |}.
+
+    Definition Phase_OptCc : Phase (list CPSK.decl * CPSK.exp) (list CPSK.decl * CPSK.exp) :=
+    {| Phase_Show := _
+     ; name := "Optimize Closure Convert"
+     ; run := fun x => let '(ds,m) := x in
+       ret (ds, m) (** TODO **)
+     |}.
+
+
+    Definition Phase_Lower (dupdate : bool) : Phase (list CPSK.decl * CPSK.exp) Low.program :=
+     {| Phase_Show := fun x => show (CPSK.Letrec_e (fst x) (snd x))
+      ; name := "Lower"
+      ; run := fun x =>
+        liveMap <- (if dupdate then
+                      construct_live_map _ (CPSK.Letrec_e (fst x) (snd x)) 100
+                    else ret None) ;;
+        CoqCompile.CpsK2Low.cpsk2low_h _ liveMap (fst x) (snd x)
+      |}.
+
+    Definition Phase_LLVM (mctor : _) : Phase Low.program LLVM.module :=
+    {| Phase_Show := _
+     ; name := "Code Gen"
+     ; run := fun x =>
+       CodeGen.generateProgram word_size mctor x
+     |}.
+
     Definition phase {T U} {S : Show U} (name : string) 
       (c : U -> m T) (x : U)
       : m T :=
@@ -128,65 +175,47 @@ Module Compile.
                          << Char.chr_newline << to_string x)%show
               in raise err).
 
-    Global Instance Show_lam : Show Lambda.exp :=
-    { show := fun x => "todo"%string }.
+    Definition phase_bind {A B} (p : Phase A B) : A -> m B := 
+      phase (S := Phase_Show p) (name p) (run p).
 
     Inductive CompileTo : Type :=
     | Lam_stop
     | Cps_stop
+    | OptCps_stop
     | Clo_stop
-    | Opt_stop
+    | OptClo_stop
     | Low_stop
     | LLVM_stop.
+
+    Local Notation "p1 >>= p2" := (bind p1 (phase_bind p2)).
 
     Definition topCompile (io : bool) (e:Lambda.exp) (stop_at : CompileTo) (dupdate : bool) 
       : m match stop_at with
             | Lam_stop => Lambda.exp
             | LLVM_stop => LLVM.module
             | Low_stop => Low.program
+            | Clo_stop => list CPSK.decl * CPSK.exp
+            | OptClo_stop => list CPSK.decl * CPSK.exp
             | _ => CPSK.exp
           end :=
       mctor <- makeCtorMap e ;;
-      cps_e <- phase "CpsConvert"%string 
-      (match io return Lambda.exp -> m CPSK.exp with
-         | true => fun x => ret (CpsKConvert.CPS_io x)
-         | false => fun x => ret (CpsKConvert.CPS_pure x)
-       end) e ;;
-      let _ : CPSK.exp := cps_e in
-      opt_e <- phase "Optimize"%string cps_opt cps_e ;;
-      let _ : CPSK.exp := opt_e in
-      clo_conv_e <- phase "Closure Convert"%string (@CloConvK.ClosureConvert.cloconv_exp _ _ _) opt_e ;;
-      match stop_at as stop_at
+      match stop_at as stop_at 
         return m match stop_at with
                    | Lam_stop => Lambda.exp
                    | LLVM_stop => LLVM.module
                    | Low_stop => Low.program
+                   | Clo_stop => list CPSK.decl * CPSK.exp
+                   | OptClo_stop => list CPSK.decl * CPSK.exp
                    | _ => CPSK.exp
-                 end
-        with
-        | Clo_stop => ret (CPSK.Letrec_e (fst clo_conv_e) (snd clo_conv_e))
-        | stop_at =>
-          low <- phase "Low" (S := fun x => show (CPSK.Letrec_e (fst x) (snd x)))
-                             (fun x =>
-                               liveMap <- (if dupdate
-                                 then
-                                   construct_live_map _ (CPSK.Letrec_e (fst clo_conv_e) (snd clo_conv_e)) 100
-                                 else ret None) ;;
-          CoqCompile.CpsK2Low.cpsk2low_h _ liveMap (fst x) (snd x)) clo_conv_e ;;
-          match stop_at as stop_at 
-            return m match stop_at with
-                       | Lam_stop => Lambda.exp
-                       | LLVM_stop => LLVM.module
-                       | Low_stop => Low.program
-                       | _ => CPSK.exp
-                     end
-            with
-            | Low_stop => ret low
-            | LLVM_stop => 
-              phase "Codegen" (CodeGen.generateProgram word_size mctor) low
-            | _ =>
-              raise "Unsupported stop stage"%string
-          end
+                 end with
+        | Lam_stop => ret e
+        | Cps_stop => (ret e) >>= (Phase_CpsConvert io)
+        | OptCps_stop => (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt)
+        | Clo_stop => (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv)
+        | OptClo_stop => (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc)
+        | Low_stop =>  (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate)
+        | LLVM_stop =>
+          (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate) >>= (Phase_LLVM mctor)
       end.
 
     (** Test Hooks **)
@@ -200,12 +229,16 @@ Module Compile.
                        | Lam_stop => Lambda.exp
                        | LLVM_stop => LLVM.module
                        | Low_stop => Low.program
+                       | Clo_stop => list CPSK.decl * CPSK.exp
+                       | OptClo_stop => list CPSK.decl * CPSK.exp
                        | _ => CPSK.exp
                      end -> string
               with
               | Lam_stop => to_string
               | LLVM_stop => to_string
               | Low_stop => to_string
+              | Clo_stop
+              | OptClo_stop => fun x => to_string (CPSK.Letrec_e (fst x) (snd x))
               | _ => to_string
             end
           in
