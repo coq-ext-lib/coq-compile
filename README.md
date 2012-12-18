@@ -22,9 +22,9 @@ functional language compilers taught by Greg Morrisett
 (http://www.eecs.harvard.edu/~greg/cs252rfa12/). The primary
 contributers to the core compiler have been (in alphabetical order):
 
-Dan Huang (optimization & analysis)
-Gregory Malecha (core & optimization & analysis)
-Scott Moore (runtime)
+- Dan Huang (optimization & analysis)
+- Gregory Malecha (core & optimization & analysis)
+- Scott Moore (runtime)
 
 # Getting Started ######################################################
 
