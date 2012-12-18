@@ -55,6 +55,45 @@ Module Lambda.
   | Con_e : constructor -> list exp -> exp
   | Match_e : exp -> list (pattern * exp) -> exp
   | Letrec_e : env_t (var * exp) -> exp -> exp.
+
+  Section Printing.
+    Require Import ExtLib.Programming.Show.
+    Import ShowNotation.
+    Local Open Scope string_scope.
+    Local Open Scope show_scope.
+
+    Require Import ExtLib.Data.Lists.
+    
+    Global Instance Show_pat : Show pattern :=
+    { show x :=
+      match x with
+        | Con_p c vs => c << " " << sepBy_f show " " vs
+        | Var_p v => show v
+      end }.
+
+    Fixpoint show_exp (e : exp) : showM :=
+      match e with
+        | Var_e v => show v
+        | Lam_e v e => "(lambda (" << show v << ") " << show_exp e << ")"
+        | App_e f e => "(" << show_exp f << " " << show_exp e << ")"
+        | Let_e v e b =>
+          "(let ((" << show v << " " << show_exp e << ")) " << 
+          indent "     " (Char.chr_newline << show_exp b) << ")"
+        | Con_e c le => "(" << c << " " << sepBy " " (map show_exp le) << ")"
+        | Match_e e pe =>
+          "(match " << show_exp e << 
+          indent "   " (Char.chr_newline << 
+                        sepBy Char.chr_newline (map (fun pe => 
+                          let '(p,e) := pe in
+                          "((" << show p << ") " << show_exp e << ")") pe)) << ")"
+        | Letrec_e ds e => empty
+      end%string.
+    
+    Global Instance Show_lambda : Show exp :=
+    { show := show_exp }.  
+
+  End Printing.
+
 End Lambda.
 
 Module LambdaSemantics.
