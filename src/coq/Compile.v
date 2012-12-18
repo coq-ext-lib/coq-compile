@@ -108,62 +108,94 @@ Module Compile.
     Variable word_size : nat.
     Variable cps_opt :  @Opt.optimization CPSK.exp.
 
-    Record Phase (T U : Type) : Type :=
-    { Phase_Show : Show T
-    ; name : string 
-    ; run : T -> m U
+    Inductive IR : Type :=
+    | IR_Lam
+    | IR_Cps
+    | IR_Clo
+    | IR_Low
+    | IR_LLVM.
+
+    Definition denoteIR (ir : IR) : Type :=
+      match ir with
+        | IR_Lam => Lambda.exp
+        | IR_Cps => CPSK.exp
+        | IR_Clo => list CPSK.decl * CPSK.exp (** TODO : Name this type **)
+        | IR_Low => Low.program
+        | IR_LLVM => LLVM.module
+      end%type.
+
+    Global Instance Show_denoteIR ir : Show (denoteIR ir) :=
+    { show :=
+      match ir as ir return denoteIR ir -> showM with
+        | IR_Lam => show
+        | IR_Cps => show
+        | IR_Clo => fun x => show (CPSK.Letrec_e (fst x) (snd x))
+        | IR_Low => show
+        | IR_LLVM => show
+      end }.
+
+    Record Phase (T U : IR) : Type :=
+    { name : string 
+    ; run : denoteIR T -> m (denoteIR U)
     }.
 
-    Global Instance Show_lam : Show Lambda.exp :=
-    { show := fun x => "todo"%string }.
 
-    Definition Phase_CpsConvert (io : bool) : Phase Lambda.exp CPSK.exp :=
-    {| Phase_Show := _
-     ; name := "CpsConvert"
-     ; run := fun x =>
+    Definition Phase_CpsConvert (io : bool) : Phase IR_Lam IR_Cps :=
+    {| name := "CpsConvert"
+     ; run := fun x : denoteIR IR_Lam =>
        if io then
          ret (CpsKConvert.CPS_io x)
        else 
          ret (CpsKConvert.CPS_pure x)
      |}.
 
-    Definition Phase_Opt (o : Opt.optimization CPSK.exp) : Phase CPSK.exp CPSK.exp :=
-    {| Phase_Show := _
-     ; name := "Optimize"
-     ; run := fun x => Opt.runOpt o x
+    Definition Phase_Opt (o : Opt.optimization CPSK.exp) : Phase IR_Cps IR_Cps :=
+    {| name := "Optimize"
+     ; run := fun x : denoteIR IR_Cps => Opt.runOpt o x : m (denoteIR IR_Cps)
      |}.
 
-    Definition Phase_CloConv : Phase CPSK.exp (list CPSK.decl * CPSK.exp) :=
-    {| Phase_Show := _
-     ; name := "Closure Convert" 
-     ; run := fun x =>
+
+    Definition Phase_CloConv : Phase IR_Cps IR_Clo :=
+    {| name := "Closure Convert" 
+     ; run := fun x : denoteIR IR_Cps =>
        CloConvK.ClosureConvert.cloconv_exp x
      |}.
 
-    Definition Phase_OptCc : Phase (list CPSK.decl * CPSK.exp) (list CPSK.decl * CPSK.exp) :=
-    {| Phase_Show := _
-     ; name := "Optimize Closure Convert"
-     ; run := fun x => let '(ds,m) := x in
+    Definition Phase_OptCc : Phase IR_Clo IR_Clo :=
+    {| name := "Optimize Closure Convert"
+     ; run := 
+       let opt x := ret x in
+       fun x : denoteIR IR_Clo => let '(ds,m) := x in
+       ds <- mapM (fun d => 
+         match d with 
+           | CPSK.Fn_d x ks xs e => liftM (CPSK.Fn_d x ks xs) (opt e)
+           | d => ret d
+         end) ds ;;
+       m <- opt m ;;
        ret (ds, m) (** TODO **)
      |}.
 
-
-    Definition Phase_Lower (dupdate : bool) : Phase (list CPSK.decl * CPSK.exp) Low.program :=
-     {| Phase_Show := fun x => show (CPSK.Letrec_e (fst x) (snd x))
-      ; name := "Lower"
-      ; run := fun x =>
+    Definition Phase_Lower (dupdate : bool) : Phase IR_Clo IR_Low :=
+     {| name := "Lower"
+      ; run := fun x : denoteIR IR_Clo =>
         liveMap <- (if dupdate then
                       construct_live_map _ (CPSK.Letrec_e (fst x) (snd x)) 100
                     else ret None) ;;
         CoqCompile.CpsK2Low.cpsk2low_h _ liveMap (fst x) (snd x)
       |}.
 
-    Definition Phase_LLVM (mctor : _) : Phase Low.program LLVM.module :=
-    {| Phase_Show := _
-     ; name := "Code Gen"
-     ; run := fun x =>
+    Definition Phase_LLVM (mctor : _) : Phase IR_Low IR_LLVM :=
+    {| name := "Code Gen"
+     ; run := fun x : denoteIR IR_Low =>
        CodeGen.generateProgram word_size mctor x
      |}.
+
+    Definition getPhase (name : string) (ir : IR) : option { ir' : IR & Phase ir ir' } :=
+      (** TODO: This should fill in a way to get different phases
+       ** It is currently stubbed because the naive way to do it will generate an enormous
+       ** amount of code...
+       **)
+      None.
 
     Definition phase {T U} {S : Show U} (name : string) 
       (c : U -> m T) (x : U)
@@ -175,8 +207,8 @@ Module Compile.
                          << Char.chr_newline << to_string x)%show
               in raise err).
 
-    Definition phase_bind {A B} (p : Phase A B) : A -> m B := 
-      phase (S := Phase_Show p) (name p) (run p).
+    Definition phase_bind {A B} (p : Phase A B) : denoteIR A -> m (denoteIR B) := 
+      phase (name p) (run p).
 
     Inductive CompileTo : Type :=
     | Lam_stop
