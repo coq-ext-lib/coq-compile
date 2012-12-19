@@ -49,7 +49,7 @@ Module Cse.
       
       Import MonadNotation.
       Local Open Scope monad_scope.
-      
+
       Definition cse_op (o : op) : m op :=
         match o with
           | Var_o v => 
@@ -65,7 +65,12 @@ Module Cse.
         local (fun x => (add v o (fst x), snd x)).
 
       Definition remember_def {T} (o : var) (v : CseValue) : m T -> m T :=
-        local (fun x => (fst x, add v (Var_o o) (snd x))).
+        local (fun x => (add o (Var_o o) (fst x), add v (Var_o o) (snd x))).
+
+      Definition under_vars {T} (vs : list var) : m T -> m T :=
+        local (fun x => 
+          (fold_left (fun acc x => add x (Var_o x) acc) vs (fst x),
+           snd x)).      
 
       (** NOTE: This assumes no aliasing **)
       Fixpoint cse_decl {T} (d : decl) (cc : decl -> m T) : m T :=
@@ -82,12 +87,13 @@ Module Cse.
             end
           | Bind_d v w m os =>
             os <- mapM cse_op os ;;
-            cc (Bind_d v w m os)
+            use_op v (Var_o v) (use_op w (Var_o w) (cc (Bind_d v w m os)))
           | Fn_d v ks vs e =>
-            e <- cse_exp e ;;
+            e <- under_vars vs (cse_exp e) ;;
             x <- ask ;;
             match Maps.lookup (Fn_s vs ks e) (snd x) with
-              | None => remember_def v (Fn_s vs ks e) (cc (Fn_d v ks vs e))
+              | None => 
+                remember_def v (Fn_s vs ks e) (cc (Fn_d v ks vs e))
               | Some o => use_op v o (cc (Op_d v o))
             end
         end
@@ -130,7 +136,7 @@ Module Cse.
             ret (AppK_e k xs)
           | LetK_e ks e =>
             ks <- mapM (fun kxse => let '(k,xs,e) := kxse in
-              e <- cse_exp e ;;
+              e <- under_vars xs (cse_exp e) ;;
               ret (k, xs, e)) ks ;;              
             e <- cse_exp e ;;
             ret (LetK_e ks e)

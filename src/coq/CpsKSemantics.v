@@ -33,6 +33,11 @@ Section CPSEVAL.
   | Int_v : Z -> value
   | Ptr_v : nat -> value
   | World_v : positive -> value.
+
+  (** Allocated values *)
+  Inductive heap_value : Type := 
+  | Tuple_v : list value -> heap_value
+  | Closure_v : alist (var + cont) value -> list cont -> list var -> exp -> heap_value.
   
   Section hiding_show.
     Import ShowNotation.
@@ -47,13 +52,16 @@ Section CPSEVAL.
         | World_v n => "World#" << show n
       end }.
 
+    Global Instance Show_heap_value : Show heap_value :=
+    { show v :=
+      match v with
+        | Tuple_v ls => "<" << sepBy_f show  " , " ls << ">"
+        | Closure_v _ _ _ e => "<closure:" << show e << ">"
+      end }.
+
     Definition val2str (v : value) : string := to_string v.
   End hiding_show.
 
-  (** Allocated values *)
-  Inductive heap_value : Type := 
-  | Tuple_v : list value -> heap_value
-  | Closure_v : alist (var + cont) value -> list cont -> list var -> exp -> heap_value.
   
   (** We'll just naively implement heaps as lists of heap values *)
   Definition heap := list heap_value.
@@ -173,7 +181,7 @@ Section CPSEVAL.
       | Prim_d x MkTuple_p _ => 
         v <- malloc (Tuple_v nil) ;; 
         ret (inl x,v)
-      | _ => raise "can not allocate non function or tuple"
+      | _ => raise ("can not allocate non function or tuple: " ++ to_string d)
     end.
 
     (** Assuming we've already bound the declared variable in [d] to a pointer
@@ -237,7 +245,8 @@ Section CPSEVAL.
         match vs' with
           | World_v n :: vs =>
             sideEffect m vs' ;;
-            ret (extend (extend env (inl w) (World_v (Psucc n))) (inl x) (Con_v "Tt"))
+            ret (extend (extend env (inl w) (World_v (Psucc n)))
+                        (inl x) (Con_v "Tt"))
           | _ => 
             raise ("bad call to monadic op: (" ++ to_string d ++ ") args = [" ++ to_string vs' ++ "]")%string
         end
@@ -276,7 +285,7 @@ Section CPSEVAL.
                   env' <- extends env (map (fun x => inl x) xs) vs' ;;
                   env' <- extends env' (map (fun x => inr x) kvs) vk' ;; 
                   recur env' e
-                | _ => raise "applying non-function"
+                | _ => raise ("applying non-function" ++ to_string hv)
               end
             | _ => raise "applying non-function" 
           end
@@ -298,6 +307,7 @@ Section CPSEVAL.
           ret (x::w::nil)
         | AppK_e k os =>
           vs <- mapM (eval_op env) os ;;
+          let _ : list _ := vs in
           v <- eval_cont env k ;;
           match v with
             | Ptr_v z =>
@@ -305,6 +315,7 @@ Section CPSEVAL.
               match hv with
                 | Closure_v env ks xs e => 
                   kvs <- mapM (eval_cont env) ks ;;
+                  let _ : list _ := kvs in 
                   env' <- extends env (map (fun x => inl x) xs) vs ;;
                   env' <- extends env' (map (fun x => inr x) ks) kvs ;;
                   recur env' e

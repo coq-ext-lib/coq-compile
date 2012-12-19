@@ -60,7 +60,7 @@ Module AlphaCvt.
           | Var_o x => 
             x <- asks (Maps.lookup x) ;;
             match x with 
-              | None => ret v
+              | None => ret (Var_o (Env.Named_v "___BAD" None))
               | Some y => ret (Var_o y)
             end
           | _ => ret v
@@ -69,7 +69,7 @@ Module AlphaCvt.
       Definition alpha_k (k : cont) : M cont :=
         x <- asks (Maps.lookup k) ;;
         match x with
-          | None => ret k 
+          | None => ret (K "___BAD" 1)
           | Some y => ret y
         end.
 
@@ -117,9 +117,10 @@ Module AlphaCvt.
             let _ : env_k cont := defs in
             local (overlayK defs) 
               (ks' <- mapM (fun k => let '(k,xs,e) := k in
-                xs <- mapM (fun x => liftM (pair x) (freshFor x)) xs ;;
-                e <- local (overlay xs) (alpha_exp e) ;;
-                ret (k, map (fun x => snd x) xs, e)) ks ;;
+                xs' <- mapM freshFor xs ;;
+                e <- local (overlay_list xs xs') (alpha_exp e) ;;
+                k' <- alpha_k k ;;
+                ret (k', xs', e)) ks ;;
                e' <- alpha_exp e ;;
                ret (LetK_e ks' e'))
           | AppK_e k xs =>
@@ -165,7 +166,7 @@ Module AlphaCvt.
             x' <- fresh_or_rec recursive x ;;
             w' <- fresh_or_rec recursive w ;;
             vs' <- mapM alpha_op vs ;;
-            ret (Bind_d x' w' m vs', singleton x x')
+            ret (Bind_d x' w' m vs', add w w' (singleton x x'))
           | Fn_d f ks xs e => 
             f' <- fresh_or_rec recursive f ;;
             xs' <- mapM freshFor xs ;; 

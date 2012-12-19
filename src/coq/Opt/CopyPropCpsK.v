@@ -130,7 +130,7 @@ Module CopyProp.
           vs' <- mapM copyprop_op vs ;;
           k (Some (Bind_d x w m vs))
         | Fn_d f ks xs e =>
-          e' <- copyprop_exp e ;;
+          e' <- add_all (map (fun x => (x, Var_o x)) xs) (copyprop_exp e) ;;
           k (Some (Fn_d f ks xs e))
       end.
 

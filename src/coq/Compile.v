@@ -81,14 +81,18 @@ Module Compile.
     Require CoqCompile.Opt.CseCpsK.
     Require CoqCompile.Opt.DeadCodeCpsK.
     Require CoqCompile.Opt.ReduceCpsK.
+    Require CoqCompile.Opt.AlphaCvtCpsK.
+    Require CoqCompile.Opt.CopyPropCpsK.
 
     Definition optimization e : Type := Optimize.optimization e m.
     
     Definition O0 : optimization CPSK.exp := fun x => ret x.
     Definition O1 : optimization CPSK.exp := fun x => 
-      ret (* CseCpsK.Cse.cse *) (DeadCodeCpsK.dce x).
+      let alpha := AlphaCvtCpsK.AlphaCvt.alpha_cvt x in
+      ret (CopyPropCpsK.CopyProp.copyprop (CseCpsK.Cse.cse (DeadCodeCpsK.dce alpha))).
     Definition O2 : optimization CPSK.exp := fun x =>
-      ret (ReduceCpsK.Reduce.reduce (CseCpsK.Cse.cse (DeadCodeCpsK.dce x))).
+      let alpha := AlphaCvtCpsK.AlphaCvt.alpha_cvt x in
+      ret (CopyPropCpsK.CopyProp.copyprop (ReduceCpsK.Reduce.reduce (CseCpsK.Cse.cse (DeadCodeCpsK.dce alpha)))).
     
     Definition runOpt {E} (o : optimization E) (e : E) : m E := o e.
   End Opt.
@@ -164,7 +168,7 @@ Module Compile.
     Definition Phase_OptCc : Phase IR_Clo IR_Clo :=
     {| name := "Optimize Closure Convert"
      ; run := 
-       let opt x := ret x in
+       let opt x := ret x (* (CopyPropCpsK.CopyProp.copyprop (DeadCodeCpsK.dce x))*)  in
        fun x : denoteIR IR_Clo => let '(ds,m) := x in
        ds <- mapM (fun d => 
          match d with 
@@ -209,6 +213,26 @@ Module Compile.
          | inr (None, _ ,_) => mlog "out of fuel"%string ;; ret x
          | inr (Some v, _, _) => mlog ("returned " ++ to_string v)%string ;; ret x
        end
+     |}.
+
+    Definition Phase_Debug (p : Phase IR_Cps IR_Cps) : Phase IR_Cps IR_Cps :=
+    {| name := "Debug:" ++ name p
+     ; run := fun x : denoteIR IR_Cps =>
+       let go x := 
+         runStateT (runStateT (runGFixT (CpsKSemantics.eval_exp nil x) 10000) nil) nil in
+       y <- run p x ;;
+       match go x , go y with
+         | inl l , inl r => raise "preserved error"%string
+         | inr (Some _, _, _) , inl err =>
+           raise (runShow ("introduced error: " << err << Char.chr_newline << 
+                             "before ------------------" << Char.chr_newline <<
+                             show x << Char.chr_newline <<
+                             "after ------------------" << Char.chr_newline <<
+                             show y))%string%show
+         | inl _ , inr _ => raise "masked error"%string
+         | inr _ , inr _ => ret y
+         | inr (None,_,_) , inl _ => ret y
+       end           
      |}.
 
     Definition getPhase (name : string) (ir : IR) : option { ir' : IR & Phase ir ir' } :=
@@ -268,7 +292,7 @@ Module Compile.
         | OptClo_stop => (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc)
         | Low_stop =>  (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate)
         | LLVM_stop =>
-          (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate) >>= (Phase_LLVM mctor)
+          (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Debug (Phase_Opt cps_opt)) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate) >>= (Phase_LLVM mctor)
       end.
 
     (** Test Hooks **)

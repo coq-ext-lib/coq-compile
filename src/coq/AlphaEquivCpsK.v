@@ -96,7 +96,8 @@ Module Alpha.
                 | nil , nil => assert true
                 | (p1,e1) :: ls1 , (p2,e2) :: ls2 =>
                   assert (eq_dec p1 p2) ;;
-                  alpha_exp' e1 e2
+                  alpha_exp' e1 e2 ;;
+                  all2 ls1 ls2
                 | _ , _ => assert false
               end) br1 br2             
           | Halt_e o1 o1', Halt_e o2 o2'=>
@@ -168,14 +169,16 @@ Module Alpha.
   Module TEST.
     Require Import String.
 
-
+    Require Import BinNums.
     (** Test cases needed **)
-    Definition f (v : var) : exp := Halt_e (Var_o v) (Var_o (wrapVar "world"%string)).
+    Definition f (n : Z) (v : var) : exp := 
+      Let_e (Prim_d v Proj_p (Int_o n :: nil))
+      (Halt_e (Var_o v) (Var_o (wrapVar "world"%string))).
 
-    Goal (alpha_exp (f (wrapVar "0")) (f (wrapVar "2")) = false)%string.
+    Goal (alpha_exp (f 2 (wrapVar "0")) (f 1 (wrapVar "2")) = false)%string.
     Proof. vm_compute; reflexivity. Abort.
 
-    Goal (alpha_exp (f (wrapVar "0")) (f (wrapVar "0")) = true)%string.
+    Goal (alpha_exp (f 2 (wrapVar "0")) (f 2 (wrapVar "0")) = true)%string.
     Proof. vm_compute; reflexivity. Abort.
 (*
     Goal (alpha_lam (f (wrapVar "0")) (f (wrapVar "1")) (wrapVar "0" :: nil) (wrapVar "1" :: nil) = true)%string.
