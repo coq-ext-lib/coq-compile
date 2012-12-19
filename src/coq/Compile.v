@@ -292,7 +292,7 @@ Module Compile.
         | OptClo_stop => (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc)
         | Low_stop =>  (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate)
         | LLVM_stop =>
-          (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Debug (Phase_Opt cps_opt)) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate) >>= (Phase_LLVM mctor)
+          (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate) >>= (Phase_LLVM mctor)
       end.
 
     (** Test Hooks **)
