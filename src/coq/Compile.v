@@ -123,7 +123,7 @@ Module Compile.
       match ir with
         | IR_Lam => Lambda.exp
         | IR_Cps => CPSK.exp
-        | IR_Clo => list CPSK.decl * CPSK.exp (** TODO : Name this type **)
+        | IR_Clo => CPSK.cc_program
         | IR_Low => Low.program
         | IR_LLVM => LLVM.module
       end%type.
@@ -133,7 +133,7 @@ Module Compile.
       match ir as ir return denoteIR ir -> showM with
         | IR_Lam => show
         | IR_Cps => show
-        | IR_Clo => fun x => show (CPSK.Letrec_e (fst x) (snd x))
+        | IR_Clo => show
         | IR_Low => show
         | IR_LLVM => show
       end }.
@@ -158,7 +158,6 @@ Module Compile.
      ; run := fun x : denoteIR IR_Cps => Opt.runOpt o x : m (denoteIR IR_Cps)
      |}.
 
-
     Definition Phase_CloConv : Phase IR_Cps IR_Clo :=
     {| name := "Closure Convert" 
      ; run := fun x : denoteIR IR_Cps =>
@@ -167,25 +166,17 @@ Module Compile.
 
     Definition Phase_OptCc : Phase IR_Clo IR_Clo :=
     {| name := "Optimize Closure Convert"
-     ; run := 
-       let opt x := ret x (* (CopyPropCpsK.CopyProp.copyprop (DeadCodeCpsK.dce x))*)  in
-       fun x : denoteIR IR_Clo => let '(ds,m) := x in
-       ds <- mapM (fun d => 
-         match d with 
-           | CPSK.Fn_d x ks xs e => liftM (CPSK.Fn_d x ks xs) (opt e)
-           | d => ret d
-         end) ds ;;
-       m <- opt m ;;
-       ret (ds, m) (** TODO **)
+     ; run := fun x : denoteIR IR_Clo =>
+       ret (DeadCodeCpsK.dce_cc x)
      |}.
 
     Definition Phase_Lower (dupdate : bool) : Phase IR_Clo IR_Low :=
      {| name := "Lower"
       ; run := fun x : denoteIR IR_Clo =>
         liveMap <- (if dupdate then
-                      construct_live_map _ (CPSK.Letrec_e (fst x) (snd x)) 100
+                      construct_live_map _ (CPSK.Letrec_e x.(CPSK.decls) x.(CPSK.main)) 100
                     else ret None) ;;
-        CoqCompile.CpsK2Low.cpsk2low_h _ liveMap (fst x) (snd x)
+        CoqCompile.CpsK2Low.cpsk2low_h _ liveMap x.(CPSK.decls) x.(CPSK.main)
       |}.
 
     Definition Phase_LLVM (mctor : _) : Phase IR_Low IR_LLVM :=
@@ -271,8 +262,8 @@ Module Compile.
             | Lam_stop => Lambda.exp
             | LLVM_stop => LLVM.module
             | Low_stop => Low.program
-            | Clo_stop => list CPSK.decl * CPSK.exp
-            | OptClo_stop => list CPSK.decl * CPSK.exp
+            | Clo_stop => CPSK.cc_program
+            | OptClo_stop => CPSK.cc_program
             | _ => CPSK.exp
           end :=
       mctor <- makeCtorMap e ;;
@@ -281,8 +272,8 @@ Module Compile.
                    | Lam_stop => Lambda.exp
                    | LLVM_stop => LLVM.module
                    | Low_stop => Low.program
-                   | Clo_stop => list CPSK.decl * CPSK.exp
-                   | OptClo_stop => list CPSK.decl * CPSK.exp
+                   | Clo_stop => CPSK.cc_program
+                   | OptClo_stop => CPSK.cc_program
                    | _ => CPSK.exp
                  end with
         | Lam_stop => ret e
@@ -306,8 +297,8 @@ Module Compile.
                        | Lam_stop => Lambda.exp
                        | LLVM_stop => LLVM.module
                        | Low_stop => Low.program
-                       | Clo_stop => list CPSK.decl * CPSK.exp
-                       | OptClo_stop => list CPSK.decl * CPSK.exp
+                       | Clo_stop => CPSK.cc_program
+                       | OptClo_stop => CPSK.cc_program
                        | _ => CPSK.exp
                      end -> string
               with
@@ -315,7 +306,7 @@ Module Compile.
               | LLVM_stop => to_string
               | Low_stop => to_string
               | Clo_stop
-              | OptClo_stop => fun x => to_string (CPSK.Letrec_e (fst x) (snd x))
+              | OptClo_stop => to_string
               | _ => to_string
             end
           in
@@ -335,7 +326,7 @@ Module Compile.
         | inr e =>
           match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
-            | inr (ds,e) => to_string (CPSK.Letrec_e ds e)
+            | inr ccp => to_string ccp
           end
       end.
 
@@ -345,8 +336,8 @@ Module Compile.
         | inr e =>
           match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure e)) with
             | inl e => e
-            | inr (decls,main) =>
-              match traceTraceT ((CpsK2Low.cpsk2low _ decls main)) with
+            | inr ccp =>
+              match traceTraceT ((CpsK2Low.cpsk2low _ ccp.(CPSK.decls) ccp.(CPSK.main))) with
                 | inl e => e
                 | inr low => String Char.chr_newline (to_string low)
               end
@@ -359,14 +350,14 @@ Module Compile.
     Definition lamToClos (l : Lambda.exp) : string :=
       match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure l)) with
         | inl e => e
-        | inr (ds,e) => String Char.chr_newline (to_string (CPSK.Letrec_e ds e))
+        | inr ccp => String Char.chr_newline (to_string ccp)
       end.
 
     Definition lamToLow (l : Lambda.exp) : string :=
       match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_pure l)) with
         | inl e => e
-        | inr (decls,main) =>
-          match traceTraceT ((CpsK2Low.cpsk2low _ decls main)) with
+        | inr ccp =>
+          match traceTraceT ((CpsK2Low.cpsk2low _ ccp.(CPSK.decls) ccp.(CPSK.main))) with
             | inl e => e
             | inr low => String Char.chr_newline (to_string low)
           end
@@ -378,14 +369,14 @@ Module Compile.
     Definition lamToClosIO (l : Lambda.exp) : string :=
       match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io l)) with
         | inl e => e
-        | inr (ds,e) => String Char.chr_newline (to_string (CPSK.Letrec_e ds e))
+        | inr ccp => String Char.chr_newline (to_string ccp)
       end.
 
     Definition lamToLowIO (l : Lambda.exp) : string :=
       match (CloConvK.ClosureConvert.cloconv_exp (CpsKConvert.CPS_io l)) with
         | inl e => e
-        | inr (decls,main) =>
-          match traceTraceT ((CpsK2Low.cpsk2low _ decls main)) with
+        | inr ccp =>
+          match traceTraceT ((CpsK2Low.cpsk2low _ ccp.(CPSK.decls) ccp.(CPSK.main))) with
             | inl e => e
             | inr low => String Char.chr_newline (to_string low)
           end

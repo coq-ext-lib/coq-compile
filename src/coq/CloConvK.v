@@ -314,7 +314,7 @@ Module ClosureConvert.
     Context {Monad_m : Monad m}.
     Context {MExc : MonadExc string m}.
 
-    Definition cloconv_exp (e : exp) : m (list decl * exp) :=
+    Definition cloconv_exp (e : exp) : m cc_program :=
       let env_v := alist var in
       let env_k := alist cont in
       let c := cloconv_exp' (env_v := env_v) (env_k := env_k)
@@ -322,7 +322,7 @@ Module ClosureConvert.
         e in
       res <- evalStateT (runWriterT (runReaderT (runReaderT c Maps.empty) Maps.empty)) 1%positive ;;
       let '(e', ds') := res in
-      ret (ds', e').
+      ret {| decls := ds' ; main := e' |}.
   End monadic.
 
 End ClosureConvert.

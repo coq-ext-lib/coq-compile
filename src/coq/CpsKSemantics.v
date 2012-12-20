@@ -343,18 +343,21 @@ Section CPSEVAL.
   Require Import CoqCompile.CpsKConvert.
   Require CoqCompile.CloConvK.
 
-  Definition cloconv (e : exp) : string + exp :=
-    match CloConvK.ClosureConvert.cloconv_exp e with
-      | inl err => inl err
-      | inr (ds,e) => inr (Letrec_e ds e)
-    end.
-
-  Definition evalstr (n:N) (io cc : bool) (s:string) : string * (string + (list value * heap * list (mop * list value))) := 
+  Definition evalstr (n:N) (io cc : bool) (s:string) : string * (string + (list value * heap * list (mop * list value))) :=
     match Parse.parse_topdecls s with
       | inl e => (s, inl e)
       | inr parse =>
         let cps := if io then CPS_io parse else CPS_pure parse in
-        let program := if cc then cloconv cps else inr cps in
+        let program : string + CPSK.exp := 
+          if cc then 
+            match CloConvK.ClosureConvert.cloconv_exp cps with
+              | inl err => inl err
+              | inr res => 
+                inr (CPSK.Letrec_e res.(CPSK.decls) res.(CPSK.main))
+            end
+          else
+            inr cps
+        in
         match program with
           | inl err => (to_string program, inl err)
           | inr exp => (to_string program, eval n exp)

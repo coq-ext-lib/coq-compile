@@ -139,4 +139,14 @@ Section DEADCODE.
   Definition dce (e : exp) : exp :=
     unIdent (evalWriterT (dce_exp (m := writerT _ ident) e)).
 
+  Definition dce_cc (e : cc_program) : cc_program :=
+    let ds' := List.map (fun d =>
+      match d with
+        | Fn_d x ks xs e => Fn_d x ks xs (dce e)
+        | _ => d
+      end) e.(decls) in
+    {| decls := ds'
+     ; main := dce e.(main)
+     |}.
+
 End DEADCODE.

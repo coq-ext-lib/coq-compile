@@ -67,6 +67,11 @@ Module CPSK.
   | Fn_d : var -> list cont -> list var -> exp -> decl
   | Bind_d : var -> var -> mop -> list op -> decl.
 
+  Record cc_program :=
+  { decls : list decl 
+  ; main : exp
+  }.
+
   Global Instance RelDec_cont_eq : RelDec (@eq cont) :=
   { rel_dec l r := match l , r with
                      | K s1 i1 , K s2 i2 => eq_dec s1 s2 && eq_dec i1 i2
@@ -241,6 +246,8 @@ End decidables.
 
     Global Instance Show_exp : Show exp := emitexp.
     Global Instance Show_decl : Show decl := emitdecl.
+    Global Instance Show_cc_program : Show cc_program :=
+    { show x := show (Letrec_e (decls x) (main x)) }.
 
     Definition exp2string (e:exp) : string := to_string e.
     
