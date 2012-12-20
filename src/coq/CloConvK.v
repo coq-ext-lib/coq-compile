@@ -245,7 +245,8 @@ Module ClosureConvert.
           | inr x => None
         end) env 
       in
-
+      _).
+    refine (
       (** Lift the functions **)
       Fwrap_names <- mapM (fun d =>
         match d with
@@ -256,7 +257,7 @@ Module ClosureConvert.
             env_var_F <- fresh "env" ;; 
             e <- buildClosures (Var_o env_var_F) func_names Fcode_names
                  (** for recursive tuples, indexing starts at 0 since the environment is unboxed **)
-                 (unpackEnv (Var_o env_var_F) env 0 
+                 (unpackEnv (Var_o env_var_F) env0 0 
                  (withConts ks ksF
                  (withVars vs vsF (cloconv_exp' e)))) ;;
             (** get my code name **)
@@ -266,17 +267,6 @@ Module ClosureConvert.
                 liftDecl (Fn_d cptr ksF (env_varF :: vsF) 
                             (Let_e (Prim_d env_var_F Proj_p (Int_o (PreOmega.Z_of_nat' 1) :: Var_o env_varF :: nil))
                                    e)) ;;
-(*
-                wrapF <- freshFor v ;;
-                ksF      <- mapM freshCont ks ;;
-                vsF      <- mapM freshFor vs ;;
-                env_varF <- fresh "env" ;;
-                tmpF     <- fresh "temp" ;;
-                liftDecl (Fn_d wrapF ksF (env_varF :: vsF)
-                  (Let_e (Prim_d tmpF Proj_p (Int_o (PreOmega.Z_of_nat' 1) :: Var_o env_varF :: nil))
-                    (App_e (Var_o cptr) ksF (Var_o tmpF :: map Var_o vsF)))) ;;
-                ret (Some wrapF)
-*)
                 ret (Some cptr)
             end
           | _ => ret None
@@ -290,7 +280,7 @@ Module ClosureConvert.
         (** Create the environment **)
         env_varF <- fresh "env" ;;
       
-        env_decl <- (env_ops <- mapM cloconv_op (List.map Var_o env) ;;
+        env_decl <- (env_ops <- mapM cloconv_op (List.map Var_o env0) ;;
                      ret (Prim_d env_varF MkTuple_p env_ops)) ;;
   
         (** Create the closures **)

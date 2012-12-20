@@ -57,7 +57,7 @@ IONat: IONat.v
 	$(COMPILER) $(IO_OPTS) $(OPT) -o ionat.native IONat.main
 
 Compiler: Compiler.v
-	$(COMPILER) $(OPT) -o compiler.native IONat.main
+	$(COMPILER) $(OPT) --coq-args '-R ../src/coq CoqCompile -R ../coq-ext-lib/theories/ ExtLib' -o compiler.native Compiler.result
 
 clean:
 	@ rm -f *.ll *.s *.o *.native *.vo *.glob tmp_extr.* *.bc

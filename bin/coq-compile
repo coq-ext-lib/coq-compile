@@ -18,6 +18,7 @@ def build_parser():
     parser.add_argument('-o', action='store')
     parser.add_argument('-io', action='store_true', dest='io', default=False, required=False)
     parser.add_argument('module.term', action='store')
+    parser.add_argument('-v', action='store_false', dest='quiet', default=True)
 
     return parser
 
@@ -44,7 +45,8 @@ if __name__ == '__main__':
     cc = [COMPILER, '-i', m, '-t', t, '-o', output_ll] + \
          ([] if not 'opt_meta' in options else ['-O%d' % options['opt_meta']]) + \
          (['-io'] if options['io'] else []) + \
-         ([] if options['coq_args'] is None else ['-arg', options['coq_args']])
+         ([] if options['coq_args'] is None else ['-arg', options['coq_args']]) + \
+         (['-q'] if options['quiet'] else [])
     print "Running..."
     print cc
     res = subprocess.call(cc)
