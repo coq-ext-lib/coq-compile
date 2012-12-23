@@ -97,38 +97,3 @@ Section instances.
   { mlog := fun x => lift (mlog x) }.
 
 End instances.
-
-(*
-Inductive TMsg : Type := 
-| Msg : forall {T}, Show T -> T -> TMsg
-| Value : forall {T}, T -> TMsg.
-
-Section traced.
-  Class Identifier (U T : Type) (f : T) : Type :=
-  { identFor : U }.
-
-  Variable T : Type.
-  Variable m : Type -> Type.
-  Context {Monad_m : Monad m}.
-  Context {MT : MonadTrace T m}.
-
-  Definition ftrace {U : Type} (f : m U) {Id : Identifier T f} : m U :=
-    bind (mtrace identFor f) (fun _ => f).
-
-  Definition ftrace1 {A U : Type} (f : A -> m U) {Id : Identifier T f} (a : A) : m U :=
-    bind (mtrace identFor f) (fun _ => f a).
-
-  Definition ftrace2 {A B U : Type} (f : A -> B -> m U) {Id : Identifier T f} (a : A) (b : B) : m U :=
-    bind (mtrace identFor f) (fun _ => f a b).
-
-  Definition ftrace3 {A B C U : Type} (f : A -> B -> C -> m U) {Id : Identifier T f} (a : A) (b : B) (c : C) : m U :=
-    bind (mtrace identFor f) (fun _ => f a b c).
-
-  Definition ftrace4 {A B C D U : Type} (f : A -> B -> C -> D -> m U) {Id : Identifier T f} (a : A) (b : B) (c : C) (d : D) : m U :=
-    bind (mtrace identFor f) (fun _ => f a b c d).
-
-  Definition ftrace5 {A B C D E U : Type} (f : A -> B -> C -> D -> E -> m U) {Id : Identifier T f} (a : A) (b : B) (c : C) (d : D) (e : E) : m U :=
-    bind (mtrace identFor f) (fun _ => f a b c d e).
-
-End traced.
-*)
