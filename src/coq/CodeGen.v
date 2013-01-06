@@ -349,9 +349,6 @@ Section monadic.
 
   Definition generateMop T (x : Env.var) (p : Low.mop) (os : list op) (k : m T) : m T :=
     match p with
-      | PrintInt_m => 
-        mlog "TODO: generate code for PrintInt"%string ;;
-        k
       | PrintChar_m =>
         mlog "generating code for PrintChar"%string ;;
         match os with
@@ -361,9 +358,16 @@ Section monadic.
             let args := (PTR_TYPE,(%ptr),nil)::nil in
             let call := LLVM.Call_e true CALLING_CONV nil LLVM.Void_t None (LLVM.Global PRINTCHAR_FN) args nil in
             emitInstr (LLVM.Assign_i None call) ;;
-            withNewValue x (LLVM.Constant (LLVM.Int_c 3)) k
+            res <- tagForConstructor "Tt"%string ;;
+            withNewValue x (LLVM.Constant (LLVM.Int_c res)) k
           | _ => raise "PrintChar expects a single argument"%string
         end
+      | Echo_m => 
+        mlog "generating code for echo"%string ;;
+        raise "TODO: Echo not implemented"%string
+      | Read_m =>
+        mlog "generating code for read"%string ;;
+        raise "TODO: Read not implemented"%string
     end.
 
   Fixpoint sizeof (t : primtyp) : nat :=

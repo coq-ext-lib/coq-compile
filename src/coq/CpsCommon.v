@@ -40,8 +40,9 @@ Inductive primop : Type :=
 
 (** Monadic operations **)
 Inductive mop : Type := 
-| PrintInt_m : mop (* First argument is the world, second is a Z *)
-| PrintChar_m : mop.
+| PrintChar_m : mop
+| Echo_m : mop
+| Read_m : mop.
 
 Section sanity.
   Definition primop_sane (p : primop) (ls : list op) : bool :=
@@ -61,15 +62,12 @@ Section sanity.
 
   Definition mop_sane (m : mop) (ls : list op) : bool :=
     match m with 
-      | PrintInt_m => match ls with
-                      | _::_::nil => true
-                      | _ => false
-                    end
-      | PrintChar_m => eq_dec 8 (List.length ls)        
+      | PrintChar_m => eq_dec 2 (List.length ls)
+      | Echo_m => eq_dec 10 (List.length ls)
+      | Read_m => eq_dec 1 (List.length ls)
     end.
 
 End sanity.
-
 
 Section decidables.
   Require Import ExtLib.Core.RelDec.
@@ -101,8 +99,9 @@ Section decidables.
 
   Global Instance RelDec_mop_eq : RelDec (@eq mop) :=
   { rel_dec l r := match l , r with
-                     | PrintInt_m , PrintInt_m => true
                      | PrintChar_m , PrintChar_m => true
+                     | Echo_m , Echo_m => true
+                     | Read_m , Read_m => true
                      | _ , _ => false
                    end }.
 
@@ -157,8 +156,9 @@ Section Printing.
 
   Global Instance Show_mop : Show mop :=
   { show m := match m with 
-                | PrintInt_m => "PrintInt"
                 | PrintChar_m => "PrintChar"
+                | Echo_m => "Echo"
+                | Read_m => "Read"
               end }.
     
   Global Instance Show_op : Show op :=

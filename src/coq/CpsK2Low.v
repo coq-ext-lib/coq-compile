@@ -302,19 +302,26 @@ Section maps.
         | Bind_d x w mop os => 
           vs <- mapM opgen os ;;
           match mop return m unit with 
-            | PrintInt_m =>
-              match os with
-                | _ :: o :: nil =>
-                  emit_instr (Bind_i x PrintInt_m (o :: nil))
-                | _ =>
-                  raise "ERROR: PrintInt_m with wrong arguments"
-              end
             | PrintChar_m =>
               match os with
                 | _ :: rs =>
                   emit_instr (Bind_i x PrintChar_m rs)
                 | _ => 
                   raise "ERROR: PrintChar_m with wrong arguments"
+              end
+            | Echo_m =>
+              match os with
+                | _ :: rs =>
+                  emit_instr (Bind_i x Echo_m rs)
+                | _ => 
+                  raise "ERROR: Echo_m with wrong arguments"
+              end
+            | Read_m =>
+              match os with
+                | _ :: rs =>
+                  emit_instr (Bind_i x Read_m rs)
+                | _ => 
+                  raise "ERROR: Read_m with wrong arguments"
               end
           end ;;
           withNewVars ((x, Var_o x)::(w, Int_o 1)::nil) c

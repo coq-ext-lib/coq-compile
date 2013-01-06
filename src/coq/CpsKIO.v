@@ -61,6 +61,7 @@ Module IO.
       )
       (AppK_e k (Var_o res :: nil))).
 
+(*
   (** PrintIO :: Z -> IO unit
    ** fun k i =>
    **   let res = fun k' w =>
@@ -83,6 +84,7 @@ Module IO.
           (Bind_d x w' PrintInt_m (Var_o w :: Var_o i :: nil))
           (AppK_e k' (Var_o x :: Var_o w' :: nil))))
       (AppK_e k (Var_o res :: nil))).
+*)
 
   (** PrintChar :: ascii -> IO unit 
    ** fun k a => 
@@ -107,6 +109,63 @@ Module IO.
     (Let_e
       (Fn_d res (k' :: nil) (w :: nil) body)
       (AppK_e k (Var_o res :: nil))).
+
+  (** Echo :: std -> ascii -> IO unit
+   ** fun k s =>
+   **   let res = 
+   **     fun k a => 
+   **       let res = fun k' w =>
+   **         let (x,w') = bind PrintChar (w::a::nil)
+   **         in k' x w'
+   **       in k res
+   **   in k res
+   **)
+  Definition IO_echo (echo : var) : decl :=
+    let k := wrapCont "k" in
+    let k' := wrapCont "k'" in
+    let res := wrapVar "res" in
+    let s := wrapVar "s" in
+    let a := wrapVar "a" in
+    let w := wrapVar "w" in
+    let w' := wrapVar "w'" in
+    let x := wrapVar "x" in
+    let body :=
+      (fix go (i : nat) (k : list op -> exp) : exp :=
+        match i with
+          | 0 => k nil
+          | S i' =>
+            let v := wrapVar ("a" ++ to_string i)%string in
+            go i' (fun ops => 
+              Let_e (Prim_d v Proj_p (Int_o (BinInt.Z.of_nat i) :: Var_o a :: nil))
+                    (k (ops ++ Var_o v :: nil)))
+        end) 8 (fun args =>
+          Let_e (Bind_d x w' PrintChar_m (Var_o w :: Var_o s :: args))
+
+                (AppK_e k' (Var_o x :: Var_o w' :: nil)))
+
+    in
+    Fn_d echo (k :: nil) (s :: nil)
+      (Let_e
+        (Fn_d res (k :: nil) (a :: nil)
+          (Let_e
+            (Fn_d res (k' :: nil) (w :: nil) body)
+            (AppK_e k' (Var_o res :: nil))))
+        (AppK_e k (Var_o res :: nil))).
+
+
+  (** Read :: IO ascii
+   ** fun k' w =>
+   **   let (x,w') = bind Read (w::nil)
+   **   in k' x w'
+   **)
+  Definition IO_read (read : var) : decl :=
+    let k := wrapCont "k" in
+    let w := wrapVar "w" in
+    let w' := wrapVar "w'" in
+    let x := wrapVar "x" in
+    Fn_d read (k :: nil) (w :: nil) 
+      (Let_e (Bind_d x w' Read_m (Var_o w :: nil))
+             (AppK_e k (Var_o x :: Var_o w' :: nil))).
     
   Definition runIO (e : op) : exp :=
     let k := wrapCont "IO$k" in

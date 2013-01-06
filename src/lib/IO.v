@@ -6,6 +6,11 @@ Parameter IO_bind : forall a, IO a -> forall b, (a -> IO b) -> IO b.
 Parameter IO_ret  : forall a, a -> IO a.
 Parameter IO_printChar : Ascii.ascii -> IO unit.
 
+(** Other IO **)
+Inductive std : Type := StdOut | StdErr.
+Parameter IO_echo : std -> IO unit.
+Parameter IO_read : IO Ascii.ascii.
+
 (** Instances **)
 Require Import ExtLib.Structures.Monad.
 Require Import ExtLib.Programming.Show.
@@ -27,3 +32,5 @@ Extract Constant IO "t" => "t".
 Extract Constant IO_bind => "io_bind".
 Extract Constant IO_ret => "io_ret".
 Extract Constant IO_printChar => "io_printChar".
+Extract Constant IO_echo => "io_echo".
+Extract Constant IO_echo => "io_read".
