@@ -15,6 +15,11 @@ let implode l =
   | c :: l -> res.[i] <- c; imp (i + 1) l in
   imp 0 l
 
+let rec make_nat n =
+  if n = 0 
+  then CoqCompile.O
+  else CoqCompile.S (make_nat (n - 1))
+
 let rec make_pos n =
   if n = 1
     then CoqCpsKSemantics.XH

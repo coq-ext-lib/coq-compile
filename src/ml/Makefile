@@ -15,7 +15,7 @@ coq:
 
 Extraction.vo: Extraction.v coq
 	@ echo "Extracting compiler..."
-	@ coqc $(EXTLIB_R) -R ../coq CoqCompile Extraction
+	@ coqc $(EXTLIB_R) -R ../lib CoqIO -R ../coq CoqCompile Extraction
 
 CoqCpsKSemantics.ml: Extraction.vo
 CoqCompile.ml: Extraction.vo

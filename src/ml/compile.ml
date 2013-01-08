@@ -4,7 +4,7 @@ let usage_string = "Usage: " ^ Sys.argv.(0) ^ " [-o output file] [-i Coq module]
 let output = ref "out.ll"
 let input = ref (None: string option)
 let term = ref (None: string option)
-let opt = ref (CoqCompile.Compile.Opt.coq_O0)
+let opt = ref (CoqCompile.opt0)
 let io = ref false
 let dupdate = ref false
 let comp_args = ref ""
@@ -20,9 +20,9 @@ let params =
       "<coq term> Coq term to extract");
    ("-e", Arg.String (fun s -> lit := Some s), "file to read for the extracted term");
    ("-q", Arg.Unit (fun () -> quiet := true), "don't print the extracted string");
-   ("-O0", Arg.Unit (fun () -> opt := CoqCompile.Compile.Opt.coq_O0), " Optimizer Level 0 (default)");
-   ("-O1", Arg.Unit (fun () -> opt := CoqCompile.Compile.Opt.coq_O1), " Optimizer Level 1");
-   ("-O2", Arg.Unit (fun () -> opt := CoqCompile.Compile.Opt.coq_O2), " Optimizer Level 2");
+   ("-O0", Arg.Unit (fun () -> opt := CoqCompile.opt0), " Optimizer Level 0 (default)");
+   ("-O1", Arg.Unit (fun () -> opt := CoqCompile.opt1), " Optimizer Level 1");
+   ("-O2", Arg.Unit (fun () -> opt := CoqCompile.opt2), " Optimizer Level 2");
    ("-io", Arg.Unit (fun () -> io := true), " Wrapping with IO monad");
    ("-stop", Arg.String (fun s -> if s = "llvm" then stop := CoqCompile.Compile.LLVM_stop else 
 			          if s = "low" then stop := CoqCompile.Compile.Low_stop else
@@ -37,12 +37,23 @@ let params =
 let anon = (fun x -> failwith "Bad argument")
 
 let compile_from_str source =
+  let out_ref = lazy (open_out !output) in
+  let output c =
+    CoqIO.make_io (fun () ->
+      output_char (Lazy.force out_ref) c ;
+      ())
+  in
   if not !quiet then print_string source ;
-  match CoqCompile.topcompile !opt !io (CoqUtil.explode source) !stop !dupdate with
+  let res = CoqCompile.topcompile (CoqUtil.make_nat 8) !opt !io (CoqUtil.explode source) !stop !dupdate output in
+  if CoqIO.run_io res then exit 0 else exit 1
+(*
+
+  match with
     | CoqCompile.Inl s -> print_endline (CoqUtil.implode s) 
     | CoqCompile.Inr assembly -> 
 	let out_ref = open_out !output in
 	  output_string out_ref (CoqUtil.implode assembly)
+*)
 
 let _ = 
   Arg.parse params anon usage_string;

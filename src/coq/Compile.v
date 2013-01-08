@@ -18,6 +18,12 @@ Require Import CoqCompile.CodeGen CoqCompile.CloConvK.
 Require Import CoqCompile.ExtractTypes.
 Require Import CoqCompile.Parse.
 Require Import CoqCompile.TraceMonad.
+(* Require Import CoqCompile.Optimize. *)
+Require CoqCompile.Opt.CseCpsK.
+Require CoqCompile.Opt.DeadCodeCpsK.
+Require CoqCompile.Opt.ReduceCpsK.
+Require CoqCompile.Opt.AlphaCvtCpsK.
+Require CoqCompile.Opt.CopyPropCpsK.
 
 Set Implicit Arguments.
 Set Strict Implicit.
@@ -75,35 +81,24 @@ Module Compile.
 
   End maps.
 
-  Definition m : Type -> Type :=
-    eitherT string (traceT string ident).
+  Section Driver.
+    Variable m : Type -> Type.
+    Context {Monad_m : Monad m}.
+    Context {MonadExc_m : MonadExc string m}.
+    Context {MonadTrace_m : MonadTrace string m}.
 
-  Definition runM {A} (c : m A) : (string + A) * list string :=
-    unIdent (traceTraceT (unEitherT c)).
-
-
-  Module Opt.
-    Require Import CoqCompile.Optimize.
-    Require CoqCompile.Opt.CseCpsK.
-    Require CoqCompile.Opt.DeadCodeCpsK.
-    Require CoqCompile.Opt.ReduceCpsK.
-    Require CoqCompile.Opt.AlphaCvtCpsK.
-    Require CoqCompile.Opt.CopyPropCpsK.
-
-    Definition optimization e : Type := Optimize.optimization e m.
+    Definition optimization e : Type := e -> m e.
     
     Definition O0 : optimization CPSK.exp := fun x => ret x.
     Definition O1 : optimization CPSK.exp := fun x => 
       let alpha := AlphaCvtCpsK.AlphaCvt.alpha_cvt x in
-      ret (CopyPropCpsK.CopyProp.copyprop (CseCpsK.Cse.cse (DeadCodeCpsK.dce alpha))).
+        ret (CopyPropCpsK.CopyProp.copyprop (CseCpsK.Cse.cse (DeadCodeCpsK.dce alpha))).
     Definition O2 : optimization CPSK.exp := fun x =>
       let alpha := AlphaCvtCpsK.AlphaCvt.alpha_cvt x in
-      ret (CopyPropCpsK.CopyProp.copyprop (ReduceCpsK.Reduce.reduce (CseCpsK.Cse.cse (DeadCodeCpsK.dce alpha)))).
-    
+        ret (CopyPropCpsK.CopyProp.copyprop (ReduceCpsK.Reduce.reduce (CseCpsK.Cse.cse (DeadCodeCpsK.dce alpha)))).
+  
     Definition runOpt {E} (o : optimization E) (e : E) : m E := o e.
-  End Opt.
 
-  Section Driver.
     Require CoqCompile.CpsKConvert.
     Require CoqCompile.CpsK2Low.
     Require Import CoqCompile.Analyze.Reachability.
@@ -116,9 +111,10 @@ Module Compile.
       evalStateT (@makeCtorMap' (alist Lambda.constructor) _ (stateT _ m) _ _ _ e) 2%Z.
 
     Variable word_size : nat.
-    Variable cps_opt :  @Opt.optimization CPSK.exp.
+    Variable cps_opt :  optimization CPSK.exp.
 
     Inductive IR : Type :=
+    | IR_Raw
     | IR_Lam
     | IR_Cps
     | IR_Clo
@@ -127,6 +123,7 @@ Module Compile.
 
     Definition denoteIR (ir : IR) : Type :=
       match ir with
+        | IR_Raw => string
         | IR_Lam => Lambda.exp
         | IR_Cps => CPSK.exp
         | IR_Clo => CPSK.cc_program
@@ -137,6 +134,7 @@ Module Compile.
     Global Instance Show_denoteIR ir : Show (denoteIR ir) :=
     { show :=
       match ir as ir return denoteIR ir -> showM with
+        | IR_Raw => show_exact
         | IR_Lam => show
         | IR_Cps => show
         | IR_Clo => show
@@ -149,31 +147,32 @@ Module Compile.
     ; run : denoteIR T -> m (denoteIR U)
     }.
 
-
     Definition Phase_CpsConvert (io : bool) : Phase IR_Lam IR_Cps :=
     {| name := "CpsConvert"
      ; run := fun x : denoteIR IR_Lam =>
-       if io then
-         ret (CpsKConvert.CPS_io x)
-       else 
-         ret (CpsKConvert.CPS_pure x)
+       match io return m (denoteIR IR_Cps) with
+         | true =>
+           ret (CpsKConvert.CPS_io x)
+         | false =>
+           ret (CpsKConvert.CPS_pure x)
+       end
      |}.
 
-    Definition Phase_Opt (o : Opt.optimization CPSK.exp) : Phase IR_Cps IR_Cps :=
+    Definition Phase_Opt (o : optimization CPSK.exp) : Phase IR_Cps IR_Cps :=
     {| name := "Optimize"
-     ; run := fun x : denoteIR IR_Cps => Opt.runOpt o x : m (denoteIR IR_Cps)
+     ; run := fun x : denoteIR IR_Cps => runOpt o x : m (denoteIR IR_Cps)
      |}.
 
     Definition Phase_CloConv : Phase IR_Cps IR_Clo :=
     {| name := "Closure Convert" 
      ; run := fun x : denoteIR IR_Cps =>
-       CloConvK.ClosureConvert.cloconv_exp x
+       CloConvK.ClosureConvert.cloconv_exp x : m (denoteIR IR_Clo)
      |}.
 
     Definition Phase_OptCc : Phase IR_Clo IR_Clo :=
     {| name := "Optimize Closure Convert"
      ; run := fun x : denoteIR IR_Clo =>
-       ret (DeadCodeCpsK.dce_cc x)
+       ret (DeadCodeCpsK.dce_cc x : denoteIR IR_Clo)
      |}.
 
     Definition Phase_Lower (dupdate : bool) : Phase IR_Clo IR_Low :=
@@ -183,12 +182,13 @@ Module Compile.
                       construct_live_map _ (CPSK.Letrec_e x.(CPSK.decls) x.(CPSK.main)) 100
                     else ret None) ;;
         CoqCompile.CpsK2Low.cpsk2low_h _ liveMap x.(CPSK.decls) x.(CPSK.main)
+          : m (denoteIR IR_Low)
       |}.
 
     Definition Phase_LLVM (mctor : _) : Phase IR_Low IR_LLVM :=
     {| name := "Code Gen"
      ; run := fun x : denoteIR IR_Low =>
-       CodeGen.generateProgram word_size mctor x
+       CodeGen.generateProgram word_size mctor x : m (denoteIR IR_LLVM)
      |}.
 
     Definition Phase_Sane : Phase IR_Cps IR_Cps :=
@@ -242,7 +242,10 @@ Module Compile.
     Definition phase {T U} {S : Show U} (name : string) 
       (c : U -> m T) (x : U)
       : m T :=
-      catch (c x) 
+      catch (mlog ("Phase Start: " ++ name)%string ;;
+             res <- c x ;;
+             mlog ("Phase End: " ++ name)%string ;;
+             ret res) 
             (fun (err : string) => 
               let err : string := 
                 runShow (name << ": "%string << err 
@@ -260,6 +263,28 @@ Module Compile.
     | OptClo_stop
     | Low_stop
     | LLVM_stop.
+
+    Definition denoteCompileTo (stop : CompileTo) : Type :=
+      match stop with
+        | Lam_stop => Lambda.exp
+        | LLVM_stop => LLVM.module
+        | Low_stop => Low.program
+        | Clo_stop => CPSK.cc_program
+        | OptClo_stop => CPSK.cc_program
+        | _ => CPSK.exp
+      end.
+
+    Global Instance Show_denoteCompileTo ir : Show (denoteCompileTo ir) :=
+    { show :=
+      match ir as ir return denoteCompileTo ir -> showM with
+        | Lam_stop => show
+        | Cps_stop => show
+        | OptCps_stop => show
+        | Clo_stop => show
+        | OptClo_stop => show
+        | Low_stop => show
+        | LLVM_stop => show
+      end }.
 
     Local Notation "p1 >>= p2" := (bind p1 (phase_bind p2)).
 
@@ -291,10 +316,21 @@ Module Compile.
         | LLVM_stop =>
           (ret e) >>= (Phase_CpsConvert io) >>= (Phase_Opt cps_opt) >>= (Phase_CloConv) >>= (Phase_OptCc) >>= (Phase_Lower dupdate) >>= (Phase_LLVM mctor)
       end.
+  End Driver.
+
+  Section Testing.
+    Definition m : Type -> Type :=
+      eitherT string (traceT string ident).
+
+    Definition runM {A} (c : m A) : (string + A) * list string :=
+      unIdent (traceTraceT (unEitherT c)).
+
+    Variable word_size : nat.
+    Variable cps_opt :  optimization m CPSK.exp.
 
     (** Test Hooks **)
     Definition topCompile_string (io : bool) (e : Lambda.exp) (stop_at : CompileTo) (dupdate : bool) : string + string :=
-      match unIdent (traceTraceT (unEitherT (topCompile io e stop_at dupdate))) with
+      match unIdent (traceTraceT (unEitherT (topCompile word_size cps_opt io e stop_at dupdate))) with
         | (inl e, t) => inl (e ++ to_string t)%string
         | (inr mod', t) => 
           let str := 
@@ -387,11 +423,6 @@ Module Compile.
             | inr low => String Char.chr_newline (to_string low)
           end
       end.
-
-    Definition topCompileFromStr (io : bool) (e:string) (stop : CompileTo) (dupdate : bool) : string + string :=
-      parse <- Parse.parse_topdecls e ;;
-      topCompile_string io parse stop dupdate.
-
-  End Driver.
+  End Testing.
 
 End Compile.

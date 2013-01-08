@@ -20,15 +20,18 @@ Global Instance Monad_IO : Monad IO :=
 ; ret  := IO_ret
 }.
 
-Definition ShowScheme_IO (f : std) : ShowScheme (IO unit) :=
-{| show_inj := IO_printCharF f
+Definition ShowScheme_IO (f : Ascii.ascii -> IO unit) : ShowScheme (IO unit) :=
+{| show_inj := f
  ; show_mon := {| Monoid.monoid_plus := fun x y => bind x (fun _ => y)
                 ; Monoid.monoid_unit := ret tt
                 |}
  |}.
 
+Definition ShowScheme_Std (f : std) : ShowScheme (IO unit) :=
+  ShowScheme_IO (IO_printCharF f).
+
 (** Extraction Hints **)
-Extract Constant IO "t" => "t".
+Extract Constant IO "t" => "io t".
 Extract Constant IO_bind => "io_bind".
 Extract Constant IO_ret => "io_ret".
 Extract Constant IO_printChar => "io_printChar".
