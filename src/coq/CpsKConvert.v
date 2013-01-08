@@ -193,9 +193,9 @@ Section cps_convert.
       cps e (map_var := alist var) (fun x => ret (IO.runIO x)) in
     let result := evalState (runReaderT cmd empty) 1%positive in
     IO.wrapIO (wrapVar "io_bind") 
-                 (wrapVar "io_ret")
-                 (wrapVar "io_printInt")
-                 (wrapVar "io_printChar")
-                 result.
+              (wrapVar "io_ret")
+              (wrapVar "io_printChar")
+              (wrapVar "io_printCharF")
+              result.
 
 End cps_convert.

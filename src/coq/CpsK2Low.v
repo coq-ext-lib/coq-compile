@@ -309,10 +309,10 @@ Section maps.
                 | _ => 
                   raise "ERROR: PrintChar_m with wrong arguments"
               end
-            | Echo_m =>
+            | PrintCharF_m =>
               match os with
                 | _ :: rs =>
-                  emit_instr (Bind_i x Echo_m rs)
+                  emit_instr (Bind_i x PrintCharF_m rs)
                 | _ => 
                   raise "ERROR: Echo_m with wrong arguments"
               end

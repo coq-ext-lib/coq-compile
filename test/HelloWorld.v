@@ -5,4 +5,5 @@ Import ShowNotation.
 Local Open Scope show_scope.
 
 Definition main : IO unit :=
-  runShow (show_exact "Hello world!" << Char.chr_newline).
+  runShow (M := ShowScheme_IO StdOut) 
+          (show_exact "Hello world!" << Char.chr_newline).

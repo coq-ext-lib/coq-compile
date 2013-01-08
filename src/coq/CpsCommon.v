@@ -41,7 +41,7 @@ Inductive primop : Type :=
 (** Monadic operations **)
 Inductive mop : Type := 
 | PrintChar_m : mop
-| Echo_m : mop
+| PrintCharF_m : mop
 | Read_m : mop.
 
 Section sanity.
@@ -63,7 +63,7 @@ Section sanity.
   Definition mop_sane (m : mop) (ls : list op) : bool :=
     match m with 
       | PrintChar_m => eq_dec 2 (List.length ls)
-      | Echo_m => eq_dec 10 (List.length ls)
+      | PrintCharF_m => eq_dec 10 (List.length ls)
       | Read_m => eq_dec 1 (List.length ls)
     end.
 
@@ -100,7 +100,7 @@ Section decidables.
   Global Instance RelDec_mop_eq : RelDec (@eq mop) :=
   { rel_dec l r := match l , r with
                      | PrintChar_m , PrintChar_m => true
-                     | Echo_m , Echo_m => true
+                     | PrintCharF_m , PrintCharF_m => true
                      | Read_m , Read_m => true
                      | _ , _ => false
                    end }.
@@ -157,7 +157,7 @@ Section Printing.
   Global Instance Show_mop : Show mop :=
   { show m := match m with 
                 | PrintChar_m => "PrintChar"
-                | Echo_m => "Echo"
+                | PrintCharF_m => "PrintCharF"
                 | Read_m => "Read"
               end }.
     

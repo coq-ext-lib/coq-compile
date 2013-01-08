@@ -40,6 +40,7 @@ Section sized.
 
   Definition ALLOC_FN : string := "coq_alloc"%string.
   Definition PRINTCHAR_FN : string := "coq_printchar"%string.
+  Definition FPRINTCHAR_FN : string := "coq_fprintchar"%string.
   Definition GCROOT := "llvm.gcroot"%string.
 
   Definition PTR_TYPE := LLVM.Pointer_t ADDR_SPACE UNIVERSAL.
@@ -362,9 +363,33 @@ Section monadic.
             withNewValue x (LLVM.Constant (LLVM.Int_c res)) k
           | _ => raise "PrintChar expects a single argument"%string
         end
-      | Echo_m => 
+      | PrintCharF_m => 
         mlog "generating code for echo"%string ;;
-        raise "TODO: Echo not implemented"%string
+        match os with
+          | nil => raise "Echo expects a 9 arguments"%string
+          | out_err :: os =>
+            tr <- tagForConstructor "True"%string ;;
+            stdout <- tagForConstructor "StdOut"%string ;;
+            arg <- foldM (fun x (acc : Z * LLVM.value) =>
+
+              x <- opgen x ;;
+
+              tr <- emitExp (LLVM.Icmp_e LLVM.Eq UNIVERSAL x (LLVM.Constant (LLVM.Int_c tr))) ;;
+              bit <- emitExp (LLVM.Select_e (LLVM.I_t 1) (%tr) 
+                                            (LLVM.I_t 8) (LLVM.Constant (LLVM.Int_c (fst acc))) 
+                                            (LLVM.I_t 8) (LLVM.Constant (LLVM.Int_c 0))) ;; 
+              acc_val <- emitExp (LLVM.Or_e (LLVM.I_t 8) (snd acc) (%bit)) ;;
+              ret ((fst acc * 2)%Z, (%acc_val))) (1%Z, LLVM.Constant (LLVM.Int_c 0)) os ;;
+            out_err <- opgen out_err ;;
+            tr <- emitExp (LLVM.Icmp_e LLVM.Eq UNIVERSAL out_err (LLVM.Constant (LLVM.Int_c stdout))) ;;
+            out_err <- emitExp (LLVM.Select_e (LLVM.I_t 1) (%tr)
+                                              (LLVM.I_t 8) (LLVM.Constant (LLVM.Int_c 1)) 
+                                              (LLVM.I_t 8) (LLVM.Constant (LLVM.Int_c 0))) ;; 
+            x' <- emitExp (LLVM.Call_e true CALLING_CONV nil UNIVERSAL None (LLVM.Global FPRINTCHAR_FN)
+                                ((LLVM.I_t 8, (%out_err), nil) :: (LLVM.I_t 8, snd arg, nil) :: nil) nil) ;;
+            res <- tagForConstructor "Tt"%string ;;
+            withNewValue x (LLVM.Constant (LLVM.Int_c res)) k
+        end
       | Read_m =>
         mlog "generating code for read"%string ;;
         raise "TODO: Read not implemented"%string
@@ -864,6 +889,11 @@ End globals.
     let header := LLVM.Build_fn_header None None CALLING_CONV false LLVM.Void_t nil PRINTCHAR_FN args nil None None None in
       LLVM.Declare_d header.
 
+  Definition coq_fprintchar_decl : LLVM.topdecl := 
+    let args := ((LLVM.I_t 8,"out",nil)::(LLVM.I_t 8,"chr",nil)::nil)%string in
+    let header := LLVM.Build_fn_header None None CALLING_CONV false UNIVERSAL nil FPRINTCHAR_FN args nil None None None in
+      LLVM.Declare_d header.
+
 End maps.
 
 End sized.
@@ -881,6 +911,6 @@ Context {FM_ctor : DMap constructor map_ctor}.
 Definition generateProgram (word_size : nat) (mctor : map_ctor Z) (p : Low.program) : m LLVM.module :=
   let globals := generateGlobals (FM := DMap_alist RelDec_var_eq) word_size (p_topdecl p) in
   decls <- mapM (generateFunction word_size globals mctor) (p_topdecl p) ;;
-  ret (coq_alloc_decl word_size :: coq_gc_decl word_size :: coq_error_decl :: coq_report_decl word_size :: coq_done_decl word_size :: llvm_gcroot_decl :: coq_printchar_decl word_size :: decls).
+  ret (coq_alloc_decl word_size :: coq_gc_decl word_size :: coq_error_decl :: coq_report_decl word_size :: coq_done_decl word_size :: llvm_gcroot_decl :: coq_printchar_decl word_size :: coq_fprintchar_decl word_size :: decls).
 
 End program.

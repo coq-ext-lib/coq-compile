@@ -45,25 +45,31 @@ Module Compile.
         match ExtractTypes.extract e with
           | inl str => raise str
           | inr (mtype, mctor) =>
+            let init := (
+              Maps.add "StdOut" 1 (
+              Maps.add "StdErr" 3 (
+              Maps.add "Tt" 3 (
+              Maps.add "False" 1 (
+              Maps.add "True" 3 (
+              Maps.empty))))))%Z
+            in
             foldM (m := m) (fun k_v acc =>
               let '(k,v) := k_v in
               foldM (fun ctor acc =>
-                match Maps.lookup ctor mctor with
-                  | None => raise "constructor not found"%string 
-                  | Some (arity, _) =>
-                    n <- (if string_dec "True" ctor
-                           then ret 3
-                           else if string_dec "False" ctor
-                                  then ret 1
-                                  else if string_dec "Tt" ctor
-                                         then ret 3
-                                         else next)%Z ;;
-                    let map' := Maps.add ctor n acc in
-                    ret map'
+                match Maps.lookup ctor acc with
+                  | Some _ => ret acc
+                  | None => 
+                    match Maps.lookup ctor mctor with
+                      | None => raise "constructor not found"%string 
+                      | Some (arity, _) =>
+                        n <- next ;;
+                        let map' := Maps.add ctor n acc in
+                        ret map'
+                    end
                 end
               ) (ret acc) v
-            ) (ret Maps.empty) mtype
-        end.
+            ) (ret init) mtype
+        end%string.
       
     End monadic.
 
