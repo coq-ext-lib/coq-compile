@@ -3,6 +3,7 @@
 import os, sys
 import subprocess
 import argparse
+import shlex
 
 COMPILER=os.path.abspath(os.path.dirname(__file__) + '/compile.native')
 COQRT_BC=os.path.abspath(os.path.dirname(__file__) + '/../lib/coqrt.bc')
@@ -10,7 +11,7 @@ SHADOWSTACK_O=os.path.abspath(os.path.dirname(__file__) + '/../lib/shadowstack.o
 
 def build_parser():
     parser = argparse.ArgumentParser(description='A driver for the coq compiler.')
-    parser.add_argument('--coq-args', default=None, required=False)
+    parser.add_argument('--coq-args', action='append', default=None, required=False)
     parser.add_argument('-O0', action='store_const', dest='opt_meta', const=0, required=False)
     parser.add_argument('-O1', action='store_const', dest='opt_meta', const=1, required=False)
     parser.add_argument('-O2', action='store_const', dest='opt_meta', const=2, required=False)
@@ -35,7 +36,7 @@ if __name__ == '__main__':
     if output.endswith('.low'):
         emit_low = True
     
-    coqc = ['coqc'] + ([] if options['coq_args'] is None else options['coq_args'].split()) + [m]
+    coqc = ['coqc'] + ([] if options['coq_args'] is None else shlex.split(' '.join(options['coq_args']))) + [m]
     print "Running..."
     print coqc
     res = subprocess.call(coqc)
@@ -45,7 +46,7 @@ if __name__ == '__main__':
     cc = [COMPILER, '-i', m, '-t', t, '-o', output_ll] + \
          ([] if not 'opt_meta' in options else ['-O%d' % options['opt_meta']]) + \
          (['-io'] if options['io'] else []) + \
-         ([] if options['coq_args'] is None else ['-arg', options['coq_args']]) + \
+         ([] if options['coq_args'] is None else ['-arg', ' '.join(options['coq_args'])]) + \
          (['-q'] if options['quiet'] else [])
     print "Running..."
     print cc

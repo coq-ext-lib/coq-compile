@@ -30,10 +30,3 @@ Definition ShowScheme_IO (f : Ascii.ascii -> IO unit) : ShowScheme (IO unit) :=
 Definition ShowScheme_Std (f : std) : ShowScheme (IO unit) :=
   ShowScheme_IO (IO_printCharF f).
 
-(** Extraction Hints **)
-Extract Constant IO "t" => "io t".
-Extract Constant IO_bind => "io_bind".
-Extract Constant IO_ret => "io_ret".
-Extract Constant IO_printChar => "io_printChar".
-Extract Constant IO_printCharF => "io_printCharF".
-Extract Constant IO_read => "io_read".

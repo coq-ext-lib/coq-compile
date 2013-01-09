@@ -4,7 +4,7 @@ let extract (args : string) (m: string) (t: string) =
   let (coq_name, coq_file) = 
     Filename.open_temp_file "extr_" ".v"
   in
-  Printf.fprintf coq_file "Require %s.\nExtraction Language Scheme.\nRecursive Extraction %s.%s.\n" m m t;
+  Printf.fprintf coq_file "Require %s.\nRequire Import CoqIO.IO_compile.\nExtraction Language Scheme.\nRecursive Extraction %s.%s.\n" m m t;
   close_out coq_file ;
   (* Run the extraction, then chop off the first 4 lines because
      the parser can't handle them *)
@@ -14,6 +14,7 @@ let extract (args : string) (m: string) (t: string) =
     (* open_in "tmp_extr.scheme" *)
   in
   close_out scheme_file ;
+(*  Printf.fprintf stderr "coqc %s %s | tail -n +4 > %s\n" args  coq_name scheme_name ; *)
   let status = Unix.system (Printf.sprintf "coqc %s %s | tail -n +4 > %s" args  coq_name scheme_name) in 
   match status with
     | Unix.WEXITED 0 -> 

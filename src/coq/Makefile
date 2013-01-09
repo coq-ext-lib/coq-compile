@@ -1,7 +1,8 @@
 CORE       := Env Lambda Parse CpsCommon Cps CpsK CpsKExamples CpsKSemantics Low LLVM \
 	      CpsUtil CpsKUtil AlphaEquivCps AlphaEquivCpsK \
 	      CpsKIO CpsKConvert \
-	      Optimize TraceMonad
+	      Optimize TraceMonad \
+	      CompileDriver
 OPT        := CseCpsK ReduceCpsK AlphaCvtCpsK DeadCodeCpsK CopyPropCpsK \
 	      ContificationCpsK
 ANALYSIS   := OccurCps AbstractDomains AbstractInterpCpsK CFA0 Reachability
@@ -11,7 +12,7 @@ TESTS      := CompileTest
 VS         := $(MODULES:%=%.v)
 TVS        := $(TESTS:%=%.v)
 
-ARGS :=-R . CoqCompile -R ../../coq-ext-lib/theories ExtLib
+ARGS :=-R . CoqCompile -R ../lib CoqIO -R ../../coq-ext-lib/theories ExtLib
 
 .PHONY: clean runtime test
 

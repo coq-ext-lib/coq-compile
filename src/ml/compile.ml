@@ -44,16 +44,8 @@ let compile_from_str source =
       ())
   in
   if not !quiet then print_string source ;
-  let res = CoqCompile.topcompile (CoqUtil.make_nat 8) !opt !io (CoqUtil.explode source) !stop !dupdate output in
+  let res = CoqCompile.compile_string (CoqUtil.make_nat 8) !opt !io !stop !dupdate output (CoqUtil.explode source) in
   if CoqIO.run_io res then exit 0 else exit 1
-(*
-
-  match with
-    | CoqCompile.Inl s -> print_endline (CoqUtil.implode s) 
-    | CoqCompile.Inr assembly -> 
-	let out_ref = open_out !output in
-	  output_string out_ref (CoqUtil.implode assembly)
-*)
 
 let _ = 
   Arg.parse params anon usage_string;

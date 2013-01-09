@@ -1,6 +1,6 @@
 COMPILER=../bin/coq-compile
-OPT=-O1 --llvm-opt
-IO_OPTS=-io --coq-args '-R ../lib CoqIO -R ../coq-ext-lib/theories/ ExtLib'
+OPT=-O1 --llvm-opt --coq-args '-R ../lib CoqIO -R ../coq-ext-lib/theories/ ExtLib'
+IO_OPTS=-io
 
 test: Ident Fact TRFact True False GC HelloWorld
 	@echo =============================================
@@ -57,7 +57,7 @@ IONat: IONat.v
 	$(COMPILER) $(IO_OPTS) $(OPT) -o ionat.native IONat.main
 
 Compiler: Compiler.v
-	$(COMPILER) $(OPT) --coq-args '-R ../src/coq CoqCompile -R ../coq-ext-lib/theories/ ExtLib' -o compiler.native Compiler.result
+	$(COMPILER) $(IO_OPTS) $(OPT) --coq-args '-R ../src/coq CoqCompile -R ../coq-ext-lib/theories/ ExtLib' -o compiler.native Compiler.main
 
 clean:
 	@ rm -f *.ll *.s *.o *.native *.vo *.glob tmp_extr.* *.bc
