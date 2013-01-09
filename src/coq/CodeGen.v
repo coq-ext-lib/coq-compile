@@ -705,7 +705,7 @@ Section monadic.
       end) (List.combine lows llvms).    
 
   Definition generateEntry (ps : list Env.var) (b : Low.block) : m unit :=
-    let pVars := map (fun p => runShow (show p)) ps in
+    let pVars := map (fun p => cleanString (runShow (show p))) ps in
     withNewVars ps pVars (
       iterM addRoot ps ;;
       ptrs <- ret "bumpptrs"%string ;;
@@ -836,13 +836,13 @@ Fixpoint computeLocals (ps : list Env.var) (m : map_var lvar) : map_var lvar :=
 Definition generateFunction (ctor_m : map_ctor Z) (f : Low.function) : m' LLVM.topdecl :=
   let f_params : list (LLVM.type * LLVM.var * list LLVM.param_attr) := 
     let formals :=
-      Reducible.map (fun (x : Env.var) => (UNIVERSAL, runShow (show x) : string, nil : list LLVM.param_attr)) (f_args f) in
+      Reducible.map (fun (x : Env.var) => (UNIVERSAL, cleanString (runShow (show x)), nil : list LLVM.param_attr)) (f_args f) in
     (BUMP_TYPE,"bumpptrs"%string,nil)::formals in
   (* right return type always? *)
   let type := RET_TYPE 1 in
   let fname := cleanString (to_string (f_name f)) in
   let header := LLVM.Build_fn_header None None CALLING_CONV false type nil fname f_params nil None None GC_NAME in 
-  runBlocks <- runGenBlocks ctor_m (f_entry f) (f_args f)(f_body f) ;;
+  runBlocks <- runGenBlocks ctor_m (f_entry f) (f_args f) (f_body f) ;;
   let '(formals,cfg,blocks) := runBlocks in
   phiBlocks <- mapM (rewriteBlock fname cfg formals) blocks ;;
   ret (LLVM.Define_d header phiBlocks).

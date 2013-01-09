@@ -38,7 +38,7 @@ if __name__ == '__main__':
     
     coqc = ['coqc'] + ([] if options['coq_args'] is None else shlex.split(' '.join(options['coq_args']))) + [m]
     print "Running..."
-    print coqc
+    print ' '.join(coqc)
     res = subprocess.call(coqc)
     if res != 0:
         sys.exit(res)
@@ -49,7 +49,7 @@ if __name__ == '__main__':
          ([] if options['coq_args'] is None else ['-arg', ' '.join(options['coq_args'])]) + \
          (['-q'] if options['quiet'] else [])
     print "Running..."
-    print cc
+    print "'%s'" % "' '".join(cc)
     res = subprocess.call(cc)
     if res != 0:
         sys.exit(res)

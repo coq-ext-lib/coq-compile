@@ -44,10 +44,14 @@ let compile_from_str source =
       ())
   in
   if not !quiet then print_string source ;
-  let res = CoqCompile.compile_string (CoqUtil.make_nat 8) !opt !io !stop !dupdate output (CoqUtil.explode source) in
+  Printf.fprintf stderr "> Converting program to coq string...\n" ;
+  let coq_program = CoqUtil.explode source in
+  Printf.fprintf stderr "> ...done\n" ;
+  let res = CoqCompile.compile_string (CoqUtil.make_nat 8) !opt !io !stop !dupdate output coq_program in
   if CoqIO.run_io res then exit 0 else exit 1
 
 let _ = 
+  Printf.fprintf stderr "parsing args...\n" ;
   Arg.parse params anon usage_string;
   match !lit with
     | None ->
@@ -55,8 +59,9 @@ let _ =
 	  match !input, !term with
 	    | Some s, Some t ->
 		begin
-		  Printf.printf "Input: %s\nTerm: %s\nOutput: %s\n----\n" s t !output;
+		  Printf.fprintf stderr "Input: %s\nTerm: %s\nOutput: %s\n----\n" s t !output;
 		  let source = Extraction.extract !comp_args s t in
+		  Printf.fprintf stderr "> extracted...\n" ;
 		  compile_from_str source
 		end
 	    | _, _ -> print_string "Missing input or term.\n"
