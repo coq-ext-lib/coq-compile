@@ -80,8 +80,8 @@ Module CPSK.
   Global Instance RelDecCorrect_cont_eq : RelDec_Correct RelDec_cont_eq.
   Proof.
     constructor. destruct x; destruct y; simpl.
-    change (p =? p0)%positive with (rel_dec (equ := eq) p p0).
-    consider (string_dec s s0 && rel_dec (equ := eq) p p0); intuition; subst; auto;
+    change (p =? p0)%positive with (p ?[ eq ] p0).
+    consider (string_dec s s0 && p ?[ eq ] p0); intuition; subst; auto;
     inversion H; auto.
   Qed.
   

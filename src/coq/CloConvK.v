@@ -125,7 +125,6 @@ Module ClosureConvert.
       end.
 
     Fixpoint cloconv_exp' (e : exp) : m exp.
-    Set Printing Implicit.
     refine (
       match e with
         | AppK_e k args =>

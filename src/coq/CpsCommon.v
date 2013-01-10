@@ -94,7 +94,7 @@ Section decidables.
 
   Global Instance RelDecCorrect_primop_eq : RelDec_Correct RelDec_primop_eq.
   Proof.
-    constructor; destruct x; destruct y; simpl rel_dec; split; intros; subst; try congruence.
+    constructor; destruct x; destruct y; simpl rel_dec; split; simpl; intros; subst; try congruence.
   Qed.
 
   Global Instance RelDec_mop_eq : RelDec (@eq mop) :=
