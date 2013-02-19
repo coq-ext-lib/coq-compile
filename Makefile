@@ -20,7 +20,7 @@ lib-update: coq-ext-lib
 	@ (cd coq-ext-lib; git pull -u; $(MAKE))
 
 coq-ext-lib:
-	./tools/setup.sh
+	./tools/setup.sh -b for-compile
 
 html:
 	$(MAKE) -C src html
