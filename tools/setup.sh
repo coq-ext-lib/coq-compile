@@ -26,9 +26,9 @@ else
       echo "git clone git://github.com/coq-ext-lib/coq-ext-lib.git"
       git clone git://github.com/coq-ext-lib/coq-ext-lib.git
   else
-      echo "git clone git://github.com/coq-ext-lib/coq-ext-lib.git -b $BRANCH"
-      git clone git://github.com/coq-ext-lib/coq-ext-lib.git -b $BRANCH
-
+      echo "git clone git://github.com/coq-ext-lib/coq-ext-lib.git"
+      git clone git://github.com/coq-ext-lib/coq-ext-lib.git
+      (cd coq-ext-lib; git checkout $BRANCH)
   fi
   (cd coq-ext-lib; make)
 fi
